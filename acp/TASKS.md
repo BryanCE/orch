@@ -17,11 +17,11 @@ Lines marked **Bryan** are commands only Bryan runs. The wave after one waits fo
 - [x] `PRD.md`, `MODEL.md`, `RULES.md`, this index.
 - [x] Rule wording applied to `CLAUDE.md` and the architecture law.
 - [x] Wave 1, checkpoint passed.
-- [ ] Wave 2: typed and `bun check` clean. Blocked on `bun db:gen` and `bun db:mig`, then its tests.
+- [ ] Wave 2: typed and `bun check` clean. Blocked on `bun db:gen` and `bun db:reset`, then its tests.
 - [ ] Waves 3 to 8: not started. Each still needs its exact task file.
 - [ ] MVP lines 1 to 10 in `PRD.md`: none run yet.
 
-Nothing is committed, built or migrated.
+Waves 1 and 2 are committed. Nothing is built, and the store is not migrated.
 
 ## Wave 1: foundations — `tasks/W1-foundations.md` — landed
 No behavior change, no schema change.
@@ -37,25 +37,23 @@ No behavior change, no schema change.
 row's `bridgeAttached` field keeps its name: it is a wire field, and only the registry was renamed.
 
 ## Wave 2: the store — `tasks/W2-store.md` — typed, not yet tested
-One wave, so the schema is generated once. One agent types T1 to T3 in order, since all three
-edit `schema.ts`. A second types T4 after.
-- [x] T1, **in question**: typed, but it makes a plexer change the same agent, and Rule 11 now
-  says that applies to form only. Waiting on Bryan: back it out, or keep the table as plain
-  history. `src/db/schema.ts`, `src/store/interval-rows.ts`, `src/store/agent-view.ts`,
-  `src/store/agent-rows.ts`, `src/store/spawn-registration.ts`,
-  `src/daemon/server/doctor/declared-vs-reality.ts`. `agent_plexers` gains `since` and `until`
-  and joins `IntervalTable`. `setAgentPlexer` takes `now`, closes the open row and opens the
-  next. `relocateIn` closes the row instead of deleting it. Readers take the open row.
-- [x] T2 `src/types/form.ts`, `src/db/schema.ts`, `src/store/interval-rows.ts`,
+One wave, so the schema is generated once. One agent types T1 and T2 in order, since both
+edit `schema.ts`. A second types T3 after.
+- [x] T1 `src/types/form.ts`, `src/db/schema.ts`, `src/store/interval-rows.ts`,
   `src/store/agent-view.ts`, `src/types/store.ts`. New interval table `agent_forms`. `setForm`.
   `AgentView.form`, null for an agent orch did not launch. Wave 4 makes every spawn state it.
-- [x] T3 `src/types/question.ts`, `src/db/schema.ts`, `src/store/question-rows.ts`,
+- [x] T2 `src/types/question.ts`, `src/db/schema.ts`, `src/store/question-rows.ts`,
   `src/daemon/server/handlers/lifecycle.ts`. New table `question_options`. `recordQuestion`
   takes options and a `supersede` flag. `pendingQuestion` returns the oldest open row.
-- [x] T4 `test/store-interval-rows.test.ts`, `test/daemon-renags-questions.test.ts`,
-  `test/helpers/views.ts`, and every test the three signature changes break.
+- [x] T3 `test/store-interval-rows.test.ts`, `test/daemon-renags-questions.test.ts`,
+  `test/store-rebuild-schema.test.ts`, `test/helpers/views.ts`, and every test the two shape
+  changes break.
 
-- [ ] **Bryan:** `bun db:gen`, then `bun db:mig`.
+`agent_plexers` is unchanged. An agent keeps its plexer for life.
+
+- [ ] **Bryan:** `bun db:gen`, then `bun db:reset`. `packages/orch/drizzle/` is empty, so
+  `db:gen` writes one migration that creates every table, and a store built from the old
+  chain cannot take it. `db:reset` backs the store up and rebuilds it.
 
 ### CHECKPOINT 2
 - [x] `bun check` clean over the tree with all of wave 2 in.

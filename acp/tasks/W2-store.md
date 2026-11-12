@@ -1,7 +1,7 @@
 # W2: the store
 
-One agent types T1, then T2, then T3, in that order, since all three edit
-`packages/orch/src/db/schema.ts`. A second agent types T4 after T3 lands. Paths are relative
+One agent types T1, then T2, in that order, since both edit
+`packages/orch/src/db/schema.ts`. A second agent types T3 after T2 lands. Paths are relative
 to the repo root `/home/bryan/orch`.
 
 Rules for every section:
@@ -12,66 +12,7 @@ Rules for every section:
 - Verify means: run `bun check` once from the repo root.
 - No `as` casts, no `any`. Never bump a schema version constant.
 
-## T1 `agent_plexers` becomes an interval
-Edit `packages/orch/src/db/schema.ts`:
-- Delete the `agentPlexers` table at L262-265.
-- Directly under the comment line `// ── satellites: one independently-varying fact over one timeline`, add:
-  ```ts
-  export const agentPlexers = sqliteTable("agent_plexers", {
-    agentId: text("agent_id").notNull().references(() => agents.id, { onDelete: "cascade" }),
-    since: integer("since").notNull(),
-    until: integer("until"),
-    plexerId: text("plexer_id").notNull().references(() => plexers.id),
-  }, (table) => [
-    primaryKey({ columns: [table.agentId, table.since] }),
-    uniqueIndex("one_plexer").on(table.agentId).where(sql`until IS NULL`),
-    check("agent_plexers_interval", sql`${table.until} IS NULL OR ${table.until} > ${table.since}`),
-  ]);
-  ```
-
-Edit `packages/orch/src/store/interval-rows.ts`:
-- L26: add `| typeof agentPlexers` to the `IntervalTable` union.
-- In `relocateIn`, replace the line `db.delete(agentPlexers).where(eq(agentPlexers.agentId, agentId)).run();`
-  with `closeOpen(db, agentPlexers, agentId, now);`. In the doc comment above `relocateIn`,
-  replace `the handle interval closes, and the plexer and worktree rows go.` with
-  `the handle and plexer intervals close, and the worktree row goes.`
-- Replace the whole `setAgentPlexer` function and its doc comment at L145-154 with:
-  ```ts
-  /** The plexer holding an agent this orchd runs. An interval like every other environment
-   *  fact: a move to another plexer closes one row and opens the next, and the agent stays the
-   *  same agent. Stating the plexer it is already in changes nothing. A plexer runs on this
-   *  machine, so only an agent here is in one. */
-  export function setAgentPlexer(orchDir: OrchDir, agent: HereAgent, now: number, plexerId: string): void {
-    withTransaction(orchDir, () => {
-      const db = orm(orchDir);
-      const open = db.select({ plexerId: agentPlexers.plexerId }).from(agentPlexers)
-        .where(and(eq(agentPlexers.agentId, agent.id), isNull(agentPlexers.until))).get();
-      if (open?.plexerId === plexerId) return;
-      const since = closeOpen(db, agentPlexers, agent.id, now);
-      db.insert(agentPlexers).values({ agentId: agent.id, since, until: null, plexerId }).run();
-    });
-    refreshAgent(orchDir, agent.id);
-  }
-  ```
-
-Fix the two callers:
-- `packages/orch/src/store/agent-rows.ts` L304: `setAgentPlexer(orchDir, here, input.now, input.plexerId)`.
-- `packages/orch/src/store/spawn-registration.ts` L102: `setAgentPlexer(directory, agent, now, input.backendId)`.
-
-Fix the three readers so each takes only the open row:
-- `packages/orch/src/store/agent-view.ts` `currentPlexers` at L83-85: add
-  `.where(isNull(agentPlexers.until))` before `.all()`.
-- `packages/orch/src/store/agent-view.ts` `currentPlexer` at L87-90: the `where` becomes
-  `and(eq(agentPlexers.agentId, agentId), isNull(agentPlexers.until))`.
-- `packages/orch/src/daemon/server/doctor/declared-vs-reality.ts` `environmentFindings` at L61-65:
-  the `where` becomes `and(isNull(agentEndings.agentId), isNull(agentPlexers.until))`.
-
-Verify: `bun check`. Type errors in files under `packages/orch/test/` are T4's: list them in
-your report and leave them.
-Do only this. If something does not fit, report it in one line and stop.
-Report: one line. "done: <files>, verify clean", "pending: <files>", or "blocked: <exact error>".
-
-## T2 `agent_forms`, `setForm`, and the form on the agent view
+## T1 `agent_forms`, `setForm`, and the form on the agent view
 Edit `packages/orch/src/types/form.ts`: add at the end:
 ```ts
 export function isFormId(value: string): value is FormId {
@@ -133,11 +74,11 @@ Edit `packages/orch/src/store/agent-view.ts`, following what `tunings` does in e
 Any zod schema that mirrors `AgentView` field for field gets
 `form: z.enum(FORM_IDS).nullable()`. Any other source object that fails `bun check` for a
 missing `form` is an `AgentView` literal: give it `form: null` and name the file in your report.
-Verify: `bun check`. Type errors in files under `packages/orch/test/` are T4's: list them.
+Verify: `bun check`. Type errors in files under `packages/orch/test/` are T3's: list them.
 Do only this. If something does not fit, report it in one line and stop.
 Report: one line. "done: <files>, verify clean", "pending: <files>", or "blocked: <exact error>".
 
-## T3 Questions carry options, and an agent may have several open
+## T2 Questions carry options, and an agent may have several open
 Create `packages/orch/src/types/question.ts` with exactly this content:
 ```ts
 /** What choosing an option does, in orch's own words. */
@@ -199,31 +140,22 @@ Edit `packages/orch/src/store/question-rows.ts`:
 Edit `packages/orch/src/daemon/server/handlers/lifecycle.ts` L276: add `options: [], supersede: true`
 to the object passed to `recordQuestion`.
 
-Verify: `bun check`. Type errors in files under `packages/orch/test/` are T4's: list them.
+Verify: `bun check`. Type errors in files under `packages/orch/test/` are T3's: list them.
 Do only this. If something does not fit, report it in one line and stop.
 Report: one line. "done: <files>, verify clean", "pending: <files>", or "blocked: <exact error>".
 
-## T4 Tests for T1, T2 and T3
-Runs after T3 has landed. Edit only files under `packages/orch/test/`.
+## T3 Tests for T1 and T2
+Runs after T2 has landed. Edit only files under `packages/orch/test/`.
 
 1. Run `bun check`. Fix every type error under `packages/orch/test/` with these mappings:
-   - `setAgentPlexer(dir, agent, id)` becomes `setAgentPlexer(dir, agent, now, id)`, where `now`
-     is the instant that test already uses for its other interval writes, else `Date.now()`.
-   - An insert into `agentPlexers` gains `since: <the test's instant>, until: null`.
    - `recordQuestion(dir, {...})` gains `options: [], supersede: true`.
    - An `AgentView` literal gains `form: null`. In `packages/orch/test/helpers/views.ts`, add
      `form: null,` under `endedAt: null,`.
 2. Add to `packages/orch/test/store-interval-rows.test.ts`, using the helpers that file
    already uses to make a store and a `HereAgent`:
-   - `setAgentPlexer` with `"herdr"` at 1000 then `"held"` at 2000: `agent_plexers` has two rows
-     for the agent, the first with `until` 2000, the second with `until` null and `plexer_id`
-     `"held"`, and `agentView(dir, agent.id)?.environment.plexer` is `"held"`.
-   - `setAgentPlexer` with `"herdr"` at 1000 then `"herdr"` at 2000: one row, `until` null.
    - `setForm` with `"acp"` at 1000 then `"tui"` at 2000: `agent_forms` has two rows, the first
      closed at 2000, and `agentView(dir, agent.id)?.form` is `"tui"`.
    - An agent with no `setForm` call: `agentView(dir, agent.id)?.form` is `null`.
-   A plexer id must exist in the `plexers` table before a row references it. Seed `"herdr"`
-   and `"held"` the way the file's existing plexer tests seed theirs.
 3. Add to `packages/orch/test/daemon-renags-questions.test.ts`, using its existing setup:
    - Two `recordQuestion` calls for one agent with `supersede: false`, asked at 1000 and 2000:
      `pendingQuestions(dir)` has both, and `pendingQuestion(dir, agentId)?.id` is the first.
@@ -231,6 +163,9 @@ Runs after T3 has landed. Edit only files under `packages/orch/test/`.
    - `recordQuestion` with options
      `[{ id: "a", label: "Allow", kind: "allow-once" }, { id: "r", label: "Reject", kind: "reject-once" }]`:
      `questionOptionsOf(dir, id)` returns those two in that order.
+4. In `packages/orch/test/store-rebuild-schema.test.ts`, add `"agent_forms"`,
+   `"question_options"` and `"one_form"` to `expectedInventory`, and add an `agent_forms`
+   case to the test that checks each partial unique index allows only one open row.
 
 Verify: `bun check`. Do not run `bun test`.
 Do only this. If something does not fit, report it in one line and stop.

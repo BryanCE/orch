@@ -26,7 +26,7 @@ Working material:
 
 - [x] Findings, PRD, model, rules, task index.
 - [x] Wave 1: forms, backend `offers`, the null `acp` role, the link registry rename.
-- [ ] Wave 2: typed and `bun check` clean. Waiting on Bryan's `bun db:gen` and `bun db:mig`.
+- [ ] Wave 2: typed and `bun check` clean. Waiting on Bryan's `bun db:gen` and `bun db:reset`.
 - [ ] Waves 3 to 8 and the MVP run.
 
 `ACP-LAYER-PLAN.md` at the repo root is the plan this directory replaces.

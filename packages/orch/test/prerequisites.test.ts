@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { PREREQUISITES } from "../src/shared/prerequisites.ts";
+import { setupPrerequisites } from "../src/daemon/server/setup.ts";
 import { HOST_OS_VALUES } from "../src/types/host.ts";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -15,7 +16,7 @@ import type { PipesProvider } from "../src/types/pipes.ts";
  *  users, who get no install command, must get a page that tells them how. */
 describe("binding prerequisites", () => {
   const command = "test-binding";
-  const adapter = fakeAdapter({ acp: { argv: () => [command], env: () => ({}), sharesSessions: false } });
+  const adapter = fakeAdapter({ acp: { argv: () => [command], env: () => ({}), sharesSessions: false, install: {} } });
 
   test("finds the declared binding on PATH", () => {
     const directory = mkdtempSync(join(tmpdir(), "orch-binding-"));
@@ -81,7 +82,7 @@ function answeringPipes(agent: ReturnType<typeof fakeAcpAgent>): PipesProvider {
 
 describe("binding answers", () => {
   const command = "test-binding";
-  const acpAdapter = fakeAdapter({ acp: { argv: () => [command], env: () => ({}), sharesSessions: false } });
+  const acpAdapter = fakeAdapter({ acp: { argv: () => [command], env: () => ({}), sharesSessions: false, install: {} } });
   const id = `binding-${command}`;
   const label = `${command} binding`;
 
@@ -145,4 +146,39 @@ describe("a recommended tool installs everywhere", () => {
       expect(entry.docsUrl).toBeString();
     });
   }
+});
+
+describe("setup offers a missing binding", () => {
+  function withEmptyPath<T>(action: (directory: string) => T): T {
+    const directory = mkdtempSync(join(tmpdir(), "orch-setup-binding-"));
+    const previous = process.env.PATH;
+    const previousPathext = process.env.PATHEXT;
+    try {
+      process.env.PATHEXT = "";
+      process.env.PATH = directory;
+      return action(directory);
+    } finally {
+      if (previous === undefined) delete process.env.PATH;
+      else process.env.PATH = previous;
+      if (previousPathext === undefined) delete process.env.PATHEXT;
+      else process.env.PATHEXT = previousPathext;
+      rmSync(directory, { recursive: true, force: true });
+    }
+  }
+
+  test("a missing codex-acp is queued with its install command, after bun", () => {
+    withEmptyPath(() => {
+      const { missing } = setupPrerequisites({ adapters: ["codex"], backends: [] });
+      expect(missing).toContainEqual({ bin: "codex-acp", cmd: "bun add -g @agentclientprotocol/codex-acp" });
+      expect(missing.findIndex(({ bin }) => bin === "bun")).toBeLessThan(missing.findIndex(({ bin }) => bin === "codex-acp"));
+    });
+  });
+
+  test("a codex-acp on PATH is not queued", () => {
+    withEmptyPath((directory) => {
+      writeFileSync(join(directory, "codex-acp"), "", { mode: 0o755 });
+      const { missing } = setupPrerequisites({ adapters: ["codex"], backends: [] });
+      expect(missing.some(({ bin }) => bin === "codex-acp")).toBe(false);
+    });
+  });
 });

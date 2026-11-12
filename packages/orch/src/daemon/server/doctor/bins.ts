@@ -45,15 +45,14 @@ async function answerOf(acp: AcpRole, probe: BindingProbe): Promise<BindingAnswe
 
 /** Optional binding executables, each reported independently of its harness. */
 export function checkBindingPrerequisites(adapters: readonly AgentAdapter[]): CheckResult[] {
-  return bindingPrerequisites(adapters).map((command) => bindingLine(command, binaryPath(command), null));
+  return bindingPrerequisites(adapters).map(({ command }) => bindingLine(command, binaryPath(command), null));
 }
 
 /** Each binding's line. A found binding whose adapter declares an ACP role is also asked who it is. */
 export async function checkBindingAnswers(adapters: readonly AgentAdapter[], probe: BindingProbe): Promise<CheckResult[]> {
-  return Promise.all(bindingPrerequisites(adapters).map(async (command) => {
+  return Promise.all(bindingPrerequisites(adapters).map(async ({ command, acp }) => {
     const found = binaryPath(command);
-    const acp = adapters.find((adapter) => adapter.acp?.argv({})[0] === command)?.acp;
-    if (!found || !acp) return bindingLine(command, found, null);
+    if (!found) return bindingLine(command, found, null);
     return bindingLine(command, found, await answerOf(acp, probe));
   }));
 }

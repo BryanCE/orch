@@ -11,6 +11,25 @@ import {
   type StopReason,
 } from "@agentclientprotocol/sdk";
 import type { AcpStreams } from "../../src/acp/session.ts";
+import type { PipesProvider } from "../../src/types/pipes.ts";
+import { fakePipes } from "./fake-pipes.ts";
+
+/** A fake agent on the far end of the pipes orchd spawns. Its process id is this test's own
+ *  pid, so orchd reads the held process as live, as a started harness is. */
+export function acpProgram(agent: ReturnType<typeof fakeAcpAgent>) {
+  const { provider, spawned } = fakePipes(() => process.pid);
+  const pipes: PipesProvider = {
+    spawn(request) {
+      const child = provider.spawn(request);
+      const far = spawned.at(-1);
+      if (far === undefined) throw new Error("no pipes process was spawned");
+      void far.fromOrchd.pipeTo(agent.streams.input);
+      void agent.streams.output.pipeTo(far.toOrchd);
+      return child;
+    },
+  };
+  return { pipes, spawned };
+}
 
 /** One scripted turn, with concurrent permission requests. */
 export interface FakeAcpTurn {

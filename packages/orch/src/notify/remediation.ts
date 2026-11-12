@@ -1,4 +1,4 @@
-import { installCommand } from "../shared/prerequisites.ts";
+import { installCommand, PREREQUISITES } from "../shared/prerequisites.ts";
 import { soundTierBinaries } from "./ding.ts";
 import { hostOs, isNixOs, isWsl } from "../host.ts";
 
@@ -12,7 +12,7 @@ export function notifierRemediation(
 ): string {
   if (declared) return declared;
   if (id === "desktop") {
-    const notifySendInstall = installCommand("notify-send", isNixOs(), hostOs());
+    const notifySendInstall = installCommand(PREREQUISITES["notify-send"], isNixOs(), hostOs());
     if (!notifySendInstall) return DEFAULT_REMEDIATION;
     return isWsl()
       ? `fix: install notify-send (\`${notifySendInstall}\`) or ensure powershell.exe and wslpath are reachable`

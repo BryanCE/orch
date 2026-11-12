@@ -22,14 +22,12 @@ import { mintAgentId } from "../src/shared/agent-id.ts";
 import { registerSpawnedAgent } from "../src/store/spawn-registration.ts";
 import { pendingQuestions } from "../src/store/question-rows.ts";
 import { selectAgentStatus } from "../src/store/status-rows.ts";
-import type { PipesProvider } from "../src/types/pipes.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import type { RpcServer } from "../src/types/daemon.ts";
 import { fakeAdapter } from "./helpers/adapter.ts";
 import { idleDaemonState } from "./helpers/daemon-state.ts";
 import { FakePtyProvider } from "./helpers/fake-pty.ts";
-import { chunk, defaultFakeScript, fakeAcpAgent, permission, turn, type FakeAcpScript } from "./helpers/fake-acp-agent.ts";
-import { fakePipes } from "./helpers/fake-pipes.ts";
+import { acpProgram, chunk, defaultFakeScript, fakeAcpAgent, permission, turn, type FakeAcpScript } from "./helpers/fake-acp-agent.ts";
 import { testDaemonServices } from "./helpers/services.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 
@@ -51,25 +49,8 @@ afterEach(async () => {
 
 /** The harness's ACP binding: a fake adapter with an acp role and no terminal form. */
 const ADAPTER = fakeAdapter({
-  acp: { argv: () => ["fake-acp"], env: () => ({ FAKE_ACP: "1" }), sharesSessions: false },
+  acp: { argv: () => ["fake-acp"], env: () => ({ FAKE_ACP: "1" }), sharesSessions: false, install: {} },
 });
-
-/** A fake agent on the far end of the pipes orchd spawns. Its process id is this test's own
- *  pid, so orchd reads the held process as live, as a started harness is. */
-function acpProgram(agent: ReturnType<typeof fakeAcpAgent>) {
-  const { provider, spawned } = fakePipes(() => process.pid);
-  const pipes: PipesProvider = {
-    spawn(request) {
-      const child = provider.spawn(request);
-      const far = spawned.at(-1);
-      if (far === undefined) throw new Error("no pipes process was spawned");
-      void far.fromOrchd.pipeTo(agent.streams.input);
-      void agent.streams.output.pipeTo(far.toOrchd);
-      return child;
-    },
-  };
-  return { pipes, spawned };
-}
 
 function setup(turns: FakeAcpScript["turns"] = []) {
   const orchDir = tempOrchDir("orch-acp-agents-");

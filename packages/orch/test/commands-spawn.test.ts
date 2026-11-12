@@ -68,7 +68,7 @@ describe("commands/spawn", () => {
 
   test("places a pipes-capable harness in held when the terminal backend cannot run its form", () => {
     const terminal = new FakePanedBackend();
-    const adapter = fakeAdapter({ acp: { argv: () => [], env: () => ({}), sharesSessions: false } });
+    const adapter = fakeAdapter({ acp: { argv: () => [], env: () => ({}), sharesSessions: false, install: {} } });
     expect(selectSpawnForm("acp", {}, adapter, terminal, heldBackend)).toEqual({ form: "acp", backend: heldBackend });
   });
   test("refuses an invalid name before resolving or creating a workspace", async () => {

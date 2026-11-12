@@ -25,6 +25,7 @@ Lines marked **Bryan** are commands only Bryan runs. The wave after one waits fo
 - `tasks/P5-link-and-wiring.md`: the ACP link, the entry renderer, and orchd holding an ACP agent.
 - `tasks/P6-finish.md`: wiring review fixes, the viewer for a held agent here, switching form,
   these docs, and the review of switching form.
+- `tasks/P7-far-and-setup.md`: the far host ACP test, and setup installs a missing binding.
 
 ## Status
 
@@ -150,7 +151,8 @@ The first visible result: a Codex agent over ACP in `orch status`.
   Done by `P1-parallel.md` section T5.
 - [x] T3 `src/commands/status/`, `src/daemon/server/fleet-rows.ts`. The form column. Done by
   `P1-parallel.md` section T10.
-- [ ] T4 tests with `startFarOrchd`.
+- [x] T4 tests with `startFarOrchd`: `test/acp-far.test.ts`, `P7-far-and-setup.md` section T1.
+  Typed, not yet run: the SDK is in `bun.lock` and not installed.
 
 - [ ] **Bryan:** build on both hosts, then MVP lines 5 and 6.
 
@@ -178,6 +180,7 @@ Starts when the four checks in `PRD.md` are recorded.
 - [x] T2 doctor probe. `probeBinding` in `src/daemon/server/acp-probe.ts` starts a binding, sends
   `initialize` and stops it, under `timeouts.acp_probe_ms`. `src/daemon/server/doctor/bins.ts`
   calls it for each installed binding.
-- [ ] T3 `src/setup/`. Setup offers to install bindings for the harnesses chosen.
+- [x] T3 `src/daemon/server/setup.ts`. Setup queues the install of a missing binding, from
+  the install command on the adapter's `acp` role. `P7-far-and-setup.md` section T2.
 
 - [ ] **Bryan:** build, then MVP lines 8, 9 and 10. The job ends here.

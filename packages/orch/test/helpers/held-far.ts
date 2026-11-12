@@ -25,6 +25,8 @@ import type { ModelCatalogue } from "../../src/types/adapter.ts";
 import type { OrchDir } from "../../src/types/core.ts";
 import type { PtyProcess, PtyProvider } from "../../src/types/pty.ts";
 import type { ThinkingLevel } from "../../src/types/policy.ts";
+import type { FormId } from "../../src/types/form.ts";
+import type { AdapterId } from "../../src/types/adapter.ts";
 import type { DaemonState } from "../../src/daemon/server/state.ts";
 
 /** The pi models every held far agent here may run on. */
@@ -145,6 +147,10 @@ export function detachFakeBridges(): void {
 export interface NearOrchdOptions {
   /** The reference row's name: its key when absent. */
   readonly name?: string;
+  /** The reference row's form: tui when absent. */
+  readonly form?: FormId;
+  /** The reference row's harness: pi when absent. */
+  readonly harness?: AdapterId;
   /** Where the far agent runs, as the reference row records it: the far orchd's dir when absent. */
   readonly cwd?: string;
   /** The model and thinking the reference row was launched with: {@link HELD_FAR_MODELS}' first, medium. */
@@ -198,9 +204,9 @@ export async function nearOrchd(far: FarOrchd, key: string, options: NearOrchdOp
   if (options.serve ?? false) state.server = await startRpcServer(orchDir, rpcHandlers(state), { logger: recordingLogger().logger });
   const operator = options.spawner === null ? null : seedOperator(orchDir);
   registerHostedAgent(orchDir, {
-    form: "tui",
+    form: options.form ?? "tui",
     key,
-    harnessId: "pi",
+    harnessId: options.harness ?? "pi",
     cwd: options.cwd ?? far.orchDir,
     name: options.name ?? key,
     model: options.model ?? HELD_FAR_MODELS[0],

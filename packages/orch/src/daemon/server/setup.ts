@@ -6,7 +6,7 @@ import * as files from "node:fs";
 import * as path from "node:path";
 import { getBackend, resolveBackend } from "../../backends/registry.ts";
 import { resolveAdapter } from "../../adapters/registry.ts";
-import { installCommand, PREREQUISITES } from "../../shared/prerequisites.ts";
+import { bindingPrerequisites, installCommand, PREREQUISITES } from "../../shared/prerequisites.ts";
 import { hostOs, isNixOs } from "../../host.ts";
 import { homeDir } from "../../shared/home.ts";
 import { binaryStatus, checkBindingPrerequisites } from "./doctor/bins.ts";
@@ -15,7 +15,7 @@ import { ORCH_DING_BIN } from "../../notify/ding.ts";
 import { ARROW, binaryOnPath, binaryPath, errorMessage, orchRootAbove, packageRoot } from "../../util.ts";
 import type { Logger } from "../../types/core.ts";
 import type { OrchRuntime } from "../../runtime.ts";
-import type { AdapterId, AgentAdapter } from "../../types/adapter.ts";
+import type { AdapterId, AgentAdapter, Prerequisite } from "../../types/adapter.ts";
 import type { OrchSettings } from "../../types/settings.ts";
 import type { BackendId } from "../../types/backend.ts";
 import type { ShimBoundaryPlan } from "../../types/command.ts";
@@ -89,15 +89,15 @@ interface PrerequisiteProbe {
  *  declared needs and are never probed as an unconditional requirement. */
 function probePrerequisites(adapters: readonly AdapterId[], backends: readonly BackendId[], say: Say): PrerequisiteProbe {
   const bins = binaryStatus([...adapters, ...backends]);
+  const selected = adapters.map((id) => resolveAdapter(id));
   const missing: MissingPrerequisite[] = [];
   const manual: ManualPrerequisite[] = [];
-  const queueInstall = (id: string): void => {
-    const entry = PREREQUISITES[id];
-    const cmd = installCommand(id, isNixOs(), hostOs());
+  const queueInstall = (id: string, entry: Prerequisite | undefined): void => {
+    const cmd = installCommand(entry, isNixOs(), hostOs());
     if (cmd) {
       for (const need of entry?.needs ?? []) {
         if (binaryOnPath(need)) continue;
-        const needCmd = installCommand(need, isNixOs(), hostOs());
+        const needCmd = installCommand(PREREQUISITES[need], isNixOs(), hostOs());
         if (needCmd && !missing.some((candidate) => candidate.bin === need)) missing.push({ bin: need, cmd: needCmd });
       }
       if (!missing.some((candidate) => candidate.bin === id)) missing.push({ bin: id, cmd });
@@ -110,16 +110,19 @@ function probePrerequisites(adapters: readonly AdapterId[], backends: readonly B
   for (const id of adapters) {
     const binPath = bins[id] ? binaryPath(id) ?? "" : "";
     say(`  ${binPath ? "ok      " : "MISSING "}${id}${binPath ? `  (${binPath})` : ""}`);
-    if (!bins[id]) queueInstall(id);
+    if (!bins[id]) queueInstall(id, PREREQUISITES[id]);
   }
-  for (const binding of checkBindingPrerequisites(adapters.map((id) => resolveAdapter(id)))) {
+  for (const binding of checkBindingPrerequisites(selected)) {
     say(`  ${binding.status === "ok" ? "ok      " : "MISSING "}${binding.detail}`);
+  }
+  for (const { command, acp } of bindingPrerequisites(selected)) {
+    if (!binaryOnPath(command)) queueInstall(command, acp.install);
   }
   for (const id of backends) {
     const available = getBackend(id)!.isAvailable();
     const binPath = available && bins[id] ? binaryPath(id) ?? "" : "";
     say(`  ${available ? "ok      " : "MISSING "}${id}${binPath ? `  (${binPath})` : ""}`);
-    if (!available) queueInstall(id);
+    if (!available) queueInstall(id, PREREQUISITES[id]);
   }
   return { missing, manual };
 }

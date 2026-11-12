@@ -21,6 +21,7 @@ import type { OrchDir } from "../../src/types/core.ts";
 import type { RpcServer } from "../../src/types/daemon.ts";
 import type { DaemonState } from "../../src/daemon/server/state.ts";
 import type { PtyProvider } from "../../src/types/pty.ts";
+import type { PipesProvider } from "../../src/types/pipes.ts";
 import type { ModelCatalogue } from "../../src/types/adapter.ts";
 import type { ScreenHolder } from "../../src/types/screen.ts";
 import type { NotifyEvent } from "../../src/types/notify.ts";
@@ -44,6 +45,8 @@ export interface FarOrchdOptions {
   readonly screens?: ScreenHolder;
   /** Where its held PTYs come from: fakes when absent. */
   readonly pty?: PtyProvider;
+  /** Where its held pipes come from: fakes when absent. */
+  readonly pipes?: PipesProvider;
   /** Timeouts beside the short write ack every far orchd here has. */
   readonly timeouts?: Readonly<Record<string, number>>;
   /** The model listing its harnesses answer: the real catalogue, which runs each harness, when absent. */
@@ -53,7 +56,7 @@ export interface FarOrchdOptions {
 export async function startFarOrchd(greeting: HostGreeting, options: FarOrchdOptions = {}): Promise<FarOrchd> {
   const orchDir = tempOrchDir("orch-far-orchd-");
   // Drives its agents with the real handlers. A write's ack waits this long: no far agent here has a harness to ack one.
-  const state = idleDaemonState(testDaemonServices({ orchDir, settings: { timeouts: { dispatch_ack_ms: 50, ...options.timeouts } }, models: options.models }), orchDir, options.pty);
+  const state = idleDaemonState(testDaemonServices({ orchDir, settings: { timeouts: { dispatch_ack_ms: 50, ...options.timeouts } }, models: options.models }), orchDir, options.pty, options.pipes);
   // Its held backend types into and relaunches its own PTYs, as orchd's boot binds them.
   bindHeldPtys(state.held);
   const screens = options.screens ?? state.held;

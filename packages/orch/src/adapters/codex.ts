@@ -13,6 +13,8 @@ import type { CheckResult, FixDescriptor } from "../types/doctor.ts";
 import type { Logger, OrchDir } from "../types/core.ts";
 import type { OrchSettings } from "../types/settings.ts";
 
+const CODEX_ACP_INSTALL = "bun add -g @agentclientprotocol/codex-acp";
+
 /** codex's config key for the token count at which a session compacts. */
 const CODEX_COMPACT_KEY = "model_auto_compact_token_limit";
 
@@ -115,6 +117,7 @@ export class CodexAdapter implements AgentAdapter {
     argv: (_opts: SpawnOpts): readonly string[] => ["codex-acp"],
     env: (_opts: SpawnOpts): Readonly<Record<string, string>> => ({}),
     sharesSessions: false,
+    install: { install: { linux: CODEX_ACP_INSTALL, darwin: CODEX_ACP_INSTALL, windows: CODEX_ACP_INSTALL }, needs: ["bun"] },
   };
   readonly resume = {
     argv: (opts: SpawnOpts, sessionId: string): readonly string[] => [...this.interactiveArgv(opts), "resume", sessionId],

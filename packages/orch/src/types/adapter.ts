@@ -249,6 +249,8 @@ export interface AcpRole {
   /** True when the binding and the harness's own terminal program read one session store, so
    *  a restart in the other form resumes the conversation by session id. */
   readonly sharesSessions: boolean;
+  /** How setup installs the binding when its executable is missing. */
+  readonly install: Prerequisite;
 }
 
 /** Build a terminal launch that continues a harness-native session. */

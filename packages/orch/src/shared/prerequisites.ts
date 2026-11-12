@@ -1,14 +1,16 @@
 import type { HostOs } from "../types/host.ts";
-import type { AgentAdapter, InstallCommands, Prerequisite } from "../types/adapter.ts";
+import type { AcpRole, AgentAdapter, InstallCommands, Prerequisite } from "../types/adapter.ts";
 
-/** Binding executables declared by the selected adapters. */
-export function bindingPrerequisites(adapters: readonly AgentAdapter[]): string[] {
-  return [...new Set(adapters.flatMap((adapter) => {
-    if (!adapter.acp) return [];
+/** Each binding executable the adapters declare, with the role that declares it, once per executable. */
+export function bindingPrerequisites(adapters: readonly AgentAdapter[]): { readonly command: string; readonly acp: AcpRole }[] {
+  const bindings = new Map<string, AcpRole>();
+  for (const adapter of adapters) {
+    if (!adapter.acp) continue;
     const [command] = adapter.acp.argv({});
     if (!command) throw new Error(`${adapter.id} declares an empty binding argv`);
-    return [command];
-  }))];
+    if (!bindings.has(command)) bindings.set(command, adapter.acp);
+  }
+  return [...bindings].map(([command, acp]) => ({ command, acp }));
 }
 
 function posix(command: string): InstallCommands {
@@ -42,9 +44,9 @@ export function isRecommended(id: string): boolean {
 
 /** The command that installs a tool on this host. NixOS users install through Nix, so they get none.
  *  The caller states the host it runs on: this module reads no host facts itself. */
-export function installCommand(id: string, nixos: boolean, os: HostOs): string | null {
+export function installCommand(entry: Prerequisite | undefined, nixos: boolean, os: HostOs): string | null {
   if (nixos) return null;
-  return PREREQUISITES[id]?.install?.[os] ?? null;
+  return entry?.install?.[os] ?? null;
 }
 
 /** The one command that re-picks a harness's default and allowlist after its catalogue changes. */

@@ -52,7 +52,7 @@ const RESUME_ONLY: Partial<FakeAcpScript> = { initialize: { protocolVersion: def
 /** The harness: a binding that shares sessions with its terminal program, and a resume argv. */
 function adapterOf(overrides: Partial<AgentAdapter> = {}): AgentAdapter {
   return fakeAdapter({
-    acp: { argv: () => ["fake-acp"], env: () => ({}), sharesSessions: true },
+    acp: { argv: () => ["fake-acp"], env: () => ({}), sharesSessions: true, install: {} },
     resume: { argv: (_opts, sessionId) => ["fake-tui", "--resume", sessionId] },
     ...overrides,
   });
@@ -224,7 +224,7 @@ describe("restart in another form is refused before anything is ended", () => {
   test("a binding that does not share sessions with its TUI", async () => {
     const harness = setup();
     const key = await launch(harness, "tui", "test-session");
-    const unshared = adapterOf({ acp: { argv: () => ["fake-acp"], env: () => ({}), sharesSessions: false } });
+    const unshared = adapterOf({ acp: { argv: () => ["fake-acp"], env: () => ({}), sharesSessions: false, install: {} } });
 
     const reason = await refusal(switchForm(harness.state, placeHere(harness.orchDir, key), unshared, "acp"));
 

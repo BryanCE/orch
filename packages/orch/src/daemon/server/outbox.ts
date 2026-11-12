@@ -1,6 +1,6 @@
 import type { OrchDir } from "../../types/core.ts";
 import { isAgentGone } from "../../control/agent-gone.ts";
-import { isBridgeDetached } from "../../control/bridge-links.ts";
+import { isLinkDetached } from "../../control/agent-links.ts";
 import type { OutboxDelivery, OutboxDeps } from "../../types/daemon.ts";
 import type { OutboxMessage } from "../../types/store.ts";
 import {
@@ -52,7 +52,7 @@ async function attemptDelivery(orchDir: OrchDir, message: OutboxMessage, deps: O
         outcome = "gone";
       } else {
         outcome = "failed";
-        retryReason = isBridgeDetached(error) ? "bridge-detached" : "error";
+        retryReason = isLinkDetached(error) ? "bridge-detached" : "error";
       }
     }
     if (outcome === "acked") {

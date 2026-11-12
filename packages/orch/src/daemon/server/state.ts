@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { rpcCall } from "../client/rpc.ts";
 import { agentViewIndex } from "../../store/agent-view.ts";
 import { fleetLeaseFacts } from "../../agent/drive-state.ts";
-import { bridgeAttached } from "../../control/bridge-links.ts";
+import { linkAttached } from "../../control/agent-links.ts";
 import { buildFleetStatus } from "./fleet-status.ts";
 import type { FleetStatus, RpcServer } from "../../types/daemon.ts";
 import type { HeldPtysByPid, PtyHolder } from "../../types/pty.ts";
@@ -58,7 +58,7 @@ export function fleetStatus(state: DaemonState, caller: string | null): FleetSta
   clock.lap("leases");
   const fleet = buildFleetStatus(state.services.settings.current(), { directory, leaseFacts: facts, caller, onPhase: (phase) => { clock.lap(phase); } });
   state.services.logger.trace("status.phases", clock.phases());
-  return { names: fleet.names, rows: fleet.rows.map((row) => ({ ...row, bridgeAttached: bridgeAttached(row.key) })) };
+  return { names: fleet.names, rows: fleet.rows.map((row) => ({ ...row, bridgeAttached: linkAttached(row.key) })) };
 }
 
 export async function socketAnswers(directory: OrchDir): Promise<boolean> {

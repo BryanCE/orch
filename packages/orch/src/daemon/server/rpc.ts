@@ -3,7 +3,7 @@ import { createServer, type Server, type Socket } from "node:net";
 import { randomBytes } from "node:crypto";
 import { chmodSync, unlinkSync, writeFileSync } from "node:fs";
 import { readDaemonLock } from "../client/process.ts";
-import { attachBridge, detachBridge, attachedBridgeKeys, type BridgeLink } from "../../control/bridge-links.ts";
+import { attachLink, detachLink, attachedBridgeKeys, type AgentLink } from "../../control/agent-links.ts";
 import type { BridgeDelivery } from "../../shared/bridge-message.ts";
 import { ensurePrivateDir, errorMessage } from "../../util.ts";
 import { createEventBus, type EventBus } from "./event-bus.ts";
@@ -23,7 +23,7 @@ import type { ScreenConnection } from "../../types/screen.ts";
 
 interface ConnectionState {
   identity?: SessionAgentIdentity;
-  bridge?: { key: string; link: BridgeLink };
+  bridge?: { key: string; link: AgentLink };
   /** The host whose orchd holds this connection, once it sent `peer-hello` with this orchd's token. */
   peer?: HostId;
   /** The agent screens this connection is attached to. */
@@ -57,7 +57,7 @@ function peerHello(socket: Socket, request: Extract<RpcRequest, { method: "peer-
 
 function detachConnectionBridge(orchDir: OrchDir, state: ConnectionState): void {
   if (state.bridge === undefined) return;
-  detachBridge(orchDir, state.bridge.key, state.bridge.link);
+  detachLink(orchDir, state.bridge.key, state.bridge.link);
   state.bridge = undefined;
 }
 
@@ -92,13 +92,13 @@ function attachRequest(
   const startedAt = Date.now();
   const key = request.params.key;
   detachConnectionBridge(orchDir, state);
-  const link: BridgeLink = {
+  const link: AgentLink = {
     push: (delivery: BridgeDelivery) => lineResponse(socket, { kind: "delivery", delivery }),
     close: () => socket.destroy(),
   };
   // A bridge for an agent this store does not know is refused on its own socket; it never ends the daemon.
   try {
-    attachBridge(orchDir, key, link);
+    attachLink(orchDir, key, link);
   } catch (error: unknown) {
     lineResponse(socket, errorResponse(request.id, "UNKNOWN_AGENT", errorMessage(error)));
     logRpc(logger, request, transport, startedAt, error);

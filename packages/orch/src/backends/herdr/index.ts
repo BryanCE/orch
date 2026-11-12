@@ -1,4 +1,5 @@
 import type { AgentId } from "../../types/agent-place.ts";
+import type { StdioKind } from "../../types/form.ts";
 import { registerNotifier } from "../../notify/sinks.ts";
 import { createHerdrNotifier } from "./notify.ts";
 import { callerPaneHandle, insideHerdr } from "./detect.ts";
@@ -139,6 +140,7 @@ export class HerdrBackend implements Backend<HerdrHandle> {
     this.notifier = createHerdrNotifier(cli);
   }
   readonly id = HERDR_BACKEND;
+  readonly offers: readonly StdioKind[] = ["terminal"];
   private orchDir: OrchDir | undefined;
   readonly process = new LocalProcessRole<HerdrHandle>(placedShellPid(() => this.foreground));
   // Composes identity (it knows which space this process sits in) and nothing for

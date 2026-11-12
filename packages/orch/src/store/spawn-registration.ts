@@ -99,7 +99,7 @@ function holdSpawned(directory: OrchDir, agentId: string, holder: string | null,
  *  plexer, handle, process, space, tuning, worktree. The agent runs here, so it has all of them. */
 function writeEnvironment(directory: OrchDir, agent: HereAgent, now: number, input: SpawnRegistration): void {
   const agentId = agent.id;
-  if (input.backendId !== undefined) setAgentPlexer(directory, agent, input.backendId);
+  if (input.backendId !== undefined) setAgentPlexer(directory, agent, now, input.backendId);
   if (input.handle !== undefined) setHandle(directory, agent, now, input.handle);
   recordProcess(directory, agent, now, { pid: input.process.pid, startToken: input.process.startToken });
   // The space is an axis in its own right, on its own timeline: an agent can be

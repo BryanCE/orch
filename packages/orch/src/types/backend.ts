@@ -6,6 +6,7 @@ import type { AgentId, HereAgent } from "./agent-place.ts";
 import type { Logger, OrchDir } from "./core.ts";
 import type { AgentWorktree } from "./worktree.ts";
 import type { AgentOrigin } from "./host.ts";
+import type { StdioKind } from "./form.ts";
 
 /** Facts detected about the plexer containing the current process. */
 export interface DetectedPlexer {
@@ -411,6 +412,9 @@ export interface BackendGroupLayout<Handle = BackendHandle> {
  */
 export interface Backend<Handle = BackendHandle> {
   readonly id: BackendId;
+  /** The stdio this backend can start a process on, most natural first. A form runs here only
+   *  when its stdio is listed. */
+  readonly offers: readonly StdioKind[];
   /** Whether the backend binary/runtime is present on this machine. */
   isAvailable(): boolean;
   /** Whether the current process is inside a live session for this backend. */

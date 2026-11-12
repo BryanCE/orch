@@ -1,0 +1,319 @@
+{
+  "_id": "@agentclientprotocol/sdk@2.6.0",
+  "_rev": "68-026c4e6de3319fd3b25ba566ef5126b3",
+  "name": "@agentclientprotocol/sdk",
+  "dist-tags": {
+    "latest": "2.6.0"
+  },
+  "versions": [
+    "0.4.5",
+    "0.4.6",
+    "0.4.7",
+    "0.4.8",
+    "0.4.9",
+    "0.5.0",
+    "0.5.1",
+    "0.6.0",
+    "0.7.0",
+    "0.8.0",
+    "0.9.0",
+    "0.10.0",
+    "0.11.0",
+    "0.12.0",
+    "0.13.0",
+    "0.13.1",
+    "0.14.0",
+    "0.14.1",
+    "0.15.0",
+    "0.16.0",
+    "0.16.1",
+    "0.17.0",
+    "0.17.1",
+    "0.18.0",
+    "0.18.1",
+    "0.18.2",
+    "0.19.0",
+    "0.19.1",
+    "0.19.2",
+    "0.20.0",
+    "0.21.0",
+    "0.21.1",
+    "0.22.0",
+    "0.22.1",
+    "0.23.0",
+    "0.24.0",
+    "0.25.0",
+    "0.25.1",
+    "0.26.0",
+    "0.27.0",
+    "0.27.1",
+    "0.28.0",
+    "0.28.1",
+    "0.29.0",
+    "1.0.0",
+    "1.1.0",
+    "1.2.0",
+    "1.2.1",
+    "1.3.0",
+    "1.4.0",
+    "1.5.0",
+    "1.5.1",
+    "1.6.0",
+    "1.6.1",
+    "1.7.0",
+    "1.8.0",
+    "1.9.0",
+    "2.0.0",
+    "2.0.1",
+    "2.0.2",
+    "2.1.0",
+    "2.2.0",
+    "2.3.0",
+    "2.4.0",
+    "2.5.0",
+    "2.6.0"
+  ],
+  "time": {
+    "created": "2025-10-10T13:18:06.550Z",
+    "modified": "2026-11-10T21:31:52.859Z",
+    "0.4.5": "2025-10-10T13:18:06.820Z",
+    "0.4.6": "2025-10-10T15:29:02.753Z",
+    "0.4.7": "2025-10-11T21:25:53.302Z",
+    "0.4.8": "2025-10-15T10:08:35.456Z",
+    "0.4.9": "2025-10-21T08:43:45.290Z",
+    "0.5.0": "2025-10-24T10:53:25.753Z",
+    "0.5.1": "2025-10-24T16:03:41.716Z",
+    "0.6.0": "2025-12-01T10:38:50.928Z",
+    "0.7.0": "2025-12-01T16:33:05.950Z",
+    "0.8.0": "2025-12-08T10:52:10.883Z",
+    "0.9.0": "2025-12-11T10:55:22.053Z",
+    "0.10.0": "2025-12-11T22:12:51.148Z",
+    "0.11.0": "2025-12-12T13:25:01.783Z",
+    "0.12.0": "2025-12-16T13:02:02.483Z",
+    "0.13.0": "2026-01-13T14:11:54.877Z",
+    "0.13.1": "2026-01-22T09:12:56.240Z",
+    "0.14.0": "2026-02-04T13:05:49.422Z",
+    "0.14.1": "2026-02-05T15:25:08.930Z",
+    "0.15.0": "2026-03-05T14:42:48.563Z",
+    "0.16.0": "2026-03-10T18:55:29.908Z",
+    "0.16.1": "2026-03-11T11:24:55.968Z",
+    "0.17.0": "2026-03-25T13:15:09.141Z",
+    "0.17.1": "2026-03-27T10:29:50.587Z",
+    "0.18.0": "2026-04-01T14:54:26.880Z",
+    "0.18.1": "2026-04-06T21:53:56.757Z",
+    "0.18.2": "2026-04-08T11:43:05.163Z",
+    "0.19.0": "2026-04-14T11:52:54.961Z",
+    "0.19.1": "2026-04-21T16:18:20.631Z",
+    "0.19.2": "2026-04-23T14:23:24.963Z",
+    "0.20.0": "2026-04-23T14:55:56.921Z",
+    "0.21.0": "2026-04-28T08:54:26.822Z",
+    "0.21.1": "2026-05-14T09:44:30.022Z",
+    "0.22.0": "2026-05-18T10:19:30.985Z",
+    "0.22.1": "2026-05-18T21:09:53.533Z",
+    "0.23.0": "2026-06-01T14:37:27.629Z",
+    "0.24.0": "2026-06-02T18:37:09.908Z",
+    "0.25.0": "2026-06-05T13:12:23.732Z",
+    "0.25.1": "2026-06-13T11:21:52.121Z",
+    "0.26.0": "2026-06-16T12:03:42.946Z",
+    "0.27.0": "2026-06-18T10:51:20.880Z",
+    "0.27.1": "2026-06-18T14:30:07.173Z",
+    "0.28.0": "2026-06-18T15:06:44.299Z",
+    "0.28.1": "2026-06-19T09:14:33.640Z",
+    "0.29.0": "2026-06-22T11:33:24.622Z",
+    "1.0.0": "2026-06-24T15:27:11.496Z",
+    "1.1.0": "2026-06-29T14:58:03.721Z",
+    "1.2.0": "2026-07-06T13:19:26.978Z",
+    "1.2.1": "2026-07-07T15:43:51.615Z",
+    "1.3.0": "2026-07-21T15:49:38.279Z",
+    "1.4.0": "2026-08-20T23:00:39.686Z",
+    "1.5.0": "2026-09-21T08:27:40.989Z",
+    "1.5.1": "2026-09-28T09:52:01.785Z",
+    "1.6.0": "2026-10-01T11:29:22.861Z",
+    "1.6.1": "2026-10-02T09:36:20.090Z",
+    "1.7.0": "2026-10-02T11:22:21.748Z",
+    "1.8.0": "2026-10-09T16:43:27.316Z",
+    "1.9.0": "2026-10-16T11:30:33.364Z",
+    "2.0.0": "2026-10-19T20:56:04.033Z",
+    "2.0.1": "2026-10-22T10:39:24.777Z",
+    "2.0.2": "2026-10-23T19:39:14.029Z",
+    "2.1.0": "2026-10-28T07:57:28.591Z",
+    "2.2.0": "2026-10-30T14:18:37.495Z",
+    "2.3.0": "2026-11-02T11:14:11.693Z",
+    "2.4.0": "2026-11-02T11:29:07.582Z",
+    "2.5.0": "2026-11-09T12:35:20.424Z",
+    "2.6.0": "2026-11-10T21:31:52.340Z"
+  },
+  "bugs": {
+    "url": "https://github.com/agentclientprotocol/typescript-sdk/issues"
+  },
+  "author": "Zed Industries",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/agentclientprotocol/typescript-sdk#readme",
+  "repository": {
+    "url": "git+https://github.com/agentclientprotocol/typescript-sdk.git",
+    "type": "git"
+  },
+  "description": "The Agent Client Protocol (ACP) is a protocol that standardizes communication between *code editors* (interactive programs for viewing and editing source code) and *coding agents* (programs that use generative AI to autonomously modify code).",
+  "maintainers": [
+    "benbrandt <benjamin.j.brandt@gmail.com>",
+    "aguzubiaga <sup@aguz.me>",
+    "cirwin <conrad.irwin@gmail.com>"
+  ],
+  "readmeFilename": "README.md",
+  "dist": {
+    "shasum": "aafc0405744142ac8f5af4c277acb47d24309161",
+    "tarball": "https://registry.npmjs.org/@agentclientprotocol/sdk/-/sdk-2.6.0.tgz",
+    "fileCount": 161,
+    "integrity": "sha512-3FtL6MkAV5F9qxg0FQV8wmBszIm2xuVPoDWOILIFSDQ+Vq3Twdh7Cw6Hk2GOPUbevgrTUpUAqZXQy7Geaj79mw==",
+    "signatures": [
+      {
+        "sig": "MEUCIQDkJDzBW/NcyuiS19NK7BhEZQF5udG0qTJgMeVprhZGewIgT6pUya2lK0+6UxYs4UCC7BjlB2dB9XVD+gtPaX8BCXU=",
+        "keyid": "SHA256:DhQ8wR5APBvFHLF/+Tc+AYvPOdTpcIDqOhxsBHRwC7U"
+      },
+      {
+        "keyid": "SHA256:DhQ8wR5APBvFHLF/+Tc+AYvPOdTpcIDqOhxsBHRwC7U",
+        "sig": "MEQCIGy9r0JIaTAU2JioEfzEXucVy9F2oNJoZqXCfIdkYIudAiB2h5fo4/eEUaUgP5Wpctx6lNUkICTyhuirtdhbwvSMZw=="
+      }
+    ],
+    "attestations": {
+      "url": "https://registry.npmjs.org/-/npm/v1/attestations/@agentclientprotocol%2fsdk@2.6.0",
+      "provenance": {
+        "predicateType": "https://slsa.dev/provenance/v1"
+      }
+    },
+    "unpackedSize": 9202805
+  },
+  "main": "dist/v1/stable/acp.js",
+  "type": "module",
+  "types": "dist/v1/stable/acp.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/v1/stable/acp.d.ts",
+      "import": "./dist/v1/stable/acp.js",
+      "default": "./dist/v1/stable/acp.js"
+    },
+    "./unstable": {
+      "types": "./dist/v1/unstable/acp.d.ts",
+      "import": "./dist/v1/unstable/acp.js",
+      "default": "./dist/v1/unstable/acp.js"
+    },
+    "./experimental/v2": {
+      "types": "./dist/v2/stable/acp.d.ts",
+      "import": "./dist/v2/stable/acp.js",
+      "default": "./dist/v2/stable/acp.js"
+    },
+    "./experimental/nes": {
+      "types": "./dist/nes/acp.d.ts",
+      "import": "./dist/nes/acp.js",
+      "default": "./dist/nes/acp.js"
+    },
+    "./experimental/node": {
+      "types": "./dist/transports/node-adapter.d.ts",
+      "import": "./dist/transports/node-adapter.js",
+      "default": "./dist/transports/node-adapter.js"
+    },
+    "./experimental/server": {
+      "types": "./dist/transports/server.d.ts",
+      "import": "./dist/transports/server.js",
+      "default": "./dist/transports/server.js"
+    },
+    "./experimental/mcp-http": {
+      "types": "./dist/mcp/http.d.ts",
+      "import": "./dist/mcp/http.js",
+      "default": "./dist/mcp/http.js"
+    },
+    "./schema/v1/schema.json": "./schema/v1/schema.json",
+    "./schema/v2/schema.json": "./schema/v2/schema.json",
+    "./experimental/ws-client": {
+      "types": "./dist/transports/ws-stream.d.ts",
+      "import": "./dist/transports/ws-stream.js",
+      "default": "./dist/transports/ws-stream.js"
+    },
+    "./experimental/mcp-server": {
+      "types": "./dist/mcp/mcp-server.d.ts",
+      "import": "./dist/mcp/mcp-server.js",
+      "default": "./dist/mcp/mcp-server.js"
+    },
+    "./experimental/http-client": {
+      "types": "./dist/transports/http-stream.d.ts",
+      "import": "./dist/transports/http-stream.js",
+      "default": "./dist/transports/http-stream.js"
+    },
+    "./experimental/v2/unstable": {
+      "types": "./dist/v2/unstable/acp.d.ts",
+      "import": "./dist/v2/unstable/acp.js",
+      "default": "./dist/v2/unstable/acp.js"
+    },
+    "./schema/v1/schema.unstable.json": "./schema/v1/schema.unstable.json",
+    "./schema/v2/schema.unstable.json": "./schema/v2/schema.unstable.json"
+  },
+  "gitHead": "8649e0af14cd1112bf02e5f137217f8c3fcf7e90",
+  "scripts": {
+    "lint": "eslint",
+    "test": "vitest run --dir src",
+    "build": "npm run clean && tsc --project tsconfig.build.json",
+    "check": "npm run generate:check && npm run lint && npm run format:check && npm run spellcheck && npm run typecheck && npm run build && npm run package:check && npm run test && npm run docs:ts:verify",
+    "clean": "rm -rf dist tsconfig.tsbuildinfo",
+    "format": "prettier --write .",
+    "generate": "node scripts/generate.js",
+    "lint:fix": "eslint --fix",
+    "typecheck": "tsc --noEmit",
+    "spellcheck": "./scripts/spellcheck.sh",
+    "format:check": "prettier --check .",
+    "snapshot:nes": "node scripts/snapshot-nes.js",
+    "docs:ts:build": "cd src && typedoc --options typedoc.json && typedoc --options typedoc.unstable.json && typedoc --options typedoc.v2.json && typedoc --options typedoc.v2.unstable.json && echo 'TypeScript documentation generated in ./src/docs'",
+    "package:check": "node scripts/check-package.js",
+    "docs:ts:verify": "cd src && typedoc --options typedoc.json --emit none && typedoc --options typedoc.unstable.json --emit none && typedoc --options typedoc.v2.json --emit none && typedoc --options typedoc.v2.unstable.json --emit none && echo 'TypeDoc verification passed'",
+    "generate:check": "node scripts/generate.js --skip-download --check",
+    "spellcheck:fix": "./scripts/spellcheck.sh --write-changes"
+  },
+  "version": "2.6.0",
+  "_npmUser": "GitHub Actions <npm-oidc-no-reply@github.com>",
+  "overrides": {
+    "@hey-api/json-schema-ref-parser@1.4.4": {
+      "js-yaml": "4.3.2"
+    }
+  },
+  "_npmVersion": "12.2.2",
+  "directories": {},
+  "_nodeVersion": "26.13.0",
+  "publishConfig": {
+    "access": "public"
+  },
+  "_hasShrinkwrap": false,
+  "devDependencies": {
+    "ws": "^8.18.0",
+    "tsx": "^4.21.0",
+    "zod": "^3.25.76 || ^4.0.0",
+    "eslint": "^10.6.0",
+    "vitest": "^5.0.0",
+    "globals": "^17.7.0",
+    "typedoc": "^0.28.16",
+    "prettier": "^3.9.6",
+    "@types/ws": "^8.5.13",
+    "@eslint/js": "^10.0.1",
+    "typescript": "^6.0.2",
+    "@types/node": "^26.0.1",
+    "http-server": "^14.1.1",
+    "@hey-api/openapi-ts": "^0.99.0",
+    "typedoc-github-theme": "^0.4.0",
+    "eslint-config-prettier": "^10.1.8",
+    "@typescript-eslint/parser": "^8.65.0",
+    "@modelcontextprotocol/client": "^2.4.0",
+    "@modelcontextprotocol/server": "^2.4.0",
+    "@typescript-eslint/eslint-plugin": "^8.65.0"
+  },
+  "peerDependencies": {
+    "zod": "^3.25.76 || ^4.0.0",
+    "@modelcontextprotocol/server": "^2.4.0"
+  },
+  "peerDependenciesMeta": {
+    "@modelcontextprotocol/server": {
+      "optional": true
+    }
+  },
+  "_npmOperationalInternal": {
+    "host": "s3://npm-registry-packages-npm-production",
+    "tmp": "tmp/sdk_2.6.0_1794346312151_0.7086766788789123"
+  }
+}

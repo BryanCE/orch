@@ -273,7 +273,7 @@ export function moveHandle(directory: OrchDir, params: ParamsOf<"set-handle">): 
 export function recordAgentQuestion(directory: OrchDir, params: ParamsOf<"question">): { ok: true } {
   const agentId = params.agentId;
   if (agentById(directory, agentId) === null) throw new Error(`question agent ${agentId} does not exist`);
-  recordQuestion(directory, { id: params.questionId, agentId, question: params.question, askedAt: params.askedAt });
+  recordQuestion(directory, { id: params.questionId, agentId, question: params.question, askedAt: params.askedAt, options: [], supersede: true });
   return { ok: true };
 }
 

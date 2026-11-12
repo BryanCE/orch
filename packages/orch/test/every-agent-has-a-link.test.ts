@@ -1,7 +1,7 @@
 import { placeHere } from "../src/process-place.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 
-import { attachBridge, detachBridge, type BridgeLink } from "../src/control/bridge-links.ts";
+import { attachLink, detachLink, type AgentLink } from "../src/control/agent-links.ts";
 import type { BridgeDelivery } from "../src/shared/bridge-message.ts";
 import { deliverControl } from "../src/control/dispatch.ts";
 import { mintAgentId } from "../src/shared/agent-id.ts";
@@ -13,7 +13,7 @@ import { testDaemonServices } from "./helpers/services.ts";
 import type { OrchDir } from "../src/types/core.ts";
 
 const dirs: OrchDir[] = [];
-const links: { readonly key: string; readonly link: BridgeLink }[] = [];
+const links: { readonly key: string; readonly link: AgentLink }[] = [];
 const saved = process.env.ORCH_DIR;
 
 function storeDir(): OrchDir {
@@ -30,14 +30,14 @@ function agent(directory: OrchDir, facts: Parameters<typeof seedAgent>[1] = {}):
   seedLiveProcess(directory, key);
   seedStatus(directory, key, { key, agent: "pi", pid: process.pid, state: "idle" });
   const deliveries: BridgeDelivery[] = [];
-  const link: BridgeLink = { push: (delivery) => deliveries.push(delivery), close: () => undefined };
-  attachBridge(directory, key, link);
+  const link: AgentLink = { push: (delivery) => deliveries.push(delivery), close: () => undefined };
+  attachLink(directory, key, link);
   links.push({ key, link });
   return { key, deliveries };
 }
 
 afterEach(() => {
-  for (const { key, link } of links.splice(0)) detachBridge(dirs[0]!, key, link);
+  for (const { key, link } of links.splice(0)) detachLink(dirs[0]!, key, link);
   closeAllStores();
   if (saved === undefined) delete process.env.ORCH_DIR;
   else process.env.ORCH_DIR = saved;

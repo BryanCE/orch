@@ -5,11 +5,11 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { deliverControl as daemonDeliverControl } from "../src/control/dispatch.ts";
 import { AgentGoneError } from "../src/control/agent-gone.ts";
 import {
-  attachBridge as daemonAttachBridge,
-  BridgeDetachedError,
-  detachBridge as daemonDetachBridge,
-  type BridgeLink,
-} from "../src/control/bridge-links.ts";
+  attachLink as daemonAttachBridge,
+  LinkDetachedError,
+  detachLink as daemonDetachBridge,
+  type AgentLink,
+} from "../src/control/agent-links.ts";
 import type { BridgeDelivery } from "../src/shared/bridge-message.ts";
 import { settleControlOutcome } from "../src/control/outcome.ts";
 import { echoAwaited, forgetEchoes } from "../src/control/echo.ts";
@@ -26,7 +26,7 @@ import { testDaemonServices } from "./helpers/services.ts";
 
 const originalOrchDir: OrchDir | undefined = process.env.ORCH_DIR === undefined ? undefined : orchDirAt(process.env.ORCH_DIR);
 const tempDirs: OrchDir[] = [];
-const links: { readonly key: string; readonly link: BridgeLink }[] = [];
+const links: { readonly key: string; readonly link: AgentLink }[] = [];
 
 async function rejection(call: Promise<unknown>): Promise<unknown> {
   try {
@@ -53,11 +53,11 @@ function requiredOrchDir(): OrchDir {
   return orchDirAt(orchDir);
 }
 
-function attachBridge(key: string, link: BridgeLink): void {
+function attachLink(key: string, link: AgentLink): void {
   daemonAttachBridge(requiredOrchDir(), key, link);
 }
 
-function detachBridge(key: string, link: BridgeLink): void {
+function detachLink(key: string, link: AgentLink): void {
   daemonDetachBridge(requiredOrchDir(), key, link);
 }
 
@@ -76,20 +76,20 @@ function presence(directory: OrchDir, key: string, agent: AdapterId, extra: Reco
 
 function captureBridge(key: string, onPush?: (delivery: BridgeDelivery) => void): BridgeDelivery[] {
   const deliveries: BridgeDelivery[] = [];
-  const link: BridgeLink = {
+  const link: AgentLink = {
     push(delivery): void {
       deliveries.push(delivery);
       onPush?.(delivery);
     },
     close: () => undefined,
   };
-  attachBridge(key, link);
+  attachLink(key, link);
   links.push({ key, link });
   return deliveries;
 }
 
 afterEach(() => {
-  for (const { key, link } of links.splice(0)) detachBridge(key, link);
+  for (const { key, link } of links.splice(0)) detachLink(key, link);
   if (originalOrchDir === undefined) delete process.env.ORCH_DIR;
   else process.env.ORCH_DIR = originalOrchDir;
   for (const dir of tempDirs.splice(0)) removeTempDir(dir);
@@ -120,7 +120,7 @@ describe("deliverControl bridge dispatch", () => {
     presence(directory, key, "pi");
 
     expect(await rejection(deliverControl(key, { kind: "steer", text: "lost", id: "steer-1" })))
-      .toBeInstanceOf(BridgeDetachedError);
+      .toBeInstanceOf(LinkDetachedError);
   });
 
   test("reports a gone agent before pushing to its link", async () => {
@@ -156,7 +156,7 @@ describe("deliverControl bridge dispatch", () => {
     // The daemon owns the pending question now, so the answerable record is the
     // `questions` row; presence still reports the STATE but no longer carries the
     // id an answer correlates against.
-    recordQuestion(directory, { id: "question-1", agentId: key, question: "ship?", askedAt: Date.now() });
+    recordQuestion(directory, { id: "question-1", agentId: key, question: "ship?", askedAt: Date.now(), options: [], supersede: true });
     const deliveries = captureBridge(key);
 
     await deliverControl(key, { kind: "answer", text: "yes", id: "answer-1" });

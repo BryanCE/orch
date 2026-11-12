@@ -15,7 +15,7 @@ import { acceptMail, mailDelivery } from "../mail.ts";
 import { normalizeControlTarget } from "../../../control/normalize-target.ts";
 import { deliverControl, resolveTargetAdapter, resolveTargetRoute } from "../../../control/dispatch.ts";
 import { isAgentGone } from "../../../control/agent-gone.ts";
-import { bridgeAttached } from "../../../control/bridge-links.ts";
+import { linkAttached } from "../../../control/agent-links.ts";
 import { isOutboxPayload } from "../../../shared/bridge-message.ts";
 import { agentView } from "../../../store/agent-view.ts";
 import { leaseHolderIsAlive } from "../state.ts";
@@ -116,7 +116,7 @@ export async function deliverWrite(state: DaemonState, agent: HereAgent, payload
   // a linked host asked for has no spawner here and is still orch's launch, bridge and all.
   const caller = agentView(directory, canonicalTarget)?.kind;
   const rawSession = caller !== undefined && caller !== "agent";
-  if (rawSession && !bridgeAttached(canonicalTarget) && !route?.backend.agentInput) {
+  if (rawSession && !linkAttached(canonicalTarget) && !route?.backend.agentInput) {
     return deliverToSessionStream(state, agent, payload.action, id, text, log);
   }
   if (!resolveTargetAdapter(directory, canonicalTarget)) {

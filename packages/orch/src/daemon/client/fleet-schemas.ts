@@ -6,6 +6,7 @@ import type { AgentStatusRow } from "../../store/status-rows.ts";
 import type { Entity } from "../../types/core.ts";
 import { HOST_OS_VALUES, type HostId, type HostIdentity } from "../../types/host.ts";
 import { isHostId } from "../../host.ts";
+import { FORM_IDS } from "../../types/form.ts";
 
 /** A host id off the wire: checked here, a `HostId` from here on. */
 export const HOST_ID = z.custom<HostId>(isHostId, "must be a host id");
@@ -87,6 +88,7 @@ export const AGENT_VIEW = z.object({
   heldBy: AGENT_HOLDER.nullable(),
   environment: AGENT_ENVIRONMENT,
   tuning: AGENT_TUNING,
+  form: z.enum(FORM_IDS).nullable(),
   endedAt: z.number().nullable(),
 }) satisfies z.ZodType<AgentView>;
 

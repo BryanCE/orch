@@ -348,6 +348,7 @@ export abstract class PiBridgeAdapter {
   readonly sessionView = { readSessionView: (input: SessionViewInput): SessionView | undefined => this.readSessionView(input) };
   readonly bridge: BridgeRole = { takes: ["dispatch", "steer", "answer", "model"] };
   readonly hooks = null;
+  readonly acp = null;
   readonly settingsFile = null;
   readonly commandGate = true;
 

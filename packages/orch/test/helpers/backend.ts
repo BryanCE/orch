@@ -4,6 +4,7 @@ import { createCaptureRole } from "../../src/presence/roles.ts";
 import { getBackend, registerBackend } from "../../src/backends/registry.ts";
 import type { AgentNamingRole, Backend, CommandPlacementRole, GroupLayoutRole, BackendHandle, BackendId, BackendSpawnOpts, Placement, PlacementRequest, EnvironmentIdentityRole, ForegroundRole, GroupHomeRole, PlacementRole, PlacementInventoryRole, LabelRole, BackendTarget, ProcessRole, SpaceHomeRole } from "../../src/types/backend.ts";
 import type { AgentAdapter } from "../../src/types/adapter.ts";
+import type { StdioKind } from "../../src/types/form.ts";
 
 /** One pane a fake paned environment lists. Space vocabulary is orch's own;
  *  the port's `workspace` field is the plexer coordinate the fake fills from it. */
@@ -48,6 +49,7 @@ function paneTarget(pane: FakePane): BackendTarget {
  */
 export class FakePanedBackend implements Backend {
   readonly id: BackendId;
+  readonly offers: readonly StdioKind[] = ["terminal"];
   /** Handles this environment was asked to close, in call order. */
   readonly closed: string[] = [];
   /** Every pane-open request this environment received, in call order — so a

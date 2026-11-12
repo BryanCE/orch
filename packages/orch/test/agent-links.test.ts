@@ -2,15 +2,15 @@ import type { OrchDir } from "../src/types/core.ts";
 import { placeHere } from "../src/process-place.ts";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
-  BridgeDetachedError,
-  attachBridge as daemonAttachBridge,
+  LinkDetachedError,
+  attachLink as daemonAttachBridge,
   attachedBridgeKeys,
-  bridgeAttached as daemonBridgeAttached,
-  detachBridge as daemonDetachBridge,
-  isBridgeDetached,
-  pushToBridge as daemonPushToBridge,
-} from "../src/control/bridge-links.ts";
-import type { BridgeLink } from "../src/control/bridge-links.ts";
+  linkAttached as daemonLinkAttached,
+  detachLink as daemonDetachBridge,
+  isLinkDetached,
+  pushToLink as daemonPushToBridge,
+} from "../src/control/agent-links.ts";
+import type { AgentLink } from "../src/control/agent-links.ts";
 import { isBridgeDelivery, isBridgeMessage } from "../src/shared/bridge-message.ts";
 import type { BridgeDelivery } from "../src/shared/bridge-message.ts";
 import { mintAgentId } from "../src/shared/agent-id.ts";
@@ -20,17 +20,17 @@ import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 
 const originalOrchDir = process.env.ORCH_DIR;
 let directory!: OrchDir;
-const held: { key: string; link: BridgeLink }[] = [];
+const held: { key: string; link: AgentLink }[] = [];
 
 /** A link that records every delivery pushed down it. */
-function recordingLink(): BridgeLink & { readonly pushed: BridgeDelivery[] } {
+function recordingLink(): AgentLink & { readonly pushed: BridgeDelivery[] } {
   const pushed: BridgeDelivery[] = [];
   return { pushed, push: (delivery) => { pushed.push(delivery); }, close: () => undefined };
 }
 
 /** Attach and remember the link, so afterEach can detach exactly what this test held. */
-function attach(key: string, link: BridgeLink): void {
-  attachBridge(key, link);
+function attach(key: string, link: AgentLink): void {
+  attachLink(key, link);
   held.push({ key, link });
 }
 
@@ -44,29 +44,29 @@ function liveAgent(name: string): string {
 
 const delivery: BridgeDelivery = { id: "row-1", message: { action: "steer", text: "hello" } };
 
-function attachBridge(key: string, link: BridgeLink): void {
+function attachLink(key: string, link: AgentLink): void {
   daemonAttachBridge(directory, key, link);
 }
 
-function detachBridge(key: string, link: BridgeLink): void {
+function detachLink(key: string, link: AgentLink): void {
   daemonDetachBridge(directory, key, link);
 }
 
-function bridgeAttached(key: string): boolean {
-  return daemonBridgeAttached(key);
+function linkAttached(key: string): boolean {
+  return daemonLinkAttached(key);
 }
 
-function pushToBridge(key: string, value: BridgeDelivery): void {
+function pushToLink(key: string, value: BridgeDelivery): void {
   daemonPushToBridge(placeHere(directory, key), value);
 }
 
 beforeEach(() => {
-  directory = tempOrchDir("orch-bridge-links-");
+  directory = tempOrchDir("orch-agent-links-");
   process.env.ORCH_DIR = directory;
 });
 
 afterEach(() => {
-  for (const { key, link } of held.splice(0)) detachBridge(key, link);
+  for (const { key, link } of held.splice(0)) detachLink(key, link);
   if (originalOrchDir === undefined) delete process.env.ORCH_DIR;
   else process.env.ORCH_DIR = originalOrchDir;
   removeTempDir(directory);
@@ -77,9 +77,9 @@ describe("bridge links", () => {
     const key = liveAgent("worker-a");
     const link = recordingLink();
     attach("worker-a", link);
-    expect(bridgeAttached(key)).toBe(true);
+    expect(linkAttached(key)).toBe(true);
     expect(attachedBridgeKeys()).toEqual([key]);
-    pushToBridge(key, delivery);
+    pushToLink(key, delivery);
     expect(link.pushed).toEqual([delivery]);
   });
 
@@ -89,7 +89,7 @@ describe("bridge links", () => {
     const second = recordingLink();
     attach(key, first);
     attach("worker-b", second);
-    pushToBridge(key, delivery);
+    pushToLink(key, delivery);
     expect(first.pushed).toEqual([]);
     expect(second.pushed).toEqual([delivery]);
   });
@@ -100,26 +100,26 @@ describe("bridge links", () => {
     const current = recordingLink();
     attach(key, stale);
     attach(key, current);
-    detachBridge(key, stale);
-    expect(bridgeAttached(key)).toBe(true);
-    detachBridge(key, current);
-    expect(bridgeAttached(key)).toBe(false);
+    detachLink(key, stale);
+    expect(linkAttached(key)).toBe(true);
+    detachLink(key, current);
+    expect(linkAttached(key)).toBe(false);
   });
 
-  test("push with no link throws BridgeDetachedError", () => {
+  test("push with no link throws LinkDetachedError", () => {
     const key = liveAgent("worker-d");
     let thrown: unknown;
     try {
-      pushToBridge(key, delivery);
+      pushToLink(key, delivery);
     } catch (error) {
       thrown = error;
     }
-    expect(isBridgeDetached(thrown)).toBe(true);
-    expect(thrown).toBeInstanceOf(BridgeDetachedError);
+    expect(isLinkDetached(thrown)).toBe(true);
+    expect(thrown).toBeInstanceOf(LinkDetachedError);
   });
 
   test("an unknown target is refused before the registry is consulted", () => {
-    expect(() => attachBridge("nobody", recordingLink())).toThrow("does not resolve");
+    expect(() => attachLink("nobody", recordingLink())).toThrow("does not resolve");
   });
 });
 

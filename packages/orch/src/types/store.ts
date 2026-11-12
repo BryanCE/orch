@@ -5,6 +5,7 @@ import type { HostedProcess } from "./process.ts";
 import type { OutboxPayload } from "../shared/bridge-message.ts";
 import type { CallerKind, ThinkingLevel } from "./policy.ts";
 import type { AgentOrigin, HostId, HostIdentity } from "./host.ts";
+import type { FormId } from "./form.ts";
 
 export interface AgentInput {
   id: string;
@@ -133,6 +134,8 @@ export interface AgentView {
   /** Environment — where it is, mutable. */
   readonly environment: AgentEnvironment;
   readonly tuning: AgentTuning;
+  /** Program: the form its harness runs in. Null for an agent orch did not launch. */
+  readonly form: FormId | null;
   /** When it ended. An ending is an instant, never a lifetime column (A1). */
   readonly endedAt: number | null;
 }

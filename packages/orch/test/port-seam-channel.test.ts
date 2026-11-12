@@ -4,7 +4,7 @@ import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { deliverWrite } from "../src/daemon/server/handlers/write.ts";
 import { orchDirAt } from "../src/orch-dir.ts";
-import { attachBridge, detachBridge, type BridgeLink } from "../src/control/bridge-links.ts";
+import { attachLink, detachLink, type AgentLink } from "../src/control/agent-links.ts";
 import type { BridgeDelivery } from "../src/shared/bridge-message.ts";
 import { createCaptureRole } from "../src/presence/roles.ts";
 import { recordAgentStatus } from "../src/presence/store.ts";
@@ -24,7 +24,7 @@ import { testServices } from "./helpers/services.ts";
 import { idleDaemonState } from "./helpers/daemon-state.ts";
 
 const dirs: OrchDir[] = [];
-const links: { readonly key: string; readonly link: BridgeLink }[] = [];
+const links: { readonly key: string; readonly link: AgentLink }[] = [];
 const saved = process.env.ORCH_DIR;
 
 function outboxDeps(orchDir: OrchDir, settings: Record<string, unknown> = {}): OutboxDeps {
@@ -44,7 +44,7 @@ function tempOrchDir(): OrchDir {
 }
 
 afterEach(() => {
-  for (const { key, link } of links.splice(0)) detachBridge(orchDirAt(process.env.ORCH_DIR ?? "."), key, link);
+  for (const { key, link } of links.splice(0)) detachLink(orchDirAt(process.env.ORCH_DIR ?? "."), key, link);
   for (const dir of dirs.splice(0)) removeTempDir(dir);
   if (saved === undefined) delete process.env.ORCH_DIR;
   else process.env.ORCH_DIR = saved;
@@ -58,8 +58,8 @@ describe("orch bridge links and capture roles", () => {
     seedLiveProcess(orchDir, key);
     seedStatus(orchDir, key, { key, agent: "pi", state: "working" });
     const deliveries: BridgeDelivery[] = [];
-    const link: BridgeLink = { push: (delivery) => deliveries.push(delivery), close: () => undefined };
-    attachBridge(orchDir, key, link);
+    const link: AgentLink = { push: (delivery) => deliveries.push(delivery), close: () => undefined };
+    attachLink(orchDir, key, link);
     links.push({ key, link });
     const id = "dispatch-1";
     insertOutboxMessage(orchDir, { id, target: key, payload: { action: "dispatch", text: "hello" } });

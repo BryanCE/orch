@@ -8,7 +8,7 @@ import { hostIdFrom, hostShell } from "../src/host.ts";
 import { hostIdentity } from "../src/hosts/identity.ts";
 import { agentView } from "../src/store/agent-view.ts";
 import { selectOpenOutboxForTarget } from "../src/store/outbox-rows.ts";
-import { attachBridge, detachBridge, type BridgeLink } from "../src/control/bridge-links.ts";
+import { attachLink, detachLink, type AgentLink } from "../src/control/agent-links.ts";
 import type { BridgeDelivery } from "../src/shared/bridge-message.ts";
 import { drainOutbox, redeliverOpenRows } from "../src/daemon/server/outbox.ts";
 import { outboxDeps } from "../src/daemon/server/handlers/write.ts";
@@ -21,18 +21,18 @@ import { testDaemonServices } from "./helpers/services.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 
 const dirs: OrchDir[] = [];
-const links: { readonly directory: OrchDir; readonly key: string; readonly link: BridgeLink }[] = [];
+const links: { readonly directory: OrchDir; readonly key: string; readonly link: AgentLink }[] = [];
 
 afterEach(() => {
-  for (const { directory, key, link } of links.splice(0)) detachBridge(directory, key, link);
+  for (const { directory, key, link } of links.splice(0)) detachLink(directory, key, link);
   while (dirs.length) removeTempDir(dirs.pop()!);
 });
 
 /** What a bridge does when it dials orchd: hold a link for its key and take what is pushed. */
 function attachFakeBridge(directory: OrchDir, key: string): BridgeDelivery[] {
   const deliveries: BridgeDelivery[] = [];
-  const link: BridgeLink = { push: (delivery): void => { deliveries.push(delivery); }, close: () => undefined };
-  attachBridge(directory, key, link);
+  const link: AgentLink = { push: (delivery): void => { deliveries.push(delivery); }, close: () => undefined };
+  attachLink(directory, key, link);
   links.push({ directory, key, link });
   return deliveries;
 }

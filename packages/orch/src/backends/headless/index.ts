@@ -15,6 +15,7 @@ import { unplacedRegistration } from "../registration.ts";
 import { hostedHere } from "../../local-process.ts";
 import { createBackendCaptureRole } from "../../presence/roles.ts";
 import type { Backend, BackendId, BackendSpawnOpts, CaptureRole, ForegroundRole, HandleLookupRole, LogPruningRole, ProcessRole, LocalProcess } from "../../types/backend.ts";
+import type { StdioKind } from "../../types/form.ts";
 import type { AgentAdapter, SpawnOpts } from "../../types/adapter.ts";
 import type { Logger, OrchDir } from "../../types/core.ts";
 import type { HeadlessBackendDeps, HeadlessHandle } from "../../types/plexer.ts";
@@ -78,6 +79,7 @@ function headlessPid(handle: HeadlessHandle | string): number | null {
 
 export class HeadlessBackend implements Backend<HeadlessHandle> {
   readonly id = HEADLESS_BACKEND;
+  readonly offers: readonly StdioKind[] = ["none"];
   // A detached agent is in no space, so `current` has no answer to give and the
   // role is composed only for the half it CAN do — which means the whole role is
   // absent, and `handleFor` moves to where callers already reach for it.

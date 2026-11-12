@@ -607,7 +607,7 @@ describe("driving an agent wherever it runs", () => {
     fars.push(far);
     const key = farAgent(far, { askedBy: hostIdentity().id, spawner: null });
     const near = await nearDriving(far, key);
-    recordQuestion(far.orchDir, { id: "q-far", agentId: key, question: "which branch?", askedAt: 5 });
+    recordQuestion(far.orchDir, { id: "q-far", agentId: key, question: "which branch?", askedAt: 5, options: [], supersede: true });
     const operator: CallerCredential = { launch: null, session: null, pid: process.pid };
     const { questions } = await listPendingQuestions(near.state, { caller: operator });
     // The host is what the far store records for its agent: that orchd answers for where it runs.

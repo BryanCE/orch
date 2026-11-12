@@ -35,7 +35,7 @@ function daemonWithSpawner(directory: OrchDir, key: string, name: string) {
         id: "worker0001", name: "worker", label: "worker", harnessId: "pi", createdAt: 1, kind: "agent",
         spawnedBy: key, spawnedByName: name, rootAgentId: key, heldBy: null,
         environment: { plexer: null, handle: null, space: null, worktree: null, branch: null, worktreeBase: null, worktreeProvider: null, host: hostIdentity(), cwd: "/w" },
-        tuning: { model: null, thinking: null }, endedAt: null,
+        tuning: { model: null, thinking: null }, endedAt: null, form: null,
       },
     }),
   });
@@ -253,7 +253,7 @@ describe("peer identity in messaging", () => {
           id: ownKey, name: "worker", label: null, harnessId: "pi", createdAt: 1, kind: "agent",
           spawnedBy: "session777", spawnedByName: "pi session", rootAgentId: "session777", heldBy: null,
           environment: { plexer: null, handle: null, space: null, worktree: null, branch: null, worktreeBase: null, worktreeProvider: null, host: hostIdentity(), cwd: "/w" },
-          tuning: { model: null, thinking: null }, endedAt: null,
+          tuning: { model: null, thinking: null }, endedAt: null, form: null,
         },
       }),
       message: () => ({ accepted: true, id: "mail-3", ack: "acknowledged" }),

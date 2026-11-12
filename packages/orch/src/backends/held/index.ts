@@ -21,6 +21,7 @@ import { hostedHere } from "../../local-process.ts";
 import { isAgentId } from "../../shared/agent-id.ts";
 import type { AgentAdapter } from "../../types/adapter.ts";
 import type { AgentInputRole, Backend, BackendId, BackendSpawnOpts, CaptureRole, ProcessRole, RelaunchRole } from "../../types/backend.ts";
+import type { StdioKind } from "../../types/form.ts";
 import type { HeldPtysByPid, PtyHolder } from "../../types/pty.ts";
 
 const HELD_BACKEND: BackendId = "held";
@@ -101,6 +102,7 @@ const heldRelaunch: RelaunchRole<HeldHandle> = {
 
 export class HeldBackend implements Backend<HeldHandle> {
   readonly id = HELD_BACKEND;
+  readonly offers: readonly StdioKind[] = ["terminal", "pipes"];
   readonly process: ProcessRole<HeldHandle> = new LocalProcessRole<HeldHandle>(heldPid);
   readonly capture: CaptureRole = createBackendCaptureRole(HELD_BACKEND, () => undefined);
   // A held agent sits inside orchd, never inside a session a caller can be in.

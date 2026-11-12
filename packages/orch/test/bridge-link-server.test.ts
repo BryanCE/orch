@@ -3,10 +3,10 @@ import { placeHere } from "../src/process-place.ts";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createConnection, type Socket } from "node:net";
 import { startRpcServer } from "../src/daemon/server/rpc.ts";
-import { attachBridge, attachedBridgeKeys, detachBridge, dropBridges, pushToBridge } from "../src/control/bridge-links.ts";
+import { attachLink, attachedBridgeKeys, detachLink, dropLinks, pushToLink } from "../src/control/agent-links.ts";
 import { createDaemonLink } from "../src/agent/daemon-client.ts";
 import { testServices } from "./helpers/services.ts";
-import type { BridgeLink } from "../src/control/bridge-links.ts";
+import type { AgentLink } from "../src/control/agent-links.ts";
 import { isBridgeDelivery } from "../src/shared/bridge-message.ts";
 import type { BridgeDelivery } from "../src/shared/bridge-message.ts";
 import { mintAgentId } from "../src/shared/agent-id.ts";
@@ -85,11 +85,11 @@ beforeEach(() => {
 afterEach(async () => {
   while (servers.length) await servers.pop()!.close();
   for (const key of attachedBridgeKeys()) {
-    const link: BridgeLink = { push: () => undefined, close: () => undefined };
+    const link: AgentLink = { push: () => undefined, close: () => undefined };
     const directory = directories[0];
     if (directory !== undefined) {
-      attachBridge(directory, key, link);
-      detachBridge(directory, key, link);
+      attachLink(directory, key, link);
+      detachLink(directory, key, link);
     }
   }
   if (originalOrchDir === undefined) delete process.env.ORCH_DIR;
@@ -104,7 +104,7 @@ describe("daemon bridge links", () => {
     const delivery: BridgeDelivery = { id: "row-1", message: { action: "steer", text: "hello" } };
     const server = await start((attached) => {
       notifications.push(attached);
-      pushToBridge(placeHere(directories[0]!, attached), delivery);
+      pushToLink(placeHere(directories[0]!, attached), delivery);
     });
     const socket = await connected(server);
     const lines = observe(socket);
@@ -146,7 +146,7 @@ describe("daemon bridge links", () => {
     second.write(`${JSON.stringify({ id: 2, method: "attach", params: { key } })}\n`);
     await lineAt(secondLines, 0);
 
-    pushToBridge(placeHere(directories[0]!, key), { id: "row-2", message: { action: "dispatch", text: "new" } });
+    pushToLink(placeHere(directories[0]!, key), { id: "row-2", message: { action: "dispatch", text: "new" } });
     const pushed = await lineAt(secondLines, 1);
     expect(firstLines).toHaveLength(1);
     expect(pushed).toEqual({ delivery: { id: "row-2", message: { action: "dispatch", text: "new" } } });
@@ -209,7 +209,7 @@ describe("daemon bridge links", () => {
     socket.write(`${JSON.stringify({ id: 1, method: "attach", params: { key } })}\n`);
     await lineAt(lines, 0);
 
-    expect(dropBridges()).toBe(1);
+    expect(dropLinks()).toBe(1);
     await until(() => closed);
     expect(server.attachedBridgeCount()).toBe(0);
   });

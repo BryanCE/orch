@@ -111,6 +111,7 @@ export class CodexAdapter implements AgentAdapter {
   readonly compaction = launchCompaction((tokens) => ({ env: {}, args: ["-c", `${CODEX_COMPACT_KEY}=${tokens}`] }));
   readonly bridge = null;
   readonly hooks = null;
+  readonly acp = null;
   readonly commandGate = false;
 
   /** Marker consumed by callers that render heuristic states with a dagger. */

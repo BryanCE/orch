@@ -45,7 +45,7 @@ export const controlOutcomes = sqliteTable("control_outcomes", {
 }, (table) => [index("control_outcomes_agent").on(table.agentId, table.settledAt)]);
 
 /** An agent's question to the human. `answered_at` NULL means still pending;
- * `answer` NULL on a settled row means it was superseded, never answered. */
+ * `answer` NULL on a settled row means it was superseded or cancelled, never answered. An agent may have several pending. */
 export const questions = sqliteTable("questions", {
   id: text("id").notNull().primaryKey(),
   agentId: text("agent_id").notNull(),
@@ -54,6 +54,16 @@ export const questions = sqliteTable("questions", {
   answeredAt: integer("answered_at"),
   answer: text("answer"),
 }, (table) => [index("questions_pending").on(table.agentId, table.answeredAt)]);
+
+/** The choices an agent offered with a question, in the order it offered them. A question
+ *  with no rows takes free text. */
+export const questionOptions = sqliteTable("question_options", {
+  questionId: text("question_id").notNull().references(() => questions.id, { onDelete: "cascade" }),
+  position: integer("position").notNull(),
+  optionId: text("option_id").notNull(),
+  label: text("label").notNull(),
+  kind: text("kind").notNull(),
+}, (table) => [primaryKey({ columns: [table.questionId, table.position] })]);
 
 export const catalogues = sqliteTable("catalogues", {
   command: text("command").notNull().primaryKey(),
@@ -259,12 +269,18 @@ export const agentStatus = sqliteTable("agent_status", {
   blockedMessage: text("blocked_message"),
 });
 
-export const agentPlexers = sqliteTable("agent_plexers", {
-  agentId: text("agent_id").notNull().primaryKey().references(() => agents.id, { onDelete: "cascade" }),
-  plexerId: text("plexer_id").notNull().references(() => plexers.id),
-});
-
 // ── satellites: one independently-varying fact over one timeline ─────────────
+
+export const agentPlexers = sqliteTable("agent_plexers", {
+  agentId: text("agent_id").notNull().references(() => agents.id, { onDelete: "cascade" }),
+  since: integer("since").notNull(),
+  until: integer("until"),
+  plexerId: text("plexer_id").notNull().references(() => plexers.id),
+}, (table) => [
+  primaryKey({ columns: [table.agentId, table.since] }),
+  uniqueIndex("one_plexer").on(table.agentId).where(sql`until IS NULL`),
+  check("agent_plexers_interval", sql`${table.until} IS NULL OR ${table.until} > ${table.since}`),
+]);
 
 /** Where every agent runs: the host, and the directory it runs in there. Every agent has
  *  exactly one open row from the moment its row is written, this machine's agents included,
@@ -329,6 +345,19 @@ export const agentTunings = sqliteTable("agent_tunings", {
   primaryKey({ columns: [table.agentId, table.since] }),
   uniqueIndex("one_tuning").on(table.agentId).where(sql`until IS NULL`),
   check("agent_tunings_interval", sql`${table.until} IS NULL OR ${table.until} > ${table.since}`),
+]);
+
+/** The form an agent's harness runs in over time: `tui`, `oneshot` or `acp`. An agent orch
+ *  did not launch has no row. */
+export const agentForms = sqliteTable("agent_forms", {
+  agentId: text("agent_id").notNull().references(() => agents.id, { onDelete: "cascade" }),
+  since: integer("since").notNull(),
+  until: integer("until"),
+  form: text("form").notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.agentId, table.since] }),
+  uniqueIndex("one_form").on(table.agentId).where(sql`until IS NULL`),
+  check("agent_forms_interval", sql`${table.until} IS NULL OR ${table.until} > ${table.since}`),
 ]);
 
 export const agentLeases = sqliteTable("agent_leases", {

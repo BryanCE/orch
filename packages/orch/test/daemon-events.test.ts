@@ -421,7 +421,7 @@ describe("daemon presence events", () => {
     const orchDir = tempOrchDir();
     const key = mintAgentId();
     seedAgent(orchDir, key);
-    recordQuestion(orchDir, { id: "question-event", agentId: key, question: "What should I do?", askedAt: 1 });
+    recordQuestion(orchDir, { id: "question-event", agentId: key, question: "What should I do?", askedAt: 1, options: [], supersede: true });
     const row = statusRow({ agentId: key, state: "blocked", task: "continue work", blockedMessage: "waiting on disk" });
 
     const blocked = transitionEventFromRow(orchDir, row, "working", "blocked");
@@ -490,7 +490,7 @@ describe("status history", () => {
     report(orchDir, key, { state: "working", task: "build it", dispatchId: "d1" }, publish);
     report(orchDir, key, { state: "working", task: "build it", dispatchId: "d1", lastText: "halfway" }, publish);
     report(orchDir, key, { state: "working", task: "build it", dispatchId: "d1", lastText: "halfway" }, publish);
-    recordQuestion(orchDir, { id: "q1", agentId: key, question: "Which file?", askedAt: 2 });
+    recordQuestion(orchDir, { id: "q1", agentId: key, question: "Which file?", askedAt: 2, options: [], supersede: true });
     report(orchDir, key, { state: "asking", task: "build it", dispatchId: "d1", lastText: "halfway" }, publish);
     report(orchDir, key, { state: "done", task: "build it", dispatchId: "d1", lastText: "finished" }, publish);
     flushPresenceHistory();

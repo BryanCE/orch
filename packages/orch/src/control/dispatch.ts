@@ -11,7 +11,7 @@ import { admitModel } from "../policy/model.ts";
 import { splitThinkingSuffix } from "../policy/thinking.ts";
 import { setTuning } from "../store/interval-rows.ts";
 import { awaitControlOutcome } from "./outcome.ts";
-import { pushToBridge } from "./bridge-links.ts";
+import { pushToLink } from "./agent-links.ts";
 import { echoAwaited, expectEcho, type TypedPrompt } from "./echo.ts";
 import type { OrchSettings } from "../types/settings.ts";
 import type { Backend, BackendHandle } from "../types/backend.ts";
@@ -99,7 +99,7 @@ async function deliverPrompt(orchDir: OrchDir, agent: HereAgent, adapter: AgentA
   const bridgeAction = action.kind === "run" ? "dispatch" : "steer";
   if (adapter.bridge?.takes.includes(bridgeAction)) {
     requireLiveAgent(orchDir, agent, adapter, action.kind);
-    pushToBridge(agent, { id: action.id, message: { action: bridgeAction, text: action.text } });
+    pushToLink(agent, { id: action.id, message: { action: bridgeAction, text: action.text } });
     return { outcome: "invoke", ack: "expected" };
   }
   const command = adapter.steer({ key: agent.id, text: action.text, id: action.id });
@@ -143,7 +143,7 @@ function deliverAnswer(orchDir: OrchDir, agent: HereAgent, adapter: AgentAdapter
   const questionId = pendingQuestion(orchDir, agent.id)?.id;
   if (questionId === undefined) return { outcome: "answer", reason: "not-asking", text: `${agent.id} is not asking a question` };
   if (!bridged) return typePrompt(orchDir, agent, adapter, { id: action.id, kind: "answer", text: action.text }, ackMs);
-  pushToBridge(agent, { id: action.id, message: { action: "answer", text: action.text, questionId } });
+  pushToLink(agent, { id: action.id, message: { action: "answer", text: action.text, questionId } });
   return { outcome: "invoke", ack: "expected" };
 }
 
@@ -164,7 +164,7 @@ async function deliverModel(orchDir: OrchDir, settings: OrchSettings, catalogue:
   const command = adapter.modelControl?.setModel({ key: agent.id, model, id });
   if (command) await runAdapterCommand(command, timeoutMs);
   if (adapter.bridge?.takes.includes("model")) {
-    pushToBridge(agent, { id, message: { action: "model", model } });
+    pushToLink(agent, { id, message: { action: "model", model } });
   }
   const outcome = await awaitControlOutcome(id, timeoutMs);
   const { bare, thinking } = splitThinkingSuffix(model);

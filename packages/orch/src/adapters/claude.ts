@@ -230,6 +230,7 @@ class ClaudeAdapter implements AgentAdapter {
   readonly bridge = null;
   /** SessionStart reports the session before any prompt; UserPromptSubmit reports each prompt Claude takes. */
   readonly hooks: HookReportRole = { reports: ["start", "prompt"] };
+  readonly acp = null;
   readonly commandGate = true;
 
   /** Claude Code exports CLAUDECODE=1 into every subprocess it runs. */

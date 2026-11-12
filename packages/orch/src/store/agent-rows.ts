@@ -301,7 +301,7 @@ function placeSession(orchDir: OrchDir, here: HereAgent | null, agentId: string,
 /** The pane of a session placed here, read and written through the agent. */
 function placeSessionPane(orchDir: OrchDir, here: HereAgent, input: SessionAgentInput): void {
   const pane = paneOf(orchDir, here);
-  if (input.plexerId != null && pane.plexer === null) setAgentPlexer(orchDir, here, input.plexerId);
+  if (input.plexerId != null && pane.plexer === null) setAgentPlexer(orchDir, here, input.now, input.plexerId);
   if (input.handle != null && pane.handle !== input.handle) setHandle(orchDir, here, input.now, input.handle);
 }
 

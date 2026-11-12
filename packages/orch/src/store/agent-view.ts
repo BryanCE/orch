@@ -5,8 +5,10 @@ import { ormForRead, registerMemoReset } from "./connection.ts";
 import { NO_TUNING } from "../policy/tuning.ts";
 import type { AgentEnvironment, AgentHolder, AgentLocationAxes, AgentTuning, AgentView, EnvironmentAxisKey } from "../types/store.ts";
 import { isHostOs } from "../host.ts";
+import { isFormId, type FormId } from "../types/form.ts";
 import {
   agentEndings,
+  agentForms,
   agentHandles,
   agentHosts,
   agentLeases,
@@ -81,12 +83,13 @@ function currentSpace(orchDir: OrchDir, agentId: string): string | null {
 }
 
 function currentPlexers(orchDir: OrchDir): ByAgent<string> {
-  return byAgent(ormForRead(orchDir)?.select({ agentId: agentPlexers.agentId, value: agentPlexers.plexerId }).from(agentPlexers).all() ?? []);
+  return byAgent(ormForRead(orchDir)?.select({ agentId: agentPlexers.agentId, value: agentPlexers.plexerId }).from(agentPlexers)
+    .where(isNull(agentPlexers.until)).all() ?? []);
 }
 
 function currentPlexer(orchDir: OrchDir, agentId: string): string | null {
   return ormForRead(orchDir)?.select({ value: agentPlexers.plexerId }).from(agentPlexers)
-    .where(eq(agentPlexers.agentId, agentId)).get()?.value ?? null;
+    .where(and(eq(agentPlexers.agentId, agentId), isNull(agentPlexers.until))).get()?.value ?? null;
 }
 
 type WorktreeColumn = "path" | "branch" | "base" | "provider";
@@ -152,6 +155,14 @@ function currentTunings(orchDir: OrchDir): ByAgent<AgentTuning> {
   return new Map(rows.map((row) => [row.agentId, { model: row.model, thinking: row.thinking }]));
 }
 
+function currentForms(orchDir: OrchDir): ByAgent<FormId> {
+  const rows = ormForRead(orchDir)?.select({ agentId: agentForms.agentId, form: agentForms.form })
+    .from(agentForms).where(isNull(agentForms.until)).all() ?? [];
+  const forms = new Map<string, FormId>();
+  for (const row of rows) if (isFormId(row.form)) forms.set(row.agentId, row.form);
+  return forms;
+}
+
 function currentHolders(orchDir: OrchDir): ByAgent<AgentHolder> {
   const rows = ormForRead(orchDir)?.select({ agentId: agentLeases.agentId, orchId: agentLeases.orchId, since: agentLeases.since })
     .from(agentLeases).where(isNull(agentLeases.until)).all() ?? [];
@@ -185,6 +196,7 @@ interface FleetFacts {
   axes: AxisValues;
   locations: Map<string, AgentLocationAxes>;
   tunings: Map<string, AgentTuning>;
+  forms: Map<string, FormId>;
   endings: Map<string, number>;
   views: Map<string, AgentView>;
 }
@@ -203,6 +215,7 @@ function heldFleet(orchDir: OrchDir): FleetFacts {
     axes: readAxes(orchDir),
     locations: readLocations(orchDir),
     tunings: new Map(currentTunings(orchDir)),
+    forms: new Map(currentForms(orchDir)),
     endings: new Map(endings(orchDir)),
     views: new Map(),
   };
@@ -225,6 +238,7 @@ function composeView(hub: HubRow, facts: FleetFacts): AgentView {
     heldBy: facts.holders.get(hub.id) ?? null,
     environment: composeEnvironment(hub.id, facts.axes, facts.locations),
     tuning: facts.tunings.get(hub.id) ?? NO_TUNING,
+    form: facts.forms.get(hub.id) ?? null,
     endedAt: facts.endings.get(hub.id) ?? null,
   };
 }
@@ -286,6 +300,10 @@ function refreshSatellites(orchDir: OrchDir, facts: FleetFacts, agentId: string)
     .where(and(eq(agentTunings.agentId, agentId), isNull(agentTunings.until))).get();
   if (tuning) facts.tunings.set(agentId, tuning);
   else facts.tunings.delete(agentId);
+  const form = ormForRead(orchDir)?.select({ form: agentForms.form }).from(agentForms)
+    .where(and(eq(agentForms.agentId, agentId), isNull(agentForms.until))).get();
+  if (form && isFormId(form.form)) facts.forms.set(agentId, form.form);
+  else facts.forms.delete(agentId);
   const ending = ormForRead(orchDir)?.select({ endedAt: agentEndings.endedAt }).from(agentEndings)
     .where(eq(agentEndings.agentId, agentId)).get();
   if (ending) facts.endings.set(agentId, ending.endedAt);
@@ -303,6 +321,7 @@ function dropAgent(facts: FleetFacts, agentId: string): void {
   facts.names.delete(agentId);
   facts.holders.delete(agentId);
   facts.tunings.delete(agentId);
+  facts.forms.delete(agentId);
   facts.endings.delete(agentId);
   facts.locations.delete(agentId);
   for (const values of facts.axes.values()) values.delete(agentId);

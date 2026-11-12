@@ -137,7 +137,7 @@ export function placeAgent(key: string, facts: AgentFacts = {}, directory: OrchD
   const now = Date.now();
   if (facts.backend !== undefined) {
     ensurePlexer(directory, facts.backend, facts.backend, now);
-    setAgentPlexer(directory, placeHere(directory, key), facts.backend);
+    setAgentPlexer(directory, placeHere(directory, key), now, facts.backend);
   }
   if (facts.space !== undefined) setSpace(directory, key, now, facts.space);
   if (facts.handle !== undefined) setHandle(directory, placeHere(directory, key), now, facts.handle);

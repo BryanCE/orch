@@ -27,6 +27,7 @@ export function agentViewFixture(id: string, overrides: AgentViewFixtureOverride
     rootAgentId: id,
     heldBy: null,
     endedAt: null,
+    form: null,
     ...baseOverrides,
     environment,
     tuning,

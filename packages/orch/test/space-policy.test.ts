@@ -59,7 +59,7 @@ function placeAgent(
   insertAgent(directory, { host: hostIdentity(), id, spawnedBy: null, harnessId: "pi", cwd: directory, name: id, createdAt: 1 });
   if (options.plexer !== undefined) {
     ensurePlexer(directory, options.plexer, options.plexer, 1);
-    setAgentPlexer(directory, placeHere(directory, id), options.plexer);
+    setAgentPlexer(directory, placeHere(directory, id), 1, options.plexer);
   }
   if (options.space !== undefined) {
     ensureSpaceRow(directory, options.space);

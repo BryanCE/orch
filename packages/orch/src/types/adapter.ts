@@ -239,6 +239,18 @@ export interface ModelWarmRole {
   warmModels(catalogue: ModelCatalogue): Promise<void>;
 }
 
+/** The harness has a binding that speaks the Agent Client Protocol over its stdio. orchd
+ *  starts the binding on pipes and drives it as the agent's `acp` form. */
+export interface AcpRole {
+  /** The binding's executable and its arguments, never a shell line. */
+  argv(opts: SpawnOpts): readonly string[];
+  /** Environment the binding needs on top of the launch environment. */
+  env(opts: SpawnOpts): Readonly<Record<string, string>>;
+  /** True when the binding and the harness's own terminal program read one session store, so
+   *  a restart in the other form resumes the conversation by session id. */
+  readonly sharesSessions: boolean;
+}
+
 /** The harness runs orch's bridge: it attaches to orchd at start and applies deliveries
  * pushed down that link. `takes` lists the actions this bridge applies. */
 export interface BridgeRole {
@@ -296,6 +308,7 @@ export interface AgentAdapter {
   readonly compaction: CompactionRole | null;
   readonly bridge: BridgeRole | null;
   readonly hooks: HookReportRole | null;
+  readonly acp: AcpRole | null;
   /** True when this harness's integration rewrites a locked or gated shell command through `orch lock` before it runs. */
   readonly commandGate: boolean;
   /**

@@ -6,7 +6,7 @@ import { ensureHarness, ensureHost, ensurePlexer, insertAgent } from "../src/sto
 import { setAgentPlexer, setHandle, setSpace, setTuning } from "../src/store/interval-rows.ts";
 import { acquireLease, adoptLease, handoffLease, leaseHistory, releaseLease } from "../src/store/lease-rows.ts";
 import { agentView } from "../src/store/agent-view.ts";
-import { attachBridge, detachBridge, type BridgeLink } from "../src/control/bridge-links.ts";
+import { attachLink, detachLink, type AgentLink } from "../src/control/agent-links.ts";
 import type { BridgeDelivery } from "../src/shared/bridge-message.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { seedSpace } from "./helpers/space.ts";
@@ -25,11 +25,11 @@ import { hostIdentity } from "../src/hosts/identity.ts";
  */
 
 const dirs: OrchDir[] = [];
-const links: { readonly key: string; readonly link: BridgeLink }[] = [];
+const links: { readonly key: string; readonly link: AgentLink }[] = [];
 const saved = process.env.ORCH_DIR;
 
 afterEach(() => {
-  for (const { key, link } of links.splice(0)) detachBridge(orchDirAt(process.env.ORCH_DIR ?? "."), key, link);
+  for (const { key, link } of links.splice(0)) detachLink(orchDirAt(process.env.ORCH_DIR ?? "."), key, link);
   closeAllStores();
   if (saved === undefined) delete process.env.ORCH_DIR;
   else process.env.ORCH_DIR = saved;
@@ -51,7 +51,7 @@ function workingAgent(): { directory: OrchDir; worker: string; before: ReturnTyp
     insertAgent(directory, { host: hostIdentity(), id, spawnedBy: null, harnessId: "pi", cwd: "/repo", name: id, createdAt: 1 });
   }
   insertAgent(directory, { host: hostIdentity(), id: "worker", spawnedBy: "orch-a", harnessId: "pi", cwd: "/repo", name: "worker", createdAt: 2 });
-  setAgentPlexer(directory, placeHere(directory, "worker"), "herdr");
+  setAgentPlexer(directory, placeHere(directory, "worker"), 10, "herdr");
   setHandle(directory, placeHere(directory, "worker"), 10, "wF:p3");
   setSpace(directory, "worker", 10, "server");
   setTuning(directory, "worker", 10, { model: "openai-codex/gpt-5.6-luna", thinking: "high" });
@@ -103,8 +103,8 @@ describe("a transfer touches the lease and nothing else", () => {
     const { directory, worker } = workingAgent();
     const statusBefore = statusBytes(directory);
     const deliveries: BridgeDelivery[] = [];
-    const link: BridgeLink = { push: (delivery) => deliveries.push(delivery), close: () => undefined };
-    attachBridge(directory, worker, link);
+    const link: AgentLink = { push: (delivery) => deliveries.push(delivery), close: () => undefined };
+    attachLink(directory, worker, link);
     links.push({ key: worker, link });
 
     handoffLease(directory, worker, "orch-a", "orch-b", 30);

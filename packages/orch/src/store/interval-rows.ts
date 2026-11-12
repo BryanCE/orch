@@ -2,8 +2,9 @@ import type { OrchDir } from "../types/core.ts";
 import { and, eq, isNull } from "drizzle-orm";
 import { orm, withTransaction, type Orm } from "./connection.ts";
 import { refreshAgent } from "./agent-view.ts";
-import { agentHandles, agentHosts, agentPlexers, agentProcesses, agentSpaces, agentTunings, agentWorktrees } from "../db/schema.ts";
+import { agentForms, agentHandles, agentHosts, agentPlexers, agentProcesses, agentSpaces, agentTunings, agentWorktrees } from "../db/schema.ts";
 import type { TuningValues } from "../types/store.ts";
+import type { FormId } from "../types/form.ts";
 import type { HostedProcess, ProcessInstance } from "../types/process.ts";
 import type { AgentId, AgentLocation, HereAgent } from "../types/agent-place.ts";
 import type { HostId } from "../types/host.ts";
@@ -25,7 +26,7 @@ export type HandleRow = typeof agentHandles.$inferSelect;
 export type AgentSpaceRow = typeof agentSpaces.$inferSelect;
 export type TuningRow = typeof agentTunings.$inferSelect;
 
-type IntervalTable = typeof agentHosts | typeof agentProcesses | typeof agentHandles | typeof agentSpaces | typeof agentTunings;
+type IntervalTable = typeof agentHosts | typeof agentProcesses | typeof agentHandles | typeof agentSpaces | typeof agentTunings | typeof agentPlexers | typeof agentForms;
 
 /** Close the open row and answer the instant it closed at, which is where the
  *  next row opens. `until > since` forbids closing a row at its own start, so
@@ -47,14 +48,14 @@ export function openLocationIn(db: Orm, agentId: string, since: number, host: Ho
 
 /** Move an agent to another host and directory: its open row closes as the next opens. What
  *  only means something on the machine it was read on goes with the old host: the handle
- *  interval closes, and the plexer and worktree rows go. */
+ *  and plexer intervals close, and the worktree row goes. */
 export function relocateIn(db: Orm, agentId: string, now: number, host: HostId, cwd: string): void {
   const before = openLocationOf(db, agentId);
   const since = closeOpen(db, agentHosts, agentId, now);
   openLocationIn(db, agentId, since, host, cwd);
   if (before === undefined || before.host === host) return;
   closeOpen(db, agentHandles, agentId, now);
-  db.delete(agentPlexers).where(eq(agentPlexers.agentId, agentId)).run();
+  closeOpen(db, agentPlexers, agentId, now);
   db.delete(agentWorktrees).where(eq(agentWorktrees.agentId, agentId)).run();
 }
 
@@ -142,14 +143,30 @@ export function setTuning(orchDir: OrchDir, agentId: string, now: number, values
   refreshAgent(orchDir, agentId);
 }
 
-/** A plexer is a plain membership, not an interval: an agent is in one plexer
- *  for its whole life on one host, and moving between plexers is a new agent. A plexer runs on
- *  this machine, so only an agent here is in one. */
-export function setAgentPlexer(orchDir: OrchDir, agent: HereAgent, plexerId: string): void {
-  const existing = orm(orchDir).select({ agentId: agentPlexers.agentId })
-    .from(agentPlexers).where(eq(agentPlexers.agentId, agent.id)).get();
-  if (existing !== undefined) throw new Error(`agent ${agent.id} already has a plexer`);
-  orm(orchDir).insert(agentPlexers).values({ agentId: agent.id, plexerId }).run();
+/** The form the agent's harness runs in. A restart in another form closes one row and opens
+ *  the next, and the agent stays the same agent. */
+export function setForm(orchDir: OrchDir, agentId: string, now: number, form: FormId): void {
+  withTransaction(orchDir, () => {
+    const db = orm(orchDir);
+    const since = closeOpen(db, agentForms, agentId, now);
+    db.insert(agentForms).values({ agentId, since, until: null, form }).run();
+  });
+  refreshAgent(orchDir, agentId);
+}
+
+/** The plexer holding an agent this orchd runs. An interval like every other environment
+ *  fact: a move to another plexer closes one row and opens the next, and the agent stays the
+ *  same agent. Stating the plexer it is already in changes nothing. A plexer runs on this
+ *  machine, so only an agent here is in one. */
+export function setAgentPlexer(orchDir: OrchDir, agent: HereAgent, now: number, plexerId: string): void {
+  withTransaction(orchDir, () => {
+    const db = orm(orchDir);
+    const open = db.select({ plexerId: agentPlexers.plexerId }).from(agentPlexers)
+      .where(and(eq(agentPlexers.agentId, agent.id), isNull(agentPlexers.until))).get();
+    if (open?.plexerId === plexerId) return;
+    const since = closeOpen(db, agentPlexers, agent.id, now);
+    db.insert(agentPlexers).values({ agentId: agent.id, since, until: null, plexerId }).run();
+  });
   refreshAgent(orchDir, agent.id);
 }
 

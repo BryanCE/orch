@@ -1,4 +1,5 @@
 import type { AgentId } from "../../types/agent-place.ts";
+import type { StdioKind } from "../../types/form.ts";
 import { z } from "zod";
 import { callerOrcaPaneKey, currentOrcaTerminal, ORCA_PANE_KEY } from "./detect.ts";
 import { AgentGoneError } from "../../control/agent-gone.ts";
@@ -93,6 +94,7 @@ function keyBytes(key: string): string {
 /** Backend for terminals managed by Orca. */
 export class OrcaBackend implements Backend<OrcaHandle> {
   readonly id = ORCA_BACKEND;
+  readonly offers: readonly StdioKind[] = ["terminal"];
   readonly cli: OrcaCli;
   private readonly orchDir: OrchDir | undefined;
   readonly process = new LocalProcessRole<OrcaHandle>(placedShellPid(() => this.foreground));

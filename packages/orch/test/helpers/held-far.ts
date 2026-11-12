@@ -18,7 +18,7 @@ import { splitThinkingSuffix } from "../../src/policy/thinking.ts";
 import { applyHostEvent, reconcileHostAgents } from "../../src/daemon/server/host-events.ts";
 import { rpcHandlers } from "../../src/daemon/server/handlers/table.ts";
 import { startRpcServer } from "../../src/daemon/server/rpc.ts";
-import { attachBridge, detachBridge, type BridgeLink } from "../../src/control/bridge-links.ts";
+import { attachLink, detachLink, type AgentLink } from "../../src/control/agent-links.ts";
 import type { BridgeDelivery } from "../../src/shared/bridge-message.ts";
 import type { HostGreeting } from "../../src/types/host.ts";
 import type { ModelCatalogue } from "../../src/types/adapter.ts";
@@ -104,7 +104,7 @@ export async function heldFarAgent<T extends PtyProcess>(far: HeldFar<HeldPtys<T
   return { key, pty: far.ptys.last() };
 }
 
-const bridges: { readonly orchDir: OrchDir; readonly key: string; readonly link: BridgeLink }[] = [];
+const bridges: { readonly orchDir: OrchDir; readonly key: string; readonly link: AgentLink }[] = [];
 
 /**
  * What the held agent's bridge does on the far host: hold a link for its key, take what orchd
@@ -122,21 +122,21 @@ export function attachFakeBridge(far: FarOrchd, key: string): BridgeDelivery[] {
     const { bare, thinking } = splitThinkingSuffix(message.model);
     await rpcCall(far.orchDir, "control-outcome", { id, key, command: "model", applied: { model: bare, ...(thinking === undefined ? {} : { thinking }) } });
   };
-  const link: BridgeLink = {
+  const link: AgentLink = {
     push: (delivery) => {
       deliveries.push(delivery);
       setTimeout(() => { void report(delivery); }, 0);
     },
     close: () => undefined,
   };
-  attachBridge(far.orchDir, key, link);
+  attachLink(far.orchDir, key, link);
   bridges.push({ orchDir: far.orchDir, key, link });
   return deliveries;
 }
 
 /** Drop every fake bridge attached, for a test's afterEach. */
 export function detachFakeBridges(): void {
-  for (const { orchDir, key, link } of bridges.splice(0)) detachBridge(orchDir, key, link);
+  for (const { orchDir, key, link } of bridges.splice(0)) detachLink(orchDir, key, link);
 }
 
 export interface NearOrchdOptions {

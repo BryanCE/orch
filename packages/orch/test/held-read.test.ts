@@ -158,7 +158,7 @@ describe("reading an agent held on another host, from this host's orchd", () => 
 
   test("a question the far agent asks is listed here", async () => {
     const held = await heldFar("read-question");
-    recordQuestion(held.far.orchDir, { id: "q-held", agentId: held.key, question: "which branch?", askedAt: 7 });
+    recordQuestion(held.far.orchDir, { id: "q-held", agentId: held.key, question: "which branch?", askedAt: 7, options: [], supersede: true });
     const { questions } = await rpcCall(held.near.directory, "questions", { caller: operator });
     expect(questions.map((question) => [question.questionId, question.key, question.question])).toEqual([["q-held", held.key, "which branch?"]]);
   });

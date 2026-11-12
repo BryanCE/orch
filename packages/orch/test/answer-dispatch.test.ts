@@ -4,11 +4,11 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { deliverControl } from "../src/control/dispatch.ts";
 import { AgentGoneError } from "../src/control/agent-gone.ts";
 import {
-  attachBridge,
-  BridgeDetachedError,
-  detachBridge,
-  type BridgeLink,
-} from "../src/control/bridge-links.ts";
+  attachLink,
+  LinkDetachedError,
+  detachLink,
+  type AgentLink,
+} from "../src/control/agent-links.ts";
 import type { BridgeDelivery } from "../src/shared/bridge-message.ts";
 import { mintAgentId } from "../src/shared/agent-id.ts";
 import { seedStatus } from "./helpers/presence.ts";
@@ -19,7 +19,7 @@ import { testDaemonServices } from "./helpers/services.ts";
 
 const originalOrchDir = process.env.ORCH_DIR;
 const tempDirs: OrchDir[] = [];
-const links: { readonly directory: OrchDir; readonly key: string; readonly link: BridgeLink }[] = [];
+const links: { readonly directory: OrchDir; readonly key: string; readonly link: AgentLink }[] = [];
 const DEAD_PID = 0x7fffffff;
 
 async function rejection(call: Promise<unknown>): Promise<unknown> {
@@ -43,8 +43,8 @@ function target(): string {
 
 function attach(directory: OrchDir, key: string): BridgeDelivery[] {
   const deliveries: BridgeDelivery[] = [];
-  const link: BridgeLink = { push: (delivery): void => { deliveries.push(delivery); }, close: () => undefined };
-  attachBridge(directory, key, link);
+  const link: AgentLink = { push: (delivery): void => { deliveries.push(delivery); }, close: () => undefined };
+  attachLink(directory, key, link);
   links.push({ directory, key, link });
   return deliveries;
 }
@@ -67,12 +67,12 @@ function answerStatus(directory: OrchDir, key: string, asking?: { readonly id: s
     ...(asking === undefined ? {} : { asking: { id: asking.id, question: "question", ts: "now" } }),
   });
   if (asking !== undefined) {
-    recordQuestion(directory, { id: asking.id, agentId: key, question: "question", askedAt: Date.now() });
+    recordQuestion(directory, { id: asking.id, agentId: key, question: "question", askedAt: Date.now(), options: [], supersede: true });
   }
 }
 
 afterEach(() => {
-  for (const { directory, key, link } of links.splice(0)) detachBridge(directory, key, link);
+  for (const { directory, key, link } of links.splice(0)) detachLink(directory, key, link);
   if (originalOrchDir === undefined) delete process.env.ORCH_DIR;
   else process.env.ORCH_DIR = originalOrchDir;
   for (const dir of tempDirs.splice(0)) removeTempDir(dir);
@@ -112,7 +112,7 @@ describe("answer over the bridge", () => {
     const key = target();
     answerStatus(directory, key, { id: "question-3" });
     expect(await rejection(deliverControl(directory, settingsFor(directory), testDaemonServices({ orchDir: directory }).models, placeHere(directory, key), { kind: "answer", text: "yes", id: "answer-3" })))
-      .toBeInstanceOf(BridgeDetachedError);
+      .toBeInstanceOf(LinkDetachedError);
   });
 
   test("reports a gone asking agent", async () => {

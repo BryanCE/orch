@@ -1,4 +1,5 @@
 import type { AgentId } from "../../types/agent-place.ts";
+import type { StdioKind } from "../../types/form.ts";
 import { createInteractiveCommand, homeLabel } from "../backend.ts";
 import { createBackendCaptureRole } from "../../presence/roles.ts";
 import { isAgentId } from "../../shared/agent-id.ts";
@@ -64,6 +65,7 @@ function groupPanesBy(panes: readonly TmuxPane[], key: (pane: TmuxPane) => strin
 /** Backend for panes managed by a tmux session. */
 export class TmuxBackend implements Backend<TmuxHandle> {
   readonly id = TMUX_BACKEND;
+  readonly offers: readonly StdioKind[] = ["terminal"];
   readonly process = new LocalProcessRole<TmuxHandle>(placedShellPid(() => this.foreground));
   private readonly homeExec: (args: string[]) => string;
   private readonly orchDir: OrchDir | undefined;

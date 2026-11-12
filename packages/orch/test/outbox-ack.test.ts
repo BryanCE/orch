@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { BridgeDetachedError } from "../src/control/bridge-links.ts";
+import { LinkDetachedError } from "../src/control/agent-links.ts";
 import { AgentGoneError } from "../src/control/agent-gone.ts";
 import { drainOutbox, deliverOutboxMessage, redeliverOpenRows } from "../src/daemon/server/outbox.ts";
 import { outbox } from "../src/db/schema.ts";
@@ -73,7 +73,7 @@ describe("socket outbox acknowledgements", () => {
     const id = "detached";
     insertOutboxMessage(dir, { id, target: "agent", payload: message("hello") });
     const result = await drainOutbox(dir, deps(3, (target) =>
-      Promise.reject(new BridgeDetachedError(target))));
+      Promise.reject(new LinkDetachedError(target))));
 
     expect(result).toEqual({ retried: 1, awaiting: 0 });
     const row = selectOutboxMessage(dir, id);

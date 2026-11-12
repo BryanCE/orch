@@ -28,6 +28,7 @@ function view(id: string, name: string): AgentView {
     environment: { plexer: null, handle: null, space: null, worktree: null, branch: null, worktreeBase: null, worktreeProvider: null, host: hostIdentity(), cwd: "/repo" },
     tuning: { model: null, thinking: null },
     endedAt: null,
+    form: null,
   };
 }
 

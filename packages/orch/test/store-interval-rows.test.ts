@@ -3,7 +3,7 @@ import { placeHere } from "../src/process-place.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { asc, eq, sql } from "drizzle-orm";
 import { closeAllStores, orm } from "../src/store/connection.ts";
-import { agentForms, agentHandles, agentPlexers, agentProcesses, agentSpaces, agentTunings, agents, agentHosts, harnesses, plexers, spaces } from "../src/db/schema.ts";
+import { agentForms, agentHandles, agentProcesses, agentSpaces, agentTunings, agents, agentHosts, harnesses, plexers, spaces } from "../src/db/schema.ts";
 import { clearSpace, currentHandle, currentProcess, currentSpace, currentTuning, endProcess, recordProcess, setAgentPlexer, setForm, setHandle, setSpace, setTuning } from "../src/store/interval-rows.ts";
 import { agentView } from "../src/store/agent-view.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
@@ -18,7 +18,7 @@ function fixture(): OrchDir {
   dirs.push(dir);
   const db = orm(dir);
   db.insert(harnesses).values({ id: "pi", name: "pi", enabledAt: null }).run();
-  db.insert(plexers).values([{ id: "herdr", name: "herdr", enabledAt: null }, { id: "held", name: "held", enabledAt: null }]).run();
+  db.insert(plexers).values({ id: "herdr", name: "herdr", enabledAt: null }).run();
   ensureHost(dir, hostIdentity(), 0);
   db.insert(spaces).values({ id: "s", name: "space", createdBy: null, createdAt: 0 }).run();
   db.insert(agents).values({ id: "a", spawnedBy: null, rootAgentId: "a", harnessId: "pi", name: "a", label: null, kind: "session", createdAt: 0 }).run();
@@ -53,26 +53,10 @@ describe("interval satellites", () => {
     expect(orm(dir).select({ until: agentSpaces.until }).from(agentSpaces).all()).toEqual([{ until: 20 }]);
   });
 
-  test("plexer move keeps an interval history and updates the view", () => {
+  test("agent plexer is immutable one-shot", () => {
     const dir = fixture();
-    const agent = placeHere(dir, "a");
-    setAgentPlexer(dir, agent, 1000, "herdr");
-    setAgentPlexer(dir, agent, 2000, "held");
-    expect(orm(dir).select().from(agentPlexers).orderBy(asc(agentPlexers.since)).all()).toEqual([
-      { agentId: "a", since: 1000, until: 2000, plexerId: "herdr" },
-      { agentId: "a", since: 2000, until: null, plexerId: "held" },
-    ]);
-    expect(agentView(dir, "a")?.environment.plexer).toBe("held");
-  });
-
-  test("stating the current plexer leaves its interval unchanged", () => {
-    const dir = fixture();
-    const agent = placeHere(dir, "a");
-    setAgentPlexer(dir, agent, 1000, "herdr");
-    setAgentPlexer(dir, agent, 2000, "herdr");
-    expect(orm(dir).select().from(agentPlexers).all()).toEqual([
-      { agentId: "a", since: 1000, until: null, plexerId: "herdr" },
-    ]);
+    setAgentPlexer(dir, placeHere(dir, "a"), "herdr");
+    expect(() => setAgentPlexer(dir, placeHere(dir, "a"), "herdr")).toThrow();
   });
 
   test("form changes keep interval history and agents without forms have none", () => {

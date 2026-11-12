@@ -62,7 +62,7 @@ function environmentFindings(orchDir: OrchDir, dependencies: DeclaredVsRealityDe
     .from(agentPlexers)
     .innerJoin(agentHandles, and(eq(agentHandles.agentId, agentPlexers.agentId), isNull(agentHandles.until)))
     .leftJoin(agentEndings, eq(agentEndings.agentId, agentPlexers.agentId))
-    .where(and(isNull(agentEndings.agentId), isNull(agentPlexers.until))).orderBy(asc(agentPlexers.agentId)).all();
+    .where(isNull(agentEndings.agentId)).orderBy(asc(agentPlexers.agentId)).all();
   return rows.flatMap(({ agentId, plexerId, handle }) => {
     const reality = dependencies.plexerInventory(plexerId);
     // A null inventory is "this plexer could not be asked", which is not evidence

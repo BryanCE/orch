@@ -38,7 +38,7 @@ function writeAgent(orchDir: OrchDir, agent: string, space: string, handle: stri
   ensurePlexer(orchDir, "headless", "headless", 1);
   orm(orchDir).run(sql`INSERT OR IGNORE INTO spaces (id, name, created_at) VALUES (${space}, ${space}, 1)`);
   insertAgent(orchDir, { host: hostIdentity(), id, spawnedBy: null, harnessId: agent, cwd: orchDir, name: id, createdAt: 1 });
-  setAgentPlexer(orchDir, placeHere(orchDir, id), 1, "headless");
+  setAgentPlexer(orchDir, placeHere(orchDir, id), "headless");
   setSpace(orchDir, id, 1, space);
   setHandle(orchDir, placeHere(orchDir, id), 1, handle);
   recordAgentStatus(orchDir, placeHere(orchDir, id), { state: "idle" }, Date.now());

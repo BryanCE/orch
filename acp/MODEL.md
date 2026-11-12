@@ -10,7 +10,7 @@ against these words.
 |---|---|---|---|
 | Harness | The coding agent program: pi, omp, claude, codex. | `agents.harness_id` | `src/adapters/`, `extensions/<harness>/` |
 | Form | One way a harness runs. | `agent_forms`, an interval | `src/types/form.ts` |
-| Backend | What holds the agent's process and its stdio. | `agent_plexers`, an interval | `src/backends/<id>/` |
+| Backend | What holds the agent's process and its stdio. | `agent_plexers` | `src/backends/<id>/` |
 | Channel | A live link orchd drives the agent through. | never | `src/control/` |
 | Viewer | A pane that runs `orch attach`. | never | `src/daemon/server/spawn/viewers.ts` |
 | Protocol | A wire format several harnesses speak. | never | `src/acp/` |
@@ -122,6 +122,9 @@ agent's log on the agent's host. The one log reader of Rule 20 reads it, so `orc
 
 ### Switching form
 
+A change of form is the same agent. This applies to form only: an agent keeps its backend for
+life.
+
 `orch restart <agent> --form tui|acp` relaunches the same agent in the other form under the
 same backend. It keeps the agent id, the lease and the conversation. It closes the open
 `agent_forms` row and opens a new one.
@@ -164,7 +167,5 @@ on an ACP method name or an SDK import anywhere else.
   and never crosses a host or a harness.
 - **A structured session stream.** A streaming RPC built like the screen stream, carrying
   session entries, for the feed view and the web UI.
-- **Moving a pane agent into ACP.** A backend change from a plexer to `held`. `agent_plexers`
-  is an interval after this job, so the store already allows it.
 - **Harnesses with no TUI.** `interactiveCmd` becomes nullable and the three forms become one
   map on the adapter.

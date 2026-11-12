@@ -269,18 +269,12 @@ export const agentStatus = sqliteTable("agent_status", {
   blockedMessage: text("blocked_message"),
 });
 
-// ── satellites: one independently-varying fact over one timeline ─────────────
-
 export const agentPlexers = sqliteTable("agent_plexers", {
-  agentId: text("agent_id").notNull().references(() => agents.id, { onDelete: "cascade" }),
-  since: integer("since").notNull(),
-  until: integer("until"),
+  agentId: text("agent_id").notNull().primaryKey().references(() => agents.id, { onDelete: "cascade" }),
   plexerId: text("plexer_id").notNull().references(() => plexers.id),
-}, (table) => [
-  primaryKey({ columns: [table.agentId, table.since] }),
-  uniqueIndex("one_plexer").on(table.agentId).where(sql`until IS NULL`),
-  check("agent_plexers_interval", sql`${table.until} IS NULL OR ${table.until} > ${table.since}`),
-]);
+});
+
+// ── satellites: one independently-varying fact over one timeline ─────────────
 
 /** Where every agent runs: the host, and the directory it runs in there. Every agent has
  *  exactly one open row from the moment its row is written, this machine's agents included,

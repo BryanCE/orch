@@ -83,13 +83,12 @@ function currentSpace(orchDir: OrchDir, agentId: string): string | null {
 }
 
 function currentPlexers(orchDir: OrchDir): ByAgent<string> {
-  return byAgent(ormForRead(orchDir)?.select({ agentId: agentPlexers.agentId, value: agentPlexers.plexerId }).from(agentPlexers)
-    .where(isNull(agentPlexers.until)).all() ?? []);
+  return byAgent(ormForRead(orchDir)?.select({ agentId: agentPlexers.agentId, value: agentPlexers.plexerId }).from(agentPlexers).all() ?? []);
 }
 
 function currentPlexer(orchDir: OrchDir, agentId: string): string | null {
   return ormForRead(orchDir)?.select({ value: agentPlexers.plexerId }).from(agentPlexers)
-    .where(and(eq(agentPlexers.agentId, agentId), isNull(agentPlexers.until))).get()?.value ?? null;
+    .where(eq(agentPlexers.agentId, agentId)).get()?.value ?? null;
 }
 
 type WorktreeColumn = "path" | "branch" | "base" | "provider";

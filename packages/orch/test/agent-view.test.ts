@@ -52,7 +52,7 @@ describe("the agent composer", () => {
   test("each axis composes independently, and moving one leaves identity untouched", () => {
     withStore((directory) => {
       insertAgent(directory, { host: hostIdentity(), id: "a1", spawnedBy: null, harnessId: "pi", cwd: "/repo", name: "worker", createdAt: 10 });
-      setAgentPlexer(directory, placeHere(directory, "a1"), 20, "herdr");
+      setAgentPlexer(directory, placeHere(directory, "a1"), "herdr");
       setHandle(directory, placeHere(directory, "a1"), 20, "w1:p1");
       setSpace(directory, "a1", 20, "s1");
       setWorktree(directory, placeHere(directory, "a1"), { path: "/repo/.wt/a1", branch: "feat/a1", base: "main", provider: "git" });

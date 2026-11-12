@@ -51,7 +51,7 @@ function workingAgent(): { directory: OrchDir; worker: string; before: ReturnTyp
     insertAgent(directory, { host: hostIdentity(), id, spawnedBy: null, harnessId: "pi", cwd: "/repo", name: id, createdAt: 1 });
   }
   insertAgent(directory, { host: hostIdentity(), id: "worker", spawnedBy: "orch-a", harnessId: "pi", cwd: "/repo", name: "worker", createdAt: 2 });
-  setAgentPlexer(directory, placeHere(directory, "worker"), 10, "herdr");
+  setAgentPlexer(directory, placeHere(directory, "worker"), "herdr");
   setHandle(directory, placeHere(directory, "worker"), 10, "wF:p3");
   setSpace(directory, "worker", 10, "server");
   setTuning(directory, "worker", 10, { model: "openai-codex/gpt-5.6-luna", thinking: "high" });

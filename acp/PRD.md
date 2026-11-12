@@ -60,8 +60,8 @@ Each of these has a place in the model. None is built here.
 - A structured per-agent session stream over RPC. The MVP shows an ACP agent through the
   screen stream, with orchd drawing the transcript.
 - Adapters for Gemini, opencode and other ACP-native harnesses.
-- Moving an agent that lives in a plexer pane into ACP. The MVP switches form only for agents
-  orchd holds. The store change that allows the move lands here. The verb does not.
+- Moving an agent out of a plexer pane into ACP. That is a change of backend, and only a
+  change of form keeps the same agent. An agent that should switch is spawned held by orchd.
 - The threads table. The design is in `MODEL.md`.
 - Answering the agent's file and terminal requests. orch declares neither client capability,
   so the agent uses its own tools.
@@ -71,6 +71,7 @@ Each of these has a place in the model. None is built here.
 ## Decisions
 
 - An ACP agent is the same kind of agent as any other. A form switch never mints a new agent.
+  That holds for form only.
 - ACP is neither a harness nor a backend. It is a form a harness runs in and a channel orch
   drives it through. `MODEL.md` defines both words.
 - orchd is the only ACP client. The CLI and the web UI never see ACP.

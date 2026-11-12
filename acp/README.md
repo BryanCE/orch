@@ -22,9 +22,11 @@ Working material:
 
 ## Where it stands
 
-- Findings: done, eleven reports.
-- Rules: applied on the `acp` branch.
-- Wave 1: landed. Checkpoint 1 passed.
-- Wave 2: typed, waiting on Bryan's `bun db:gen` and `bun db:mig` before its tests can run.
-- Waves 3 to 8: outlined in `TASKS.md`. Each gets its exact file before it is dispatched.
-- `ACP-LAYER-PLAN.md` at the repo root is the plan this directory replaces.
+`TASKS.md` carries the checkboxes. In short, on 2026-11-11:
+
+- [x] Findings, PRD, model, rules, task index.
+- [x] Wave 1: forms, backend `offers`, the null `acp` role, the link registry rename.
+- [ ] Wave 2: typed and `bun check` clean. Waiting on Bryan's `bun db:gen` and `bun db:mig`.
+- [ ] Waves 3 to 8 and the MVP run.
+
+`ACP-LAYER-PLAN.md` at the repo root is the plan this directory replaces.

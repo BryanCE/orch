@@ -20,8 +20,8 @@ function base(d: ReturnType<typeof orm>) {
 // Keep it independent of src/db/schema.ts: a missing or superseded object must
 // make this test fail rather than being silently excluded as a legacy name.
 const expectedInventory = new Set([
-  ...["outbox", "control_outcomes", "catalogues", "events", "runs", "questions", "harnesses", "plexers", "hosts", "host_plexers", "host_names", "host_links", "host_event_cursors", "spaces", "agents", "agent_worktrees", "agent_endings", "agent_hosts", "agent_origins", "agent_processes", "agent_plexers", "agent_handles", "agent_spaces", "agent_tunings", "agent_leases", "agent_status", "space_plexers", "pack_plexers", "tasks", "task_cancellations", "task_attempts", "pack_intakes", "grant_requests", "grant_request_params", "grant_approvals", "grant_denials", "grant_spends", "command_locks", "__drizzle_migrations"].map(name => `table:${name}`),
-  ...["outbox_pending", "control_outcomes_agent", "runs_agent_started", "questions_pending", "one_install", "one_open_link", "one_live_process", "one_handle", "one_space", "one_tuning", "one_lease", "one_space_home", "one_pack_home", "one_intake", "one_open_attempt", "agents_by_pack", "agents_by_spawner", "one_agent_host", "agent_hosts_by_host", "agent_origins_by_asking_host", "leases_by_orch", "tasks_by_agent", "tasks_by_pack", "tasks_by_space", "tasks_by_enqueuer", "attempts_running", "grants_by_action", "one_agent_per_session"].map(name => `index:${name}`),
+  ...["outbox", "control_outcomes", "catalogues", "events", "runs", "questions", "question_options", "harnesses", "plexers", "hosts", "host_plexers", "host_names", "host_links", "host_event_cursors", "spaces", "agents", "agent_worktrees", "agent_endings", "agent_hosts", "agent_origins", "agent_processes", "agent_plexers", "agent_handles", "agent_spaces", "agent_tunings", "agent_forms", "agent_leases", "agent_status", "space_plexers", "pack_plexers", "tasks", "task_cancellations", "task_attempts", "pack_intakes", "grant_requests", "grant_request_params", "grant_approvals", "grant_denials", "grant_spends", "command_locks", "__drizzle_migrations"].map(name => `table:${name}`),
+  ...["outbox_pending", "control_outcomes_agent", "runs_agent_started", "questions_pending", "one_install", "one_open_link", "one_live_process", "one_handle", "one_space", "one_tuning", "one_form", "one_lease", "one_space_home", "one_pack_home", "one_intake", "one_open_attempt", "agents_by_pack", "agents_by_spawner", "one_agent_host", "agent_hosts_by_host", "agent_origins_by_asking_host", "leases_by_orch", "tasks_by_agent", "tasks_by_pack", "tasks_by_space", "tasks_by_enqueuer", "attempts_running", "grants_by_action", "one_agent_per_session"].map(name => `index:${name}`),
   `view:task_states`,
   `view:grant_states`,
   // No triggers. Every interval table's "one live row" rule is the
@@ -48,7 +48,7 @@ describe("rebuild schema", () => {
     expect(row(d, sql`PRAGMA foreign_keys`)).toEqual({ foreign_keys: 1 });
   });
 
-  test("all eleven partial unique indexes allow only one open row", () => {
+  test("all twelve partial unique indexes allow only one open row", () => {
     const cases = [
       ["host_plexers", (d: Db) => { d.run(sql`INSERT INTO host_plexers(host_id,plexer_id,since,version) VALUES (${"h"},${"px"},${1},${"v"})`); return () => d.run(sql`INSERT INTO host_plexers(host_id,plexer_id,since,version) VALUES (${"h"},${"px"},${2},${"v"})`); }],
       ["agent_processes", (d: Db) => { d.run(sql`INSERT INTO agent_processes(agent_id,since,pid) VALUES (${"a"},${1},${1})`); return () => d.run(sql`INSERT INTO agent_processes(agent_id,since,pid) VALUES (${"a"},${2},${2})`); }],
@@ -56,6 +56,7 @@ describe("rebuild schema", () => {
       ["agent_handles", (d: Db) => { d.run(sql`INSERT INTO agent_handles(agent_id,since,handle) VALUES (${"a"},${1},${"h"})`); return () => d.run(sql`INSERT INTO agent_handles(agent_id,since,handle) VALUES (${"a"},${2},${"h"})`); }],
       ["agent_spaces", (d: Db) => { d.run(sql`INSERT INTO agent_spaces(agent_id,since,space_id) VALUES (${"a"},${1},${"s"})`); return () => d.run(sql`INSERT INTO agent_spaces(agent_id,since,space_id) VALUES (${"a"},${2},${"s"})`); }],
       ["agent_tunings", (d: Db) => { d.run(sql`INSERT INTO agent_tunings(agent_id,since,model) VALUES (${"a"},${1},${"m"})`); return () => d.run(sql`INSERT INTO agent_tunings(agent_id,since,model) VALUES (${"a"},${2},${"m"})`); }],
+      ["agent_forms", (d: Db) => { d.run(sql`INSERT INTO agent_forms(agent_id,since,form) VALUES (${"a"},${1},${"tui"})`); return () => d.run(sql`INSERT INTO agent_forms(agent_id,since,form) VALUES (${"a"},${2},${"acp"})`); }],
       ["agent_leases", (d: Db) => { d.run(sql`INSERT INTO agent_leases(id,agent_id,orch_id,since) VALUES (${1},${"a"},${"b"},${1})`); return () => d.run(sql`INSERT INTO agent_leases(id,agent_id,orch_id,since) VALUES (${2},${"a"},${"b"},${2})`); }],
       ["space_plexers", (d: Db) => { d.run(sql`INSERT INTO space_plexers(space_id,since,plexer_id,handle) VALUES (${"s"},${1},${"px"},${"h"})`); return () => d.run(sql`INSERT INTO space_plexers(space_id,since,plexer_id,handle) VALUES (${"s"},${2},${"px"},${"h"})`); }],
       ["pack_plexers", (d: Db) => { d.run(sql`INSERT INTO pack_plexers(pack_id,since,plexer_id,handle) VALUES (${"a"},${1},${"px"},${"h"})`); return () => d.run(sql`INSERT INTO pack_plexers(pack_id,since,plexer_id,handle) VALUES (${"a"},${2},${"px"},${"h"})`); }],

@@ -33,7 +33,7 @@ function fixture(): { state: DaemonState; key: string } {
   const state = idleDaemonState(testDaemonServices({ orchDir, settings: {} }), orchDir);
   const key = mintAgentId();
   ensureHost(orchDir, FAR, 1);
-  registerHostedAgent(orchDir, { key, harnessId: "pi", cwd: "/far/repo", name: "far-worker", model: "", spawner: null, host: FAR, now: 1 });
+  registerHostedAgent(orchDir, { form: "tui", key, harnessId: "pi", cwd: "/far/repo", name: "far-worker", model: "", spawner: null, host: FAR, now: 1 });
   return { state, key };
 }
 

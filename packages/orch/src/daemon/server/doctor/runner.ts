@@ -6,7 +6,7 @@ import { errorMessage } from "../../../util.ts";
 import { getBackend } from "../../../backends/registry.ts";
 import { resolveAdapter } from "../../../adapters/registry.ts";
 import { OPERATOR_HARNESS_ID } from "../../../identity/operator.ts";
-import { binaryStatus, checkBins } from "./bins.ts";
+import { binaryStatus, checkBins, checkBindingAnswers } from "./bins.ts";
 import { describeBackendEnvironments, checkBackendVersions } from "./backends.ts";
 import { checkDeadAgents, checkMalformedPresenceRecords, checkUnscopedTasks } from "./presence.ts";
 import { checkDeclaredVsReality } from "./declared-vs-reality.ts";
@@ -25,6 +25,7 @@ import { checkRuntime } from "./runtime.ts";
 import { loadPresence } from "../../../presence/store.ts";
 import { agentView } from "../../../store/agent-view.ts";
 import type { Logger } from "../../../types/core.ts";
+import type { PipesProvider } from "../../../types/pipes.ts";
 import type { DaemonServices } from "../../../types/services.ts";
 
 import type { AdapterId } from "../../../types/adapter.ts";
@@ -77,6 +78,8 @@ async function checkLiveFleetPairs(orchDir: OrchDir, settings: OrchSettings, log
 /** What orchd runs doctor with: its own services, and the transport its server answers on. */
 export interface DoctorContext extends Pick<DaemonServices, "orchDir" | "logger" | "models"> {
   readonly socket: string | null;
+  /** Starts each installed ACP binding to ask who it is. */
+  readonly pipes: PipesProvider;
 }
 
 export async function runDoctor(services: DoctorContext): Promise<CheckResult[]> {
@@ -108,6 +111,9 @@ export async function runDoctor(services: DoctorContext): Promise<CheckResult[]>
     }),
     isolated(`models-${id}`, `${id} models`, () => checkHarnessModels(settings, id, services.models)),
   ]).flat();
+  const bindingChecks = settings
+    ? await checkBindingAnswers(enabledAdapters.map((id) => resolveAdapter(id)), { pipes: services.pipes, timeoutMs: settings.timeouts.acp_probe_ms })
+    : [];
   let livePairs: CheckResult[];
   try {
     livePairs = settings ? await checkLiveFleetPairs(orchDir, settings, logger) : [];
@@ -119,6 +125,7 @@ export async function runDoctor(services: DoctorContext): Promise<CheckResult[]>
   return Promise.all([
     isolated("bins", "Required binaries", () => checkBins(bins, enabledAdapters)),
     ...providerChecks,
+    ...bindingChecks.map((check) => Promise.resolve(check)),
     ...livePairs.map((pair) => Promise.resolve(pair)),
     isolated("backend-environments", "Backend environments", () => describeBackendEnvironments(enabledBackends, configuredBackend)),
     isolated("backend-versions", "Backend versions", checkBackendVersions),

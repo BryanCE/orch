@@ -4,6 +4,8 @@ import { readFileSync } from "node:fs";
 import { sourceFilesUnder } from "./helpers/sources.ts";
 import { join } from "node:path";
 import {
+  ACP_METHOD_NAMES,
+  checkAcpScopeLine,
   CORE_SCOPE_ALLOWLIST,
   IDENTITY_CONSTRUCTION_ALLOWLIST,
   checkCommandsParserLine,
@@ -37,6 +39,35 @@ const monorepoRoot = join(import.meta.dir, "..", "..", "..");
 function fixtureReader(files: ReadonlyMap<string, string>): (file: string) => string | undefined {
   return (file) => files.get(file.replace(/\\/g, "/"));
 }
+
+describe("ACP wire code stays in src/acp/", () => {
+  test("rejects an SDK import under src/control/", () => {
+    expect(checkAcpScopeLine('import { client } from "@agentclientprotocol/sdk";', "src/control/acp.ts")).toContain("src/acp/");
+  });
+
+  test("rejects a wire method under src/adapters/", () => {
+    expect(checkAcpScopeLine('const method = "session/prompt";', "src/adapters/example.ts")).toContain("src/acp/");
+  });
+
+  test("allows both files under src/acp/", () => {
+    expect(checkAcpScopeLine('import { client } from "@agentclientprotocol/sdk";', "src/acp/client.ts")).toBeUndefined();
+    expect(checkAcpScopeLine('const method = "session/prompt";', "src/acp/method.ts")).toBeUndefined();
+  });
+
+  test("rejects every wire method in nested extensions with each quote style", () => {
+    for (const method of ACP_METHOD_NAMES) {
+      for (const quote of ['"', "'", "`"]) {
+        expect(checkAcpScopeLine(`const method = ${quote}${method}${quote};`, "extensions/pi/nested/acp.ts")).toContain("src/acp/");
+      }
+    }
+  });
+
+  test("normalizes paths and leaves other scopes and method names alone", () => {
+    expect(checkAcpScopeLine('const method = "session/prompt";', "src\\acp\\method.ts")).toBeUndefined();
+    expect(checkAcpScopeLine('const method = "session/prompt";', "test/fixture.ts")).toBeUndefined();
+    expect(checkAcpScopeLine('const method = "session/prompting";', "src/control/method.ts")).toBeUndefined();
+  });
+});
 
 describe("harness bundles do not reach the store", () => {
   const packagePath = (path: string) => join(repoRoot, path).replace(/\\/g, "/");

@@ -115,7 +115,7 @@ describe("a far orchd's peer methods", () => {
 function farAgentWithResult(far: FarOrchd, origin: AgentOrigin, result: string): string {
   const key = mintAgentId();
   registerSpawnedAgent(far.orchDir, {
-    key, harnessId: "pi", placed: false, cwd: far.orchDir, name: key, model: "test", spawner: null,
+    form: "tui", key, harnessId: "pi", placed: false, cwd: far.orchDir, name: key, model: "test", spawner: null,
     process: { host: hostIdentity().id, pid: process.pid, startToken: `far-${key}` },  origin,
   });
   upsertRun(far.orchDir, { dispatchId: `run-${key}`, agentKey: key, state: "done", startedAt: Date.now(), result });

@@ -1,4 +1,5 @@
-import { ARROW, collapse, isRecord, truncate } from "../util.ts";
+import { isRecord } from "../util.ts";
+import { renderViewEntry } from "../shared/render-view-entry.ts";
 import { die, resultText } from "./target.ts";
 import { readRpc } from "./daemon.ts";
 import { hostLine, readAgentThroughOrchd } from "./agent-read.ts";
@@ -138,6 +139,7 @@ async function writeQuestions(services: Services, { all, json }: QuestionOptions
     age: formatAge(view.askedAt),
     id: view.questionId,
     question: view.question,
+    options: view.options,
     ts: new Date(view.askedAt).toISOString(),
     space: view.space ?? "-",
   }));
@@ -150,7 +152,7 @@ async function writeQuestions(services: Services, { all, json }: QuestionOptions
         const label = view.name ?? "-";
         const spaceLabel = view.space ?? "-";
         const name = showSpace ? `${spaceLabel} / ${label}` : label;
-        return `${name}  ${formatAge(view.askedAt)}\n${view.question}`;
+        return [`${name}  ${formatAge(view.askedAt)}\n${view.question}`, ...view.options.map((option, index) => `  ${index + 1}. ${option.label}`)].join("\n");
       })
       .join("\n\n") + "\n"
   );
@@ -174,33 +176,6 @@ function tailLastText(view: SessionView, lines: number): string {
   const text = view.lastText;
   if (!text) return "(no session text)";
   return text.split(/\r?\n/).slice(-lines).join("\n");
-}
-
-/** The HH:MM:SS prefix for a turn timestamp, or blank padding when absent or invalid. */
-function hms(timestamp: string | undefined): string {
-  const when = timestamp ? new Date(timestamp) : null;
-  if (!when || isNaN(when.getTime())) return "        ";
-  return when.toTimeString().slice(0, 8);
-}
-
-/** Lay out one normalized session-view turn as a tail row, or undefined to skip a pure-thinking turn. */
-function renderViewEntry(entry: SessionViewEntry): string | undefined {
-  const time = hms(entry.timestamp);
-  if (entry.role === "user") {
-    const text = collapse(entry.text ?? "");
-    return text ? `${time} user      | ${truncate(text, 200)}` : undefined;
-  }
-  if (entry.role === "assistant") {
-    const text = collapse(entry.text ?? "");
-    if (text) return `${time} assistant | ${truncate(text, 200)}`;
-    if (entry.toolCalls?.length) {
-      const calls = entry.toolCalls.map((call) => `${call.name}(${collapse(truncate(call.arg, 60))})`).join(", ");
-      return `${time} assistant | [tools] ${calls}`;
-    }
-    return undefined;
-  }
-  const mark = entry.isError ? " [err]" : "";
-  return `${time} tool      | ${entry.tool ?? "tool"}${mark} ${ARROW} ${truncate(collapse(entry.text ?? ""), 120)}`;
 }
 
 /** The last-N rendered per-turn rows of a session view, or the "(no entries)" marker. */

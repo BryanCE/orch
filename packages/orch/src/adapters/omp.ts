@@ -62,6 +62,7 @@ function ompToolArgv(opts: SpawnOpts): string[] {
 
 /** Adapter for omp (@oh-my-pi/pi-coding-agent), driven through orch's omp-bridge extension. */
 class OmpAdapter extends PiBridgeAdapter implements AgentAdapter {
+  protected readonly resumeFlag = "--resume";
   readonly id = "omp" as const;
 
   /** omp exports its session id into subprocesses; it is both marker and identity. */

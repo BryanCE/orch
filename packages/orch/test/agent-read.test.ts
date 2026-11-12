@@ -31,7 +31,7 @@ function storeWithAgent(): { orchDir: OrchDir; key: string } {
   dirs.push(orchDir);
   const key = mintAgentId();
   registerSpawnedAgent(orchDir, {
-    key, harnessId: "pi", placed: false, cwd: orchDir, name: "reader", model: "test", spawner: null,
+    form: "tui", key, harnessId: "pi", placed: false, cwd: orchDir, name: "reader", model: "test", spawner: null,
     process: { host: hostIdentity().id, pid: process.pid, startToken: `agent-read-${key}` }, 
   });
   return { orchDir, key };

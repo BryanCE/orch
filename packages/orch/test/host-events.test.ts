@@ -43,7 +43,7 @@ function followingFarAgent(): { state: DaemonState; orchDir: OrchDir; key: strin
   dirs.push(orchDir);
   bindHostName(orchDir, "far", FAR, Date.now());
   const key = mintAgentId();
-  registerHostedAgent(orchDir, { key, harnessId: "pi", cwd: "/home/far", name: "far-agent", model: "m", spawner: null, host: FAR });
+  registerHostedAgent(orchDir, { form: "tui", key, harnessId: "pi", cwd: "/home/far", name: "far-agent", model: "m", spawner: null, host: FAR });
   const state = idleDaemonState(testServices({ orchDir }), orchDir);
   const published: NotifyEvent[] = [];
   state.server = recordingServer(published);

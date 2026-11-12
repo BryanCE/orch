@@ -58,6 +58,35 @@ function alternation(ids: readonly string[]): string {
   return ids.map((id) => id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
 }
 
+/** ACP wire methods belong only to src/acp/. */
+export const ACP_METHOD_NAMES: readonly string[] = [
+  "session/new",
+  "session/load",
+  "session/resume",
+  "session/close",
+  "session/list",
+  "session/prompt",
+  "session/cancel",
+  "session/update",
+  "session/set_mode",
+  "session/set_config_option",
+  "session/request_permission",
+];
+
+const ACP_METHOD_LITERAL = new RegExp(`["'\`](${alternation(ACP_METHOD_NAMES)})["'\`]`);
+const ACP_MODULE_LITERAL = /["'`]@agentclientprotocol\/[^"'`]*["'`]/;
+
+/** Keep ACP SDK imports and wire methods inside src/acp/. */
+export function checkAcpScopeLine(line: string, relPath: string): string | undefined {
+  const normalizedPath = relPathOf(relPath);
+  if (normalizedPath.startsWith("src/acp/")) return undefined;
+  if (!normalizedPath.startsWith("src/") && !normalizedPath.startsWith("extensions/")) return undefined;
+  if (ACP_MODULE_LITERAL.test(line) || ACP_METHOD_LITERAL.test(line)) {
+    return "ACP SDK imports and wire methods belong in src/acp/";
+  }
+  return undefined;
+}
+
 type LineCheck = (line: string, relPath: string) => string | undefined;
 
 function scanDirectory(directory: string, excluded: Set<string>, check: LineCheck, recursive = false): number {
@@ -911,11 +940,12 @@ function runAllChecks(): void {
   }, true);
   const commandParserFiles = scanDirectory("src/commands", new Set(), checkCommandsParserLine, true);
   const leaseProvenanceFiles = scanDirectory("src/store", new Set(), checkLeaseProvenanceLine, true);
+  const acpScopeFiles = scanSourceTree("src", checkAcpScopeLine) + scanSourceTree("extensions", checkAcpScopeLine);
 
   const scanned =
     bridgeSourceFiles + extensionFiles + scriptFiles + adapterFiles + backendFiles +
     coreScopeFiles + packageFiles + dispatcherScopeFiles + spawnerReplyFiles +
-    identityConstructionFiles + commandParserFiles + leaseProvenanceFiles;
+    identityConstructionFiles + commandParserFiles + leaseProvenanceFiles + acpScopeFiles;
   checkBundleStoreBoundary();
   console.log(`check:bridge OK (${scanned} files scanned)`);
 }

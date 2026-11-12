@@ -1,5 +1,74 @@
-import { binaryOnPath } from "../../../util.ts";
+import { probeAcpAgent } from "../../../acp/session.ts";
+import { binaryOnPath, binaryPath, definedEnv, errorMessage, packageManifest } from "../../../util.ts";
+import { bindingPrerequisites } from "../../../shared/prerequisites.ts";
+import type { AgentAdapter, AcpRole } from "../../../types/adapter.ts";
 import type { BinaryStatus, CheckResult } from "../../../types/doctor.ts";
+import type { PipesProcess, PipesProvider } from "../../../types/pipes.ts";
+
+/** How doctor starts an ACP binding to ask who it is. */
+export interface BindingProbe {
+  readonly pipes: PipesProvider;
+  readonly timeoutMs: number;
+}
+
+/** What a found binding said about itself, or why it said nothing. */
+interface BindingAnswer {
+  readonly answering: boolean;
+  readonly text: string;
+}
+
+function bindingLine(command: string, found: string | null, answer: BindingAnswer | null): CheckResult {
+  const id = `binding-${command}`;
+  const label = `${command} binding`;
+  if (!found) return { id, label, status: "warn", detail: `${command} is not on PATH; other harness forms remain available` };
+  if (answer === null) return { id, label, status: "ok", detail: `${command} found at ${found}` };
+  return {
+    id,
+    label,
+    status: answer.answering ? "ok" : "warn",
+    detail: `${command} found at ${found}; ${answer.text}`,
+  };
+}
+
+/** Starts the binding on pipes, asks it to initialize, and kills it. Never rejects. */
+async function probeBinding(acp: AcpRole, probe: BindingProbe): Promise<BindingAnswer> {
+  let child: PipesProcess | null = null;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    child = probe.pipes.spawn({ argv: acp.argv({}), cwd: process.cwd(), env: definedEnv({ ...process.env, ...acp.env({}) }) });
+    const started = child;
+    const timedOut = new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), probe.timeoutMs); });
+    const answer = await Promise.race([
+      probeAcpAgent({ input: started.input, output: started.output }, packageManifest()),
+      timedOut,
+    ]);
+    if (answer === null) return { answering: false, text: `not answering: no ACP initialize reply within ${probe.timeoutMs} ms` };
+    return {
+      answering: true,
+      text: `answers as ${answer.name ?? "an unnamed agent"} ${answer.version ?? "with no version"} on ACP protocol ${answer.protocolVersion}`,
+    };
+  } catch (error: unknown) {
+    return { answering: false, text: `not answering: ${errorMessage(error)}` };
+  } finally {
+    clearTimeout(timer);
+    child?.kill();
+  }
+}
+
+/** Optional binding executables, each reported independently of its harness. */
+export function checkBindingPrerequisites(adapters: readonly AgentAdapter[]): CheckResult[] {
+  return bindingPrerequisites(adapters).map((command) => bindingLine(command, binaryPath(command), null));
+}
+
+/** Each binding's line. A found binding whose adapter declares an ACP role is also asked who it is. */
+export async function checkBindingAnswers(adapters: readonly AgentAdapter[], probe: BindingProbe): Promise<CheckResult[]> {
+  return Promise.all(bindingPrerequisites(adapters).map(async (command) => {
+    const found = binaryPath(command);
+    const acp = adapters.find((adapter) => adapter.acp?.argv({})[0] === command)?.acp;
+    if (!found || !acp) return bindingLine(command, found, null);
+    return bindingLine(command, found, await probeBinding(acp, probe));
+  }));
+}
 
 export function binaryStatus(ids: readonly string[]): BinaryStatus {
   return Object.fromEntries(ids.map((id) => [id, binaryOnPath(id)]));

@@ -131,7 +131,7 @@ function seedFleet(agents: number, trace: boolean): Fleet {
     const id = mintAgentId();
     // The bench's own pid is the agent's process, so orchd reads every agent as alive.
     registerSpawnedAgent(orchDir, {
-      key: id, harnessId: "pi", placed: false, cwd: orchDir, name: `bench-${index}`, model: "", spawner: null,
+      form: "tui", key: id, harnessId: "pi", placed: false, cwd: orchDir, name: `bench-${index}`, model: "", spawner: null,
       process: { host: hostIdentity().id, pid: process.pid, startToken: null },
     });
     agentIds.push(id);

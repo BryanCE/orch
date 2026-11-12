@@ -55,7 +55,7 @@ describe("an agent this orchd asked a linked host to run", () => {
   const KEY = "farag00001";
   function withFarAgent(): OrchDir {
     const orchDir = linkedDir();
-    registerHostedAgent(orchDir, { key: KEY, harnessId: "pi", cwd: "/home/far", name: "far-agent", model: "m", spawner: null, host: FAR });
+    registerHostedAgent(orchDir, { form: "tui", key: KEY, harnessId: "pi", cwd: "/home/far", name: "far-agent", model: "m", spawner: null, host: FAR });
     return orchDir;
   }
 

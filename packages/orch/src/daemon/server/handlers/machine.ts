@@ -16,7 +16,7 @@ import type { RpcHandler } from "../../../types/daemon.ts";
 /** Doctor's checks, run by orchd on itself and this machine; with `fix`, its fixes too. */
 export async function doctorRun(state: DaemonState, params: ParamsOf<"doctor">): Promise<ResultOf<"doctor">> {
   const { orchDir, logger, models } = state.services;
-  const run = (): Promise<CheckResult[]> => runDoctor({ orchDir, logger, models, socket: state.server?.transport ?? null });
+  const run = (): Promise<CheckResult[]> => runDoctor({ orchDir, logger, models, socket: state.server?.transport ?? null, pipes: state.pipes });
   const initial = await run();
   if (!params.fix) return { results: initial, changes: [] };
   if (params.only === undefined) {

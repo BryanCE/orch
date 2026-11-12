@@ -14,6 +14,7 @@ import type { IdentityMethod, ParamsOf, ResultOf, RpcMethod } from "../daemon/cl
 import type { WakeSignal } from "../daemon/server/wake.ts";
 import type { HostGreeting, HostId, HostIdentity } from "./host.ts";
 import type { ScreenConnection } from "./screen.ts";
+import type { QuestionOption } from "./question.ts";
 
 export interface LockRecord {
   pid: number;
@@ -224,6 +225,7 @@ export interface PendingQuestionView {
   /** The space the asking agent is composed into; null when it is in none. */
   readonly space: string | null;
   readonly question: string;
+  readonly options: QuestionOption[];
   readonly askedAt: number;
 }
 

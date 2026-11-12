@@ -77,6 +77,12 @@ export interface HeldPtysByPid {
   relaunchPid(pid: number, args: readonly string[]): Promise<{ readonly pid: number } | null>;
 }
 
+/** Screens orchd draws itself, for an agent whose transcript orchd writes instead of a program. */
+export interface PtyScreens {
+  /** Open a screen under `key` that orchd writes to, sized as given. Throws when `key` is held. */
+  openScreen(key: string, size: { readonly cols: number; readonly rows: number }): { write(text: string): void; close(): void };
+}
+
 /**
  * Every PTY this orchd holds, by the id it was started under. The attach stream reads a
  * snapshot, then follows the live feed; input and resize come back through it. A PTY is

@@ -25,7 +25,7 @@ function freshDir(): OrchDir {
 
 function spawned(key: string, spawner: string | null, origin?: AgentOrigin): SpawnRegistration {
   return {
-    key, harnessId: "pi", placed: false, cwd: "/tmp", name: key, model: "openai/gpt-5.6",
+    form: "tui", key, harnessId: "pi", placed: false, cwd: "/tmp", name: key, model: "openai/gpt-5.6",
     spawner, process: { host: hostIdentity().id, pid: process.pid, startToken: `origin-${key}` }, 
     ...(origin === undefined ? {} : { origin }),
   };

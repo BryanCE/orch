@@ -6,7 +6,7 @@ import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { join } from "node:path";
 import { cmdSpawn } from "../src/commands/spawn/index.ts";
 import { parseSpawnFlags, resolveSpawnSettings, type SpawnFlags } from "../src/commands/spawn/flags.ts";
-import { planSpawn, type SpawnSettings } from "../src/daemon/server/spawn/plan.ts";
+import { selectSpawnForm, planSpawn, type SpawnSettings } from "../src/daemon/server/spawn/plan.ts";
 import type { OrchSettings } from "../src/types/settings.ts";
 
 /** What orchd plans from what `orch spawn` asks it for. */
@@ -15,6 +15,9 @@ function planned(flags: SpawnFlags, settings: OrchSettings): SpawnSettings {
 }
 import { workerPrompt } from "../src/worker-prompt.ts";
 import { headlessBackend } from "../src/backends/headless/index.ts";
+import { heldBackend } from "../src/backends/held/index.ts";
+import { FakePanedBackend } from "./helpers/backend.ts";
+import { fakeAdapter } from "./helpers/adapter.ts";
 import { CommandRefusal } from "../src/refusal.ts";
 import { errorMessage } from "../src/util.ts";
 import { agentViews } from "../src/store/agent-view.ts";
@@ -40,6 +43,34 @@ import { testServices } from "./helpers/services.ts";
 import { servedServices } from "./helpers/daemon-state.ts";
 import type { RpcServer } from "../src/types/daemon.ts";
 describe("commands/spawn", () => {
+  test("parses one form for every name and refuses unknown forms", () => {
+    expect(parseSpawnFlags(["alpha", "beta", "--form", "acp"]).form).toBe("acp");
+    expect(() => parseSpawnFlags(["alpha", "--form", "bogus"])).toThrow(/tui, oneshot, acp/);
+  });
+
+  test("selects the native form without changing the backend", () => {
+    const terminal = new FakePanedBackend();
+    expect(selectSpawnForm(null, {}, piAdapter, terminal, heldBackend)).toEqual({ form: "tui", backend: terminal });
+    expect(selectSpawnForm(null, {}, piAdapter, headlessBackend, heldBackend)).toEqual({ form: "oneshot", backend: headlessBackend });
+  });
+
+  test("uses per-harness forms and lets the request override them", () => {
+    const terminal = new FakePanedBackend();
+    expect(selectSpawnForm(null, { pi: "tui" }, piAdapter, terminal, heldBackend)).toEqual({ form: "tui", backend: terminal });
+    expect(selectSpawnForm("tui", { pi: "acp" }, piAdapter, terminal, heldBackend)).toEqual({ form: "tui", backend: terminal });
+  });
+
+  test("refuses unavailable harness forms and incompatible backend stdio", () => {
+    const terminal = new FakePanedBackend();
+    expect(() => selectSpawnForm("acp", {}, piAdapter, terminal, heldBackend)).toThrow("harness pi has no acp form");
+    expect(() => selectSpawnForm("oneshot", {}, piAdapter, terminal, heldBackend)).toThrow("no backend here runs the oneshot form");
+  });
+
+  test("places a pipes-capable harness in held when the terminal backend cannot run its form", () => {
+    const terminal = new FakePanedBackend();
+    const adapter = fakeAdapter({ acp: { argv: () => [], env: () => ({}), sharesSessions: false } });
+    expect(selectSpawnForm("acp", {}, adapter, terminal, heldBackend)).toEqual({ form: "acp", backend: heldBackend });
+  });
   test("refuses an invalid name before resolving or creating a workspace", async () => {
     const dir = tempOrchDir("orch-spawn-invalid-name-");
     tempDirs.push(dir);
@@ -169,6 +200,24 @@ describe("commands/spawn", () => {
       models: { preferred: { omp: ["openrouter/anthropic/claude-sonnet-4.5"] } },
     },
   }).settings.current();
+
+  test("each harness selects its own form and backend", () => {
+    const dir = tempOrchDir("orch-spawn-forms-each-");
+    tempDirs.push(dir);
+    const settings = mixedSettingsFor(dir);
+    settings.defaults.forms = { pi: "tui", omp: "oneshot" };
+    const plan = planned(parseSpawnFlags(["a", "b", "--harness", "pi", "--harness", "omp"]), settings);
+    expect(plan.agents.map((agent) => ({ form: agent.form, backend: agent.backend.id }))).toEqual([{ form: "tui", backend: "held" }, { form: "oneshot", backend: "headless" }]);
+  });
+
+  test("a far spawn leaves resolution to the far orchd", () => {
+    const dir = tempOrchDir("orch-spawn-far-form-");
+    tempDirs.push(dir);
+    const settings = settingsFor(dir);
+    settings.defaults.forms = { pi: "acp" };
+    const plan = planned(parseSpawnFlags(["a", "--host", "far", "--dir", "/far"]), settings);
+    expect(plan.agents[0]).toMatchObject({ form: null, requestedForm: null });
+  });
 
   test("one --harness launches every agent on that harness", () => {
     const dir = tempOrchDir("orch-spawn-harness-one-");

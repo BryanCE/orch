@@ -126,7 +126,7 @@ describe("a held agent on a linked host, driven from here", () => {
     recordQuestion(far.orchDir, { id: "q-held", agentId: key, question: "which branch?", askedAt: Date.now(), options: [], supersede: true });
     await report(far, key, "asking");
     expect(await asOperator(near, answer, { target: key, text: "main" })).toMatchObject({ accepted: true, ack: "acknowledged" });
-    expect(deliveries.map((delivery) => delivery.message)).toEqual([{ action: "answer", text: "main", questionId: "q-held" }]);
+    expect(deliveries.map((delivery) => delivery.message)).toEqual([{ action: "answer", text: "main", questionId: "q-held", optionId: null }]);
     expect(pendingQuestion(far.orchDir, key)).toBeUndefined();
   });
 

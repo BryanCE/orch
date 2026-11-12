@@ -1,3 +1,4 @@
+import { FORM_IDS, isFormId, type FormId } from "../../types/form.ts";
 import { agentFlags, pickAdapter } from "../selection.ts";
 import { resolveTuningOrDie } from "../../shared/tuning.ts";
 import { parseCommand } from "../registry.ts";
@@ -21,6 +22,7 @@ export type SpawnFlags = Omit<AgentFlags, "adapterFlag" | "modelFlag"> & {
   /** Where the invocation was parsed, so a refusal prints the spec's usage. */
   at: CommandAt;
   json: boolean;
+  form: FormId | null;
   /** The tab `--tab` named, or null for a generated label. */
   tab: string | null;
   /** The directory the agent starts in: the spawner's own unless `--dir` names another. */
@@ -70,10 +72,13 @@ export function parseSpawnFlags(args: string[]): SpawnFlags {
   const invocation = parseCommand("spawn", args);
   const { flags, positional } = invocation;
   const tasksFile = flags.value("--tasks");
+  const form = flags.value("--form") ?? null;
+  if (form !== null && !isFormId(form)) throw usageError(invocation, `--form takes one of ${FORM_IDS.join(", ")}`);
   return {
     ...agentFlags(flags),
     at: invocation,
     json: flags.has("--json"),
+    form,
     tab: flags.value("--tab") ?? null,
     cwd: flags.value("--dir") ?? process.cwd(),
     cmd: flags.value("--cmd") ?? null,
@@ -197,6 +202,7 @@ export function resolveSpawnSettings(flags: SpawnFlags, settings: OrchSettings):
     json: flags.json,
     params: {
       agents,
+      form: flags.form,
       cmd: flags.cmd,
       plexer: flags.backendFlag ?? null,
       cwd: flags.cwd,

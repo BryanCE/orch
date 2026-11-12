@@ -48,6 +48,11 @@ function logFileName(key: string): string {
   return join(`${headlessLogKey(key)}.log`);
 }
 
+/** The file an agent's log lives in under this orch dir: the one place a launch's log path is decided. */
+export function logPathOf(directory: string, key: string): string {
+  return join(logDirectory(directory), logFileName(key));
+}
+
 function makeHeadlessHandle(pid: number, key: string, alive?: boolean): HeadlessHandle {
   const handle: HeadlessHandle = {
     kind: "headless", pid, key, ...(alive === undefined ? {} : { alive }), toString: () => `${pid}:${key}`,
@@ -144,7 +149,7 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
   /** Start the agent and record it in this orch dir's store. */
   spawn(adapter: AgentAdapter, opts: BackendSpawnOpts): HeadlessHandle {
     const launched = this.launch(adapter, opts);
-    registerSpawnedAgent(orchDirectory(opts.orchDir), unplacedRegistration(HEADLESS_BACKEND, adapter.id, launched.handle.key, opts, { handle: JSON.stringify(launched.handle), process: hostedHere(launched.process.pid, launched.process.startToken) }));
+    registerSpawnedAgent(orchDirectory(opts.orchDir), unplacedRegistration(headlessBackend, adapter.id, launched.handle.key, opts, { handle: JSON.stringify(launched.handle), process: hostedHere(launched.process.pid, launched.process.startToken) }));
     return launched.handle;
   }
 
@@ -183,7 +188,7 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
     }
 
     mkdirSync(logDirectory(directory), { recursive: true });
-    const logPath = join(logDirectory(directory), logFileName(key));
+    const logPath = logPathOf(directory, key);
     const logFd = openSync(logPath, "a");
     let child: ChildProcess;
     try {

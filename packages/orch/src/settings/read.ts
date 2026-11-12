@@ -145,6 +145,7 @@ const settingsValueExtractors = {
     models: root.defaults?.models ?? {},
     thinking: root.defaults?.thinking ?? SETTINGS_DEFAULTS.defaults.thinking,
     thinking_by_harness: root.defaults?.thinking_by_harness ?? {},
+    forms: root.defaults?.forms ?? SETTINGS_DEFAULTS.defaults.forms,
     worktree: root.defaults?.worktree ?? SETTINGS_DEFAULTS.defaults.worktree,
   }),
   fleet: (root: Partial<SettingsFile>): OrchSettings["fleet"] => ({

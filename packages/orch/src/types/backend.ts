@@ -6,7 +6,7 @@ import type { AgentId, HereAgent } from "./agent-place.ts";
 import type { Logger, OrchDir } from "./core.ts";
 import type { AgentWorktree } from "./worktree.ts";
 import type { AgentOrigin } from "./host.ts";
-import type { StdioKind } from "./form.ts";
+import type { FormId, StdioKind } from "./form.ts";
 
 /** Facts detected about the plexer containing the current process. */
 export interface DetectedPlexer {
@@ -281,6 +281,7 @@ export interface CaptureRole {
 
 /** Options common to backend launches. */
 export interface BackendSpawnOpts {
+  readonly form?: FormId;
   /** Initial task sent to the adapter. */
   readonly prompt?: string;
   /** Presence key to associate with the process, when known. */

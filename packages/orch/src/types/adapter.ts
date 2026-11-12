@@ -251,6 +251,11 @@ export interface AcpRole {
   readonly sharesSessions: boolean;
 }
 
+/** Build a terminal launch that continues a harness-native session. */
+export interface ResumeRole {
+  argv(opts: SpawnOpts, sessionId: string): readonly string[];
+}
+
 /** The harness runs orch's bridge: it attaches to orchd at start and applies deliveries
  * pushed down that link. `takes` lists the actions this bridge applies. */
 export interface BridgeRole {
@@ -309,6 +314,7 @@ export interface AgentAdapter {
   readonly bridge: BridgeRole | null;
   readonly hooks: HookReportRole | null;
   readonly acp: AcpRole | null;
+  readonly resume: ResumeRole | null;
   /** True when this harness's integration rewrites a locked or gated shell command through `orch lock` before it runs. */
   readonly commandGate: boolean;
   /**

@@ -100,7 +100,7 @@ describe("orchd RPC replay buffer", () => {
     const buffer = new ReplayBuffer(dir);
     const asker = hostIdFrom("asker-host");
     const key = mintAgentId();
-    registerSpawnedAgent(dir, { key, harnessId: "pi", placed: false, cwd: "/tmp", name: "mine", model: "", spawner: null, process: { host: hostIdentity().id, pid: 1, startToken: null }, origin: { askedBy: asker, spawner: null } });
+    registerSpawnedAgent(dir, { form: "tui", key, harnessId: "pi", placed: false, cwd: "/tmp", name: "mine", model: "", spawner: null, process: { host: hostIdentity().id, pid: 1, startToken: null }, origin: { askedBy: asker, spawner: null } });
     const mine = transitionEvent({ key });
     buffer.push(transitionEvent({ key: "someone-else" }));
     buffer.push(mine);

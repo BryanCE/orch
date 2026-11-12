@@ -147,6 +147,7 @@ const STATUS_COLUMN_KEYS: Readonly<Record<string, readonly (keyof StatusRow)[]>>
   tab: ["tab"],
   agent: ["agent"],
   harness: ["agent"],
+  form: ["form"],
   cwd: ["cwd"],
   worktree: ["worktree"],
   model: ["model"],

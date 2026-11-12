@@ -2,6 +2,9 @@
 // It lives apart from the boot so a test can serve the real daemon in-process.
 import { bootCodeHash, startedAt } from "../state.ts";
 import type { DaemonState } from "../state.ts";
+import { agentView } from "../../../store/agent-view.ts";
+import { FORM_STATE_OWNER } from "../../../types/form.ts";
+import type { OrchDir } from "../../../types/core.ts";
 import { answer, dispatch, message, steer } from "./write.ts";
 import { clearSession, enqueue, listPendingQuestions, reclaim, recordAgentQuestion, moveHandle, setModel, spawnHeadless } from "./lifecycle.ts";
 import { adopt, detach, orphans, reap, reapCandidateList, rename } from "./lease.ts";
@@ -37,12 +40,12 @@ import { endHeldAgents } from "../held-ending.ts";
 import { insertControlOutcome } from "../../../store/control-outcome-rows.ts";
 import { appendOutcome } from "../../../presence/history.ts";
 import { settleControlOutcome } from "../../../control/outcome.ts";
-import { acknowledgeDelivery } from "../../../control/ack.ts";
+import { ackOutboxRow } from "../outbox.ts";
 import type { ControlOutcomeReport } from "../../../types/agent.ts";
 import type { RpcHandlers, RpcRequestContext } from "../../../types/daemon.ts";
 import { RPC_RESULTS, type ParamsOf } from "../../client/protocol.ts";
 import type { NotifyEvent } from "../../../types/notify.ts";
-import { selectOpenOutboxForTarget, selectOutboxMessage, markOutboxDelivered } from "../../../store/outbox-rows.ts";
+import { selectOpenOutboxForTarget } from "../../../store/outbox-rows.ts";
 import { activePaneHud } from "../../../backends/hud.ts";
 import { peerView } from "../peer-view.ts";
 import { governed } from "../governance.ts";
@@ -60,6 +63,12 @@ function waking<P, R>(state: DaemonState, handler: (params: P) => R): (params: P
     state.wake.wake();
     return result;
   };
+}
+
+/** Whether a harness report about `key` is ignored: orchd owns the state of an agent whose form it reports itself. */
+function harnessReportIgnored(directory: OrchDir, key: string): boolean {
+  const form = agentView(directory, key)?.form ?? null;
+  return form !== null && FORM_STATE_OWNER[form] === "orchd";
 }
 
 /** The id a peer's request is remembered under: one host's ids never meet another's. */
@@ -111,8 +120,8 @@ export function rpcHandlers(state: DaemonState): RpcHandlers {
       activePaneHud(event.key, directory).notify(composed, display);
       return { ok: true };
     },
-    "report-status": waking(state, (params) => acceptStatusReport(directory, params.key, params.status, publish)),
-    "report-result": waking(state, (params) => acceptResultReport(directory, params.key, params.result)),
+    "report-status": waking(state, (params) => harnessReportIgnored(directory, params.key) ? { ok: true } : acceptStatusReport(directory, params.key, params.status, publish)),
+    "report-result": waking(state, (params) => harnessReportIgnored(directory, params.key) ? { ok: true } : acceptResultReport(directory, params.key, params.result)),
     "report-prompt": waking(state, (params) => acceptPromptReport(directory, params.key, params.prompt, publish)),
     "command-lock": ({ pid, ...params }) => lockCommand(directory, services.settings.current(), { ...params, process: hostedPid(pid) }, publish),
     "command-unlock": (params) => unlockCommand(directory, hostedPid(params.pid)),
@@ -211,16 +220,7 @@ export function rpcHandlers(state: DaemonState): RpcHandlers {
     question: (params) => recordAgentQuestion(directory, params),
     questions: (params) => listPendingQuestions(state, params),
     answer: governed(state, waking(state, (params) => answer(state, params))),
-    ack: (params) => {
-      const id = params.id;
-      const row = selectOutboxMessage(directory, id);
-      markOutboxDelivered(directory, id);
-      if (row === undefined) services.logger.forCorrelation(id).debug("dispatch.acked", { target: null });
-      else services.logger.forCorrelation(id).info("dispatch.acked", { target: row.target });
-      acknowledgeDelivery(id);
-      state.wake.wake();
-      return { ok: true };
-    },
+    ack: (params) => ackOutboxRow(state, params.id),
     "control-outcome": (params) => {
       const report: ControlOutcomeReport = {
         id: params.id,

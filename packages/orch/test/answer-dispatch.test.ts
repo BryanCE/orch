@@ -1,6 +1,9 @@
 import { placeHere } from "../src/process-place.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
+import { acknowledgeDelivery } from "../src/control/ack.ts";
+import { answerHere } from "../src/daemon/server/handlers/write.ts";
+import { idleDaemonState } from "./helpers/daemon-state.ts";
 import { deliverControl } from "../src/control/dispatch.ts";
 import { AgentGoneError } from "../src/control/agent-gone.ts";
 import {
@@ -43,7 +46,7 @@ function target(): string {
 
 function attach(directory: OrchDir, key: string): BridgeDelivery[] {
   const deliveries: BridgeDelivery[] = [];
-  const link: AgentLink = { push: (delivery): void => { deliveries.push(delivery); }, close: () => undefined };
+  const link: AgentLink = { takes: ["dispatch", "steer", "answer", "model"], abort: null, push: (delivery): void => { deliveries.push(delivery); acknowledgeDelivery(delivery.id); }, close: () => undefined };
   attachLink(directory, key, link);
   links.push({ directory, key, link });
   return deliveries;
@@ -79,6 +82,44 @@ afterEach(() => {
 });
 
 describe("answer over the bridge", () => {
+  for (const text of ["2", "3", "yes"]) {
+    test(`option question answered with ${text}`, async () => {
+      const directory = tempDir();
+      process.env.ORCH_DIR = directory;
+      const key = target();
+      answerStatus(directory, key, { id: "oldest" });
+      recordQuestion(directory, { id: "newer", agentId: key, question: "choose", askedAt: Date.now() + 1, options: [], supersede: false });
+      recordQuestion(directory, { id: "options", agentId: key, question: "choose", askedAt: 0, options: [
+        { id: "first", label: "Allow once", kind: "allow-once" },
+        { id: "second", label: "Reject once", kind: "reject-once" },
+      ], supersede: false });
+      const deliveries = attach(directory, key);
+      const state = idleDaemonState(testDaemonServices({ orchDir: directory, settings: {} }), directory);
+      const result = answerHere(state, placeHere(directory, key), text, null);
+      if (text !== "2") {
+        expect(await rejection(result)).toEqual(new Error("answer with a number from 1 to 2"));
+        expect(deliveries).toEqual([]);
+        return;
+      }
+      const accepted = await result;
+      expect(accepted).toMatchObject({ accepted: true, ack: "acknowledged" });
+      expect(deliveries).toEqual([{ id: accepted.id, message: { action: "answer", questionId: "options", optionId: "second", text: "Reject once" } }]);
+    });
+  }
+
+  test("free-text question is delivered with no option", async () => {
+    const directory = tempDir();
+    process.env.ORCH_DIR = directory;
+    const key = target();
+    answerStatus(directory, key, { id: "free-text" });
+    const deliveries = attach(directory, key);
+    const state = idleDaemonState(testDaemonServices({ orchDir: directory, settings: {} }), directory);
+
+    const accepted = await answerHere(state, placeHere(directory, key), "yes", null);
+    expect(accepted).toMatchObject({ accepted: true, ack: "acknowledged" });
+    expect(deliveries).toEqual([{ id: accepted.id, message: { action: "answer", questionId: "free-text", optionId: null, text: "yes" } }]);
+  });
+
   test("pushes the answer and its question id", async () => {
     const directory = tempDir();
     process.env.ORCH_DIR = directory;
@@ -86,11 +127,11 @@ describe("answer over the bridge", () => {
     answerStatus(directory, key, { id: "question-1" });
     const deliveries = attach(directory, key);
 
-    expect(await deliverControl(directory, settingsFor(directory), testDaemonServices({ orchDir: directory }).models, placeHere(directory, key), { kind: "answer", text: "yes", id: "answer-1" }))
+    expect(await deliverControl(directory, settingsFor(directory), testDaemonServices({ orchDir: directory }).models, placeHere(directory, key), { kind: "answer", text: "yes", optionId: null, id: "answer-1" }))
       .toEqual({ outcome: "invoke", ack: "expected" });
     expect(deliveries).toEqual([{
       id: "answer-1",
-      message: { action: "answer", text: "yes", questionId: "question-1" },
+      message: { action: "answer", text: "yes", questionId: "question-1", optionId: null },
     }]);
   });
 
@@ -101,7 +142,7 @@ describe("answer over the bridge", () => {
     answerStatus(directory, key);
     const deliveries = attach(directory, key);
 
-    expect(await deliverControl(directory, settingsFor(directory), testDaemonServices({ orchDir: directory }).models, placeHere(directory, key), { kind: "answer", text: "yes", id: "answer-2" }))
+    expect(await deliverControl(directory, settingsFor(directory), testDaemonServices({ orchDir: directory }).models, placeHere(directory, key), { kind: "answer", text: "yes", optionId: null, id: "answer-2" }))
       .toEqual({ outcome: "answer", reason: "not-asking", text: `${key} is not asking a question` });
     expect(deliveries).toHaveLength(0);
   });
@@ -111,7 +152,7 @@ describe("answer over the bridge", () => {
     process.env.ORCH_DIR = directory;
     const key = target();
     answerStatus(directory, key, { id: "question-3" });
-    expect(await rejection(deliverControl(directory, settingsFor(directory), testDaemonServices({ orchDir: directory }).models, placeHere(directory, key), { kind: "answer", text: "yes", id: "answer-3" })))
+    expect(await rejection(deliverControl(directory, settingsFor(directory), testDaemonServices({ orchDir: directory }).models, placeHere(directory, key), { kind: "answer", text: "yes", optionId: null, id: "answer-3" })))
       .toBeInstanceOf(LinkDetachedError);
   });
 
@@ -126,7 +167,7 @@ describe("answer over the bridge", () => {
     });
     attach(directory, key);
 
-    expect(await rejection(deliverControl(directory, settingsFor(directory), testDaemonServices({ orchDir: directory }).models, placeHere(directory, key), { kind: "answer", text: "yes", id: "answer-4" })))
+    expect(await rejection(deliverControl(directory, settingsFor(directory), testDaemonServices({ orchDir: directory }).models, placeHere(directory, key), { kind: "answer", text: "yes", optionId: null, id: "answer-4" })))
       .toBeInstanceOf(AgentGoneError);
   });
 
@@ -140,7 +181,7 @@ describe("answer over the bridge", () => {
     seedLiveProcess(directory, key);
     seedStatus(directory, key, { agent: "codex" });
 
-    expect(await deliverControl(directory, settingsFor(directory), testDaemonServices({ orchDir: directory }).models, placeHere(directory, key), { kind: "answer", text: "yes", id: "answer-5" })).toEqual({
+    expect(await deliverControl(directory, settingsFor(directory), testDaemonServices({ orchDir: directory }).models, placeHere(directory, key), { kind: "answer", text: "yes", optionId: null, id: "answer-5" })).toEqual({
       outcome: "answer",
       reason: "no-environment-role",
       text: `cannot answer ${key}: adapter codex takes no answers`,

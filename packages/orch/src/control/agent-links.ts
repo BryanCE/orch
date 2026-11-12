@@ -1,11 +1,14 @@
 import type { OrchDir } from "../types/core.ts";
-import type { BridgeDelivery } from "../shared/bridge-message.ts";
+import type { BridgeAction, BridgeDelivery } from "../shared/bridge-message.ts";
 import type { HereAgent } from "../types/agent-place.ts";
 import { normalizeControlTarget } from "./normalize-target.ts";
 
 /** One live link orchd can push a delivery down to an agent: a bridge's connection, or an ACP session orchd holds. */
 export interface AgentLink {
+  readonly takes: readonly BridgeAction[];
   push(delivery: BridgeDelivery): void;
+  /** Aborts the agent's current turn, null when the link cannot. */
+  readonly abort: (() => void) | null;
   /** End the link. Whoever owns it attaches again. */
   close(): void;
 }
@@ -41,6 +44,11 @@ export function detachLink(orchDir: OrchDir, key: string, link: AgentLink): void
  *  and nothing throws. */
 export function linkAttached(key: string): boolean {
   return links.has(key);
+}
+
+/** Read the attached link for an agent this orchd runs, or null when detached. */
+export function attachedLink(agent: HereAgent): AgentLink | null {
+  return links.get(agent.id) ?? null;
 }
 
 /** Push down the link the bridge of an agent this orchd runs holds. Throws

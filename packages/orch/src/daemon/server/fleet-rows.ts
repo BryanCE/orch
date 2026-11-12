@@ -191,6 +191,7 @@ export function statusRowFromEntity(
     name: agent?.name ?? (entity.managed === false ? null : entity.name),
     tab: entity.tabLabel,
     agent: entity.agent,
+    form: agentView?.form ?? null,
     ...leasePayloadFrom(entity.key, leaseFacts),
     ...viewProvenance(agentView),
     focused: entity.focused,

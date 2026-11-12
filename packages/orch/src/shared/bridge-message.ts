@@ -9,7 +9,7 @@ import { isRecord } from "../util.ts";
 export type BridgeMessage =
   | { readonly action: "dispatch"; readonly text: string }
   | { readonly action: "steer"; readonly text: string }
-  | { readonly action: "answer"; readonly text: string; readonly questionId: string }
+  | { readonly action: "answer"; readonly text: string; readonly questionId: string; readonly optionId: string | null }
   | { readonly action: "model"; readonly model: string };
 
 export type BridgeAction = BridgeMessage["action"];
@@ -59,7 +59,8 @@ export function isBridgeMessage(value: unknown): value is BridgeMessage {
     case "steer":
       return typeof value.text === "string";
     case "answer":
-      return typeof value.text === "string" && typeof value.questionId === "string";
+      return typeof value.text === "string" && typeof value.questionId === "string"
+        && (value.optionId === null || typeof value.optionId === "string");
     case "model":
       return typeof value.model === "string";
     default:

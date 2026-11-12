@@ -1,6 +1,8 @@
 // `spawn` and `tile`, done by orchd. The caller's plexer runs on this machine, so orchd admits the
 // launch, places it in that plexer (or launches headless, or on a linked host), makes each
 // agent's worktree, and launches every agent. The CLI waits for them to come up and reports.
+import { heldBackend } from "../../../backends/registry.ts";
+import { FORM_STDIO } from "../../../types/form.ts";
 import { compactionEnv } from "../../../policy/workers.ts";
 import { withLaunchPoints } from "../../../policy/compaction.ts";
 import { workerPolicyFrom, workerTools } from "../../../policy/workers.ts";
@@ -95,7 +97,7 @@ async function executeHeadlessSpawn(state: DaemonState, params: ParamsOf<"spawn"
   // A headless agent here has no TTY to idle on: it runs its prompt and exits, so work
   // dispatched after launch would arrive at a dead process. An agent on a linked host runs in
   // a PTY that host's orchd holds, and idles there waiting for a dispatch like any other.
-  if (settings.host === null && settings.agents.some((agent) => !agent.prompt?.trim())) throw new SpawnRefusalError(`a ${settings.backend} spawn needs its work up front: pass --prompt "<text>" or --file <path> (a headless agent runs it and exits)`);
+  if (settings.host === null && settings.agents.some((agent) => agent.form !== null && FORM_STDIO[agent.form] === "none" && !agent.prompt?.trim())) throw new SpawnRefusalError(`a ${settings.backend} spawn needs its work up front: pass --prompt "<text>" or --file <path> (a headless agent runs it and exits)`);
   // Headless agents have no placement environment; without an explicit space, use NULL
   // rather than inventing a space that the caller's environment does not belong to.
   const space = settings.space ?? null;
@@ -119,6 +121,7 @@ async function executeHeadlessSpawn(state: DaemonState, params: ParamsOf<"spawn"
       // ONE key per agent, minted before launch and passed as the launch credential.
       const key = mintAgentId();
       await spawnHeadless(state, {
+        form: settings.host === null ? plan.form : plan.requestedForm,
         key,
         name,
         // orchd launches the process, but the spawner is the caller.
@@ -232,7 +235,7 @@ function launchPrepared(state: DaemonState, prepared: readonly PreparedAgent[], 
     try {
       created.push(spawnOneIntoTab(state.services, {
         backend, adapter: resolveAdapterOrDie(plan.adapter), adapterId: plan.adapter, name: item.name, cwd: item.cwd, space, workspace, group: groupId,
-        model: plan.model, thinking: plan.thinking, preferredModels: plan.preferredModels,
+        form: plan.form ?? undefined, model: plan.model, thinking: plan.thinking, preferredModels: plan.preferredModels,
         tools: settings.tools, workers: settings.workers, cmd: settings.commandFlag ? plan.cmd : undefined,
         worktree: item.worktree,
         spawner: self.id, owner: self.id ?? undefined,
@@ -310,10 +313,33 @@ export async function spawnAgents(state: DaemonState, params: ParamsOf<"spawn">)
   const services = state.services;
   const settingsFile = services.settings.current();
   const self = spawner(state, params.caller);
-  const settings = await admitSpawn(state.directory, self, settingsFile, planSpawn(params, settingsFile), services.logger, services.models);
   const environment = callerEnvironment(self);
   const notes: SpawnNotes = [];
-  const backend = spawnBackend(services.logger, settings, environment.plexer, notes);
+  const chosen = params.host === null
+    ? spawnBackend(services.logger, { backend: selectBackend(params.plexer, settingsFile).id, space: params.space, backendChosen: (params.plexer ?? settingsFile.defaults.backend ?? null) !== null }, environment.plexer, notes)
+    : heldBackend;
+  const settings = await admitSpawn(state.directory, self, settingsFile, planSpawn(params, settingsFile, chosen), services.logger, services.models);
+  const partitions = new Map<string, SpawnAgentPlan[]>();
+  for (const agent of settings.agents) {
+    const partition = partitions.get(agent.backend.id);
+    if (partition === undefined) partitions.set(agent.backend.id, [agent]);
+    else partition.push(agent);
+  }
+  const results: Extract<SpawnResult, { outcome: "spawned" }>[] = [];
+  for (const [backend, agents] of partitions) {
+    const result = await spawnPartition(state, params, self, { ...settings, backend, agents }, environment, notes);
+    if (result.outcome !== "spawned") return result;
+    results.push(result);
+  }
+  const first = results[0];
+  if (first === undefined) throw new SpawnRefusalError("spawn requires at least one agent");
+  return { ...first, requested: settings.agents.length, agents: results.flatMap((result) => result.agents), panes: results.flatMap((result) => result.panes), harnesses: results.flatMap((result) => result.harnesses), notes, headless: results.every((result) => result.headless) };
+}
+
+async function spawnPartition(state: DaemonState, params: ParamsOf<"spawn">, self: CallerSelf, settings: SpawnSettings, environment: AgentEnvironment, notes: SpawnNotes): Promise<SpawnResult> {
+  const services = state.services;
+  const backend = settings.agents[0]?.backend;
+  if (backend === undefined) throw new SpawnRefusalError("spawn requires at least one agent");
   // An environment that creates no group can place nothing: spawn headless.
   if (!backend.groupHome) return executeHeadlessSpawn(state, params, self, settings, environment, notes);
   const groupLayout = backend.groupLayout;

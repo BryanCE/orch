@@ -29,6 +29,13 @@ afterEach(() => {
 });
 
 describe("loadSettings", () => {
+  test("loads per-harness default forms and rejects unknown forms", () => {
+    const directory = tempDir();
+    fs.writeFileSync(path.join(directory, "settings.json"), JSON.stringify({ schemaVersion: SETTINGS_SCHEMA, runtime: "node", defaults: { forms: { pi: "acp", claude: "tui" } } }));
+    expect(fileSettingsManager(directory).current().defaults.forms).toEqual({ pi: "acp", claude: "tui" });
+    fs.writeFileSync(path.join(directory, "settings.json"), JSON.stringify({ schemaVersion: SETTINGS_SCHEMA, runtime: "node", defaults: { forms: { pi: "bogus" } } }));
+    expect(() => fileSettingsManager(directory).current()).toThrow();
+  });
   test("refuses to invent settings when settings.json is missing", () => {
     const directory = tempDir();
 
@@ -104,6 +111,7 @@ describe("loadSettings", () => {
         models: { claude: "sonnet" },
         thinking: "medium",
         thinking_by_harness: {},
+        forms: {},
         worktree: true,
       },
       fleet: { max_agents_total: 12, max_agents_per_pack: 10, max_agents_per_tab: 4, max_depth: 2, max_agents_per_space: { wD: 4 }, min_free_memory_mb: 2048, worker_peer_tools: true, cross_space: true },
@@ -116,7 +124,7 @@ describe("loadSettings", () => {
       lock: { retries: 50, interval_ms: 100, stale_ms: 10_000 },
       questions: { renag_ms: 120_000, renag_limit: 5 },
       monitor: { on: ["done", "error"], summary_chars: 400 },
-      timeouts: { dispatch_ack_ms: 11, wait_ms: 22, adapter_command_ms: 33, notify_ms: 44, spawn_attach_ms: 55, spawn_attach_poll_ms: 66, lock_wait_ms: 180_000, lock_poll_ms: 1_000, reset_ready_ms: 77, reset_poll_ms: 88, daemon_probe_ms: 10_000, abort_gap_ms: 500, machine_ms: 600_000 },
+      timeouts: { dispatch_ack_ms: 11, wait_ms: 22, adapter_command_ms: 33, notify_ms: 44, spawn_attach_ms: 55, spawn_attach_poll_ms: 66, lock_wait_ms: 180_000, lock_poll_ms: 1_000, reset_ready_ms: 77, reset_poll_ms: 88, daemon_probe_ms: 10_000, acp_probe_ms: 5_000, abort_gap_ms: 500, machine_ms: 600_000 },
       notify: [{ id: "webhook", on: ["done", "error"], url: "https://example.test/orch" }],
       notification: { position: "top-left", title_chars: 60 },
       locked_commands: { commands: [], applies_to: ["orch", "slave"] },
@@ -220,7 +228,7 @@ describe("loadSettings", () => {
     expect(fileSettingsManager(directory).current()).toEqual({
       runtime: "node",
       enabled: { adapters: [], backends: [] },
-      defaults: { models: {}, thinking: "medium", thinking_by_harness: {}, worktree: false },
+      defaults: { forms: {}, models: {}, thinking: "medium", thinking_by_harness: {}, worktree: false },
       fleet: { max_agents_total: undefined, max_agents_per_pack: 10, max_agents_per_tab: 4, max_depth: 1, max_agents_per_space: {}, min_free_memory_mb: 2048, worker_peer_tools: false, cross_space: false },
       mail: { to_spawner: "prompt-unless-focused", to_worker: "prompt" },
       models: { allowed: {}, preferred: {} },
@@ -231,7 +239,7 @@ describe("loadSettings", () => {
       lock: { retries: 50, interval_ms: 100, stale_ms: 10_000 },
       questions: { renag_ms: 120_000, renag_limit: 5 },
       monitor: { on: ["asking", "waiting", "blocked", "done", "error", "aborted", "exited"], summary_chars: 400 },
-      timeouts: { dispatch_ack_ms: 10_000, wait_ms: 300_000, adapter_command_ms: 60_000, notify_ms: 3_000, spawn_attach_ms: 60_000, spawn_attach_poll_ms: 500, lock_wait_ms: 180_000, lock_poll_ms: 1_000, reset_ready_ms: 75_000, reset_poll_ms: 250, daemon_probe_ms: 10_000, abort_gap_ms: 500, machine_ms: 600_000 },
+      timeouts: { dispatch_ack_ms: 10_000, wait_ms: 300_000, adapter_command_ms: 60_000, notify_ms: 3_000, spawn_attach_ms: 60_000, spawn_attach_poll_ms: 500, lock_wait_ms: 180_000, lock_poll_ms: 1_000, reset_ready_ms: 75_000, reset_poll_ms: 250, daemon_probe_ms: 10_000, acp_probe_ms: 5_000, abort_gap_ms: 500, machine_ms: 600_000 },
       notify: [],
       notification: { position: "top-left", title_chars: 60 },
       locked_commands: { commands: [], applies_to: ["orch", "slave"] },

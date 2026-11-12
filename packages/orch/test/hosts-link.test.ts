@@ -168,7 +168,7 @@ function farAgent(far: FarOrchd, origin: AgentOrigin | null, live = false): stri
   const key = mintAgentId();
   const startToken = live ? processStartToken(process.pid) ?? null : `far-${key}`;
   registerSpawnedAgent(far.orchDir, {
-    key, harnessId: "pi", placed: false, cwd: "/tmp", name: key, model: "openai/gpt-5.6", spawner: null,
+    form: "tui", key, harnessId: "pi", placed: false, cwd: "/tmp", name: key, model: "openai/gpt-5.6", spawner: null,
     process: { host: hostIdentity().id, pid: process.pid, startToken },
     ...(origin === null ? {} : { origin }),
   });
@@ -551,7 +551,7 @@ describe("driving an agent wherever it runs", () => {
     const key = farAgent(far, { askedBy: hostIdentity().id, spawner: null });
     const near = await nearDriving(far, key);
     registerSpawnedAgent(near.orchDir, {
-      key: "foreign-orch", harnessId: "pi", placed: false, cwd: "/tmp", name: "foreign-orch", model: "openai/gpt-5.6", spawner: null,
+      form: "tui", key: "foreign-orch", harnessId: "pi", placed: false, cwd: "/tmp", name: "foreign-orch", model: "openai/gpt-5.6", spawner: null,
       process: { host: hostIdentity().id, pid: process.pid, startToken: processStartToken(process.pid) ?? null }, 
     });
     acquireLease(near.orchDir, key, "foreign-orch");
@@ -596,7 +596,7 @@ describe("driving an agent wherever it runs", () => {
     const near = await nearDriving(far, farAgent(far, { askedBy: hostIdentity().id, spawner: null }));
     const key = mintAgentId();
     registerHostedAgent(near.orchDir, {
-      key, harnessId: "pi", cwd: "/tmp", name: key, model: "openai/gpt-5.6", spawner: null, host: testHost("far-unlinked", "machine-unlinked"),
+      form: "tui", key, harnessId: "pi", cwd: "/tmp", name: key, model: "openai/gpt-5.6", spawner: null, host: testHost("far-unlinked", "machine-unlinked"),
     });
     expect(await refusal(dispatch(near.state, { target: key, text: "anyone there" }))).toBe(`${key} runs on host machine-unlinked, which orch has no link to`);
     expect(selectOpenOutboxForTarget(near.orchDir, key)).toEqual([]);

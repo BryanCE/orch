@@ -2,6 +2,7 @@ import type { z } from "zod";
 // Type-only: `z.infer` over the runtime schemas, erased at compile time, so
 // this creates no runtime edge out of the types layer.
 import type { HostSchema, NotifyEntrySchema } from "../settings/schema.ts";
+import type { FormId } from "./form.ts";
 import type { AdapterId } from "./adapter.ts";
 import { AGENT_STATES } from "../agent-state.ts";
 import type { BackendId } from "./backend.ts";
@@ -47,7 +48,7 @@ export type ExtensionExclusions = Partial<Record<AdapterId, string[]>>;
 export interface OrchSettings {
   runtime: OrchRuntime;
   enabled: { adapters: AdapterId[]; backends: BackendId[] };
-  defaults: { adapter?: AdapterId; backend?: BackendId; models: Partial<Record<AdapterId, string>>; thinking: ThinkingLevel; thinking_by_harness: Partial<Record<AdapterId, ThinkingLevel>>; worktree: boolean };
+  defaults: { forms: Partial<Record<AdapterId, FormId>>; adapter?: AdapterId; backend?: BackendId; models: Partial<Record<AdapterId, string>>; thinking: ThinkingLevel; thinking_by_harness: Partial<Record<AdapterId, ThinkingLevel>>; worktree: boolean };
   fleet: { max_agents_per_pack: number; max_agents_per_tab: number; max_depth: number; max_agents_total?: number; max_agents_per_space: Record<string, number>; min_free_memory_mb: number; worker_peer_tools: boolean; cross_space: boolean };
   mail: { to_spawner: MailDelivery; to_worker: MailDelivery };
   models: { allowed: Partial<Record<AdapterId, string[]>>; preferred: Partial<Record<AdapterId, string[]>> };
@@ -59,7 +60,7 @@ export interface OrchSettings {
   questions?: { renag_ms: number; renag_limit: number };
   monitor: { on: readonly NotifyState[]; summary_chars: number };
   logging: { level: LogLevel; slow_tool_ms: number; stall_ms: number; stall_poll_ms: number };
-  timeouts: { dispatch_ack_ms: number; wait_ms: number; adapter_command_ms: number; notify_ms: number; spawn_attach_ms: number; spawn_attach_poll_ms: number; lock_wait_ms: number; lock_poll_ms: number; reset_ready_ms: number; reset_poll_ms: number; daemon_probe_ms: number; abort_gap_ms: number; machine_ms: number };
+  timeouts: { dispatch_ack_ms: number; wait_ms: number; adapter_command_ms: number; notify_ms: number; spawn_attach_ms: number; spawn_attach_poll_ms: number; lock_wait_ms: number; lock_poll_ms: number; reset_ready_ms: number; reset_poll_ms: number; daemon_probe_ms: number; acp_probe_ms: number; abort_gap_ms: number; machine_ms: number };
   notify: NotifyEntry[];
   notification: NotificationSettings;
   locked_commands: { commands: string[]; applies_to: readonly Role[] };

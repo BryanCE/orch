@@ -1,5 +1,15 @@
 import type { HostOs } from "../types/host.ts";
-import type { InstallCommands, Prerequisite } from "../types/adapter.ts";
+import type { AgentAdapter, InstallCommands, Prerequisite } from "../types/adapter.ts";
+
+/** Binding executables declared by the selected adapters. */
+export function bindingPrerequisites(adapters: readonly AgentAdapter[]): string[] {
+  return [...new Set(adapters.flatMap((adapter) => {
+    if (!adapter.acp) return [];
+    const [command] = adapter.acp.argv({});
+    if (!command) throw new Error(`${adapter.id} declares an empty binding argv`);
+    return [command];
+  }))];
+}
 
 function posix(command: string): InstallCommands {
   return { linux: command, darwin: command };

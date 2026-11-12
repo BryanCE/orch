@@ -23,7 +23,7 @@ import type { DaemonState } from "../state.ts";
 import type { Governance, ParamsOf } from "../../client/protocol.ts";
 import type { NotifyEvent } from "../../../types/notify.ts";
 import type { OutboxDelivery, OutboxDeps } from "../../../types/daemon.ts";
-import { pendingQuestion, settleQuestion } from "../../../store/question-rows.ts";
+import { pendingQuestion, questionOptionsOf, settleQuestion } from "../../../store/question-rows.ts";
 import { hereIsLive, hostOfPlace, placeAgentIfAny } from "../../../process-place.ts";
 import { hostIdentity } from "../../../hosts/identity.ts";
 import type { HereAgent } from "../../../types/agent-place.ts";
@@ -355,9 +355,18 @@ export async function answerHere(state: DaemonState, agent: HereAgent, text: str
       ? `${agent.id} is not asking a question`
       : `question ${questionId} is not pending for ${agent.id}`);
   }
+  const options = questionOptionsOf(directory, current.id);
+  let optionId: string | null = null;
+  if (options.length > 0) {
+    const position = /^\d+$/.test(text) ? Number(text) : NaN;
+    const option = Number.isSafeInteger(position) ? options[position - 1] : undefined;
+    if (option === undefined) throw new Error(`answer with a number from 1 to ${options.length}`);
+    optionId = option.id;
+    text = option.label;
+  }
   const id = randomUUID();
   const ack = await confirmDelivery(id, settings.current().timeouts.dispatch_ack_ms, async () => {
-    const outcome = await deliverControl(directory, settings.current(), state.services.models, agent, { kind: "answer", text, id });
+    const outcome = await deliverControl(directory, settings.current(), state.services.models, agent, { kind: "answer", text, optionId, id });
     if (outcome.outcome === "answer") throw new Error(outcome.text);
     if (!settleQuestion(directory, { id: current.id, answer: text, answeredAt: Date.now() })) {
       throw new Error(`question ${current.id} is no longer pending`);

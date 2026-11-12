@@ -25,6 +25,7 @@ describe("the orca OSC pane HUD", () => {
   function seedPaneAgent(root: OrchDir, plexer: string, handle: string): string {
     const key = mintAgentId();
     registerSpawnedAgent(root, {
+      form: "tui",
       key,
       harnessId: "pi",
       backendId: plexer,

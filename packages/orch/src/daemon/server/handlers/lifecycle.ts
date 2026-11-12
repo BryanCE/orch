@@ -3,11 +3,14 @@ import { selfIdentityOf, spaceOfAgent } from "../../../identity/self.ts";
 import { callerKindOf } from "../../../policy/caller.ts";
 import { holdsLease } from "../../../store/lease-rows.ts";
 import { randomUUID } from "node:crypto";
+import { FORM_STDIO } from "../../../types/form.ts";
+import { selectSpawnForm } from "../spawn/plan.ts";
 import { hostedHere } from "../../../local-process.ts";
 import { placeHere } from "../../../process-place.ts";
 import { admitModel } from "../../../policy/model.ts";
 import { resolveAdapter } from "../../../adapters/registry.ts";
 import { headlessBackend, heldBackend, startHeldAgent } from "../../../backends/registry.ts";
+import { startAcpAgent } from "../acp-agents.ts";
 import { insertOutboxMessage } from "../../../store/outbox-rows.ts";
 import type { AgentAdapter } from "../../../types/adapter.ts";
 import type { BackendSpawnOpts } from "../../../types/backend.ts";
@@ -24,7 +27,7 @@ import { setHandle, setTuning } from "../../../store/interval-rows.ts";
 import { registerHostedAgent } from "../../../store/spawn-registration.ts";
 import { presenceEntry } from "../../../presence/store.ts";
 import { isAgentState } from "../../../agent-state.ts";
-import { pendingQuestions, recordQuestion, type QuestionRow } from "../../../store/question-rows.ts";
+import { pendingQuestions, recordQuestion } from "../../../store/question-rows.ts";
 import { governWrite } from "./write.ts";
 import { assertHostAdmits } from "../spawn/admission.ts";
 import { atAgentHost, driveOnHost } from "./host.ts";
@@ -70,10 +73,11 @@ export async function spawnHeadless(state: DaemonState, params: ParamsOf<"spawn-
     if (peer !== undefined) throw new Error(`cannot spawn ${key}: a host's orchd asks only for a spawn here, never on a third host`);
     return spawnOnHost(state, params.host, { ...params, model });
   }
+  const selected = selectSpawnForm(params.form, state.services.settings.current().defaults.forms, adapter, peer === undefined ? headlessBackend : heldBackend, heldBackend);
   const prompt = params.prompt;
-  // A headless agent here runs its prompt and exits; with none it would die before any dispatch.
-  if (peer === undefined && prompt === null) throw new Error(`cannot spawn ${key}: a headless agent needs its prompt at launch`);
+  if (FORM_STDIO[selected.form] === "none" && prompt === null) throw new Error(`cannot spawn ${key}: a headless agent needs its prompt at launch`);
   const opts: BackendSpawnOpts = {
+    form: selected.form,
     key,
     name: params.name,
     worktree: params.worktree,
@@ -89,31 +93,27 @@ export async function spawnHeadless(state: DaemonState, params: ParamsOf<"spawn-
     tools: params.tools,
     workers: params.workers,
   };
-  if (peer !== undefined) {
-    assertHostAdmits(directory, state.services.settings.current(), 1);
-    return spawnHeldForPeer(state, adapter, { ...opts, key, firstPrompt: prompt, spawner: null, origin: { askedBy: peer, spawner: params.spawner } });
+  if (peer !== undefined) assertHostAdmits(directory, state.services.settings.current(), 1);
+  // A form that needs a process orchd holds runs in a held launch; a headless form runs detached.
+  if (FORM_STDIO[selected.form] !== "none") {
+    return spawnHeldLaunch(state, adapter, { ...opts, key, firstPrompt: prompt, spawner: peer === undefined ? params.spawner : null, ...(peer === undefined ? {} : { origin: { askedBy: peer, spawner: params.spawner } }) });
   }
   const handle = headlessBackend.spawn(adapter, { ...opts, spawner: params.spawner });
   const running = headlessBackend.process.running(handle);
-  return { key, backend: headlessBackend.id, handle: JSON.stringify(handle), process: hostedHere(running.pid, running.startToken) };
+  return { form: selected.form, key, backend: headlessBackend.id, handle: JSON.stringify(handle), process: hostedHere(running.pid, running.startToken) };
 }
 
-/**
- * Another host asked for this agent, so it runs here as an interactive session in a PTY this
- * orchd holds: its work, rows and logs stay on this host, and any host can attach to its
- * screen. A peer's spawner is an agent on its own host, never one here, so it is the origin.
- *
- * The first prompt, when the spawn has one, goes where every launch prompt goes: into the
- * outbox, which pushes it to the agent's bridge once the bridge attaches.
- */
-async function spawnHeldForPeer(state: DaemonState, adapter: AgentAdapter, opts: BackendSpawnOpts & { readonly key: string; readonly firstPrompt: string | null }): Promise<ResultOf<"spawn-headless">> {
-  const launched = await startHeldAgent(state.held, adapter, opts);
+/** Start an agent in a form orchd holds: a PTY for `terminal`, pipes for `pipes`. */
+export async function spawnHeldLaunch(state: DaemonState, adapter: AgentAdapter, opts: BackendSpawnOpts & { readonly key: string; readonly firstPrompt: string | null }): Promise<ResultOf<"spawn-headless">> {
+  const form = opts.form;
+  if (form === undefined) throw new Error("held launch requires a resolved form");
+  const launched = FORM_STDIO[form] === "pipes" ? await startAcpAgent(state, adapter, opts) : await startHeldAgent(state.held, adapter, opts);
   // A spawn with no work idles until its first dispatch.
   if (opts.firstPrompt !== null) {
     insertOutboxMessage(state.directory, { id: randomUUID(), target: opts.key, payload: { action: "dispatch", text: opts.firstPrompt } });
     state.wake.wake();
   }
-  return { key: opts.key, backend: heldBackend.id, ...launched };
+  return { form, key: opts.key, backend: heldBackend.id, ...launched };
 }
 
 /** Start an agent on a linked host: that host's orchd spawns it, runs it and records it. This
@@ -125,9 +125,9 @@ async function spawnOnHost(state: DaemonState, hostName: string, params: ParamsO
   const link = state.hosts.link(hostName);
   const greeting = await link.requireUp();
   // Governed here already; the far orchd runs it for this host, as this host's peer.
-  const { key, name, spawner, adapter, model, thinking, prompt, cwd, env, preferredModels, tools, workers } = params;
-  const launched = await link.call("spawn-headless", { key, name, spawner, adapter, model, thinking, prompt, cwd, env, preferredModels, tools, workers });
-  registerHostedAgent(state.directory, { key, harnessId: adapter, cwd: params.cwd, name, model, thinking, spawner, host: greeting.host });
+  const { key, name, spawner, adapter, model, thinking, prompt, cwd, env, preferredModels, tools, workers, form } = params;
+  const launched = await link.call("spawn-headless", { key, name, spawner, adapter, model, thinking, prompt, cwd, env, preferredModels, tools, workers, form });
+  registerHostedAgent(state.directory, { form: launched.form, key, harnessId: adapter, cwd: params.cwd, name, model, thinking, spawner, host: greeting.host });
   return launched;
 }
 
@@ -286,7 +286,7 @@ function questionVisibleTo(directory: OrchDir, credential: CallerCredential): (r
 }
 
 /** One pending question as every reader sees it, from the store of the host its agent runs on. */
-export function questionView(directory: OrchDir, row: QuestionRow): PendingQuestionView {
+export function questionView(directory: OrchDir, row: ReturnType<typeof pendingQuestions>[number]): PendingQuestionView {
   const agent = agentById(directory, row.agentId);
   return {
     questionId: row.id,
@@ -296,6 +296,7 @@ export function questionView(directory: OrchDir, row: QuestionRow): PendingQuest
     host: heldAgentHost(directory, row.agentId),
     space: spaceOfAgent(directory, row.agentId),
     question: row.question,
+    options: row.options,
     askedAt: row.askedAt,
   };
 }

@@ -217,6 +217,7 @@ export interface ControlOutcomeRecord{id:string;agentId:string;command:string;re
 export interface RunRecord { dispatchId:string; agentKey:string; adapter?:string; model?:string; space?:string; task?:string; state:string; startedAt:number; finishedAt?:number; tokensIn?:number; tokensOut?:number; cacheRead?:number; cacheWrite?:number; cost?:number; turns?:number; result?:unknown; lastError?:string }
 
 export interface SpawnRegistration {
+  form: FormId;
   key: string;
   harnessId: string;
   /**
@@ -286,7 +287,7 @@ export interface SpawnRegistration {
  * store. Here it is the agent row, its spawner's lease, the tuning it was launched
  * with, and the host it runs on: no process, no handle, no plexer.
  */
-export type HostedSpawnRegistration = Pick<SpawnRegistration, "key" | "harnessId" | "cwd" | "name" | "model" | "thinking" | "spawner" | "now"> & {
+export type HostedSpawnRegistration = Pick<SpawnRegistration, "form" | "key" | "harnessId" | "cwd" | "name" | "model" | "thinking" | "spawner" | "now"> & {
   /** The linked host that runs it, as that host names itself. */
   readonly host: HostIdentity;
 };

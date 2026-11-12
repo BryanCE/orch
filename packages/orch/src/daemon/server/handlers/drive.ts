@@ -3,12 +3,9 @@
 // its own delivery and close code (`peer-drive`). That orchd takes this one's ruling: it never
 // re-runs a lease gate, since only the asking host can resolve its caller and judge whether
 // the lease holder is alive. Kill verbs (abort, close, reap) are gated nowhere (Rule 11).
-import { sleep } from "../../../util.ts";
-import { resolveTargetRoute } from "../../../control/dispatch.ts";
-import { paneBoundary } from "../../../control/pane-boundary.ts";
+import { deliverControl } from "../../../control/dispatch.ts";
 import { attemptClose, closeTargetOf } from "../../../control/close-attempt.ts";
 import { closeTargetOfAgent } from "../../../entities/close-targets.ts";
-import { agentView } from "../../../store/agent-view.ts";
 import { placeHere } from "../../../process-place.ts";
 import { atAgentHost, driveOnHost } from "./host.ts";
 import { requireOriginPeer } from "./peer.ts";
@@ -24,18 +21,13 @@ import type { RpcRequestContext } from "../../../types/daemon.ts";
 import type { SignalOutcome } from "../../../types/host.ts";
 import type { HereAgent } from "../../../types/agent-place.ts";
 
-/** Cancel the current turn of an agent this orchd runs: two Escapes to its pane, through
- *  its environment's agent-input role. An environment without one answers why. */
+/** Cancel the current turn of an agent this orchd runs through the control dispatcher. */
 async function abortHere(state: DaemonState, agent: HereAgent): Promise<ResultOf<"abort">> {
-  const route = resolveTargetRoute(state.directory, agent);
-  const input = route?.backend.agentInput ?? null;
-  const pane = route === undefined || input === null ? null : { input, handle: route.handle };
-  const plan = paneBoundary(agentView(state.directory, agent.id)?.name ?? agent.id, "abort", pane, route !== undefined);
-  if (plan.outcome === "answer") return plan;
-  const { input: keys, handle } = plan.role;
-  keys.sendKeys(handle, ["Escape"]);
-  await sleep(state.services.settings.current().timeouts.abort_gap_ms);
-  keys.sendKeys(handle, ["Escape"]);
+  const outcome = await deliverControl(state.directory, state.services.settings.current(), state.services.models, agent, { kind: "abort" });
+  if (outcome.outcome === "answer") {
+    if (outcome.reason !== "no-pane" && outcome.reason !== "no-environment-role") throw new Error(outcome.text);
+    return { ...outcome, reason: outcome.reason };
+  }
   return { outcome: "aborted" };
 }
 

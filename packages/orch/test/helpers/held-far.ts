@@ -92,6 +92,7 @@ export interface HeldFarAgentOptions {
 export async function heldFarAgent<T extends PtyProcess>(far: HeldFar<HeldPtys<T>>, opts: HeldFarAgentOptions = {}): Promise<{ readonly key: string; readonly pty: T }> {
   const key = mintAgentId();
   await spawnHeadless(far.state, {
+    form: null,
     key,
     name: opts.name ?? key,
     spawner: opts.spawner ?? null,
@@ -123,6 +124,8 @@ export function attachFakeBridge(far: FarOrchd, key: string): BridgeDelivery[] {
     await rpcCall(far.orchDir, "control-outcome", { id, key, command: "model", applied: { model: bare, ...(thinking === undefined ? {} : { thinking }) } });
   };
   const link: AgentLink = {
+    takes: ["dispatch", "steer", "answer", "model"],
+    abort: null,
     push: (delivery) => {
       deliveries.push(delivery);
       setTimeout(() => { void report(delivery); }, 0);
@@ -195,6 +198,7 @@ export async function nearOrchd(far: FarOrchd, key: string, options: NearOrchdOp
   if (options.serve ?? false) state.server = await startRpcServer(orchDir, rpcHandlers(state), { logger: recordingLogger().logger });
   const operator = options.spawner === null ? null : seedOperator(orchDir);
   registerHostedAgent(orchDir, {
+    form: "tui",
     key,
     harnessId: "pi",
     cwd: options.cwd ?? far.orchDir,

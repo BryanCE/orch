@@ -25,6 +25,7 @@ describe("events pending-question snapshot", () => {
     process.env.ORCH_DIR = root;
     const question: PendingQuestionView = { host: hostIdentity(), space: null,
       questionId: "q1",
+      options: [],
       agentId: "agent1",
       key: "agent1",
       name: "worker",

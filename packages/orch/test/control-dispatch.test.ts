@@ -2,7 +2,7 @@ import { placeHere } from "../src/process-place.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import { orchDirAt } from "../src/orch-dir.ts";
 import { afterEach, describe, expect, test } from "bun:test";
-import { deliverControl as daemonDeliverControl } from "../src/control/dispatch.ts";
+import { deliverControl as daemonDeliverControl, resolveTargetAdapter } from "../src/control/dispatch.ts";
 import { AgentGoneError } from "../src/control/agent-gone.ts";
 import {
   attachLink as daemonAttachBridge,
@@ -17,6 +17,9 @@ import { getBackend, registerBackend } from "../src/backends/registry.ts";
 import { mintAgentId } from "../src/shared/agent-id.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { seedAgent, seedLiveProcess } from "./helpers/agent.ts";
+import { abortAnywhere } from "../src/daemon/server/handlers/drive.ts";
+import { currentLease } from "../src/store/lease-rows.ts";
+import { idleDaemonState } from "./helpers/daemon-state.ts";
 import { currentTuning, endProcess } from "../src/store/interval-rows.ts";
 import { recordQuestion } from "../src/store/question-rows.ts";
 import type { AdapterId } from "../src/types/adapter.ts";
@@ -77,6 +80,8 @@ function presence(directory: OrchDir, key: string, agent: AdapterId, extra: Reco
 function captureBridge(key: string, onPush?: (delivery: BridgeDelivery) => void): BridgeDelivery[] {
   const deliveries: BridgeDelivery[] = [];
   const link: AgentLink = {
+    takes: resolveTargetAdapter(requiredOrchDir(), placeHere(requiredOrchDir(), key).id)?.bridge?.takes ?? [],
+    abort: null,
     push(delivery): void {
       deliveries.push(delivery);
       onPush?.(delivery);
@@ -95,6 +100,65 @@ afterEach(() => {
   for (const dir of tempDirs.splice(0)) removeTempDir(dir);
 });
 
+describe("deliverControl abort", () => {
+  const cases: { readonly name: string; readonly attached: boolean; readonly canAbort: boolean; readonly foreignLease: boolean }[] = [
+    { name: "sends two Escapes for an adapter without a bridge", attached: false, canAbort: false, foreignLease: false },
+    { name: "calls the link abort once and sends no keys", attached: true, canAbort: true, foreignLease: false },
+    { name: "sends two Escapes when the attached link cannot abort", attached: true, canAbort: false, foreignLease: false },
+    { name: "delivers abort past a live foreign lease", attached: true, canAbort: true, foreignLease: true },
+  ];
+  for (const scenario of cases) {
+    test(scenario.name, async () => {
+      const directory = tempDir();
+      process.env.ORCH_DIR = directory;
+      const key = target();
+      const owner = target();
+      seedAgent(key, { adapter: "claude", backend: "headless", handle: key, ...(scenario.foreignLease ? { owner } : {}) }, directory);
+      seedLiveProcess(directory, key);
+      if (scenario.foreignLease) seedLiveProcess(directory, owner);
+      const sent: { readonly handle: unknown; readonly keys: readonly string[] }[] = [];
+      const deliveries: BridgeDelivery[] = [];
+      let aborted = 0;
+      const backend = new FakePanedBackend();
+      const previous = getBackend(backend.id);
+      if (!previous) throw new Error("headless backend is not registered");
+      Object.defineProperty(backend, "agentInput", {
+        value: {
+          submit: () => undefined,
+          sendKeys(handle: unknown, keys: readonly string[]): void { sent.push({ handle, keys }); },
+          focus: () => undefined,
+        },
+      });
+      registerBackend(backend);
+      try {
+        if (scenario.attached) {
+          const link: AgentLink = {
+            takes: [],
+            abort: scenario.canAbort ? () => { aborted++; } : null,
+            push: (delivery) => { deliveries.push(delivery); },
+            close: () => undefined,
+          };
+          attachLink(key, link);
+          links.push({ key, link });
+        }
+        if (scenario.foreignLease) {
+          const services = testDaemonServices({ orchDir: directory, settings: {} });
+          const state = idleDaemonState(services, directory);
+          expect(await abortAnywhere(state, { target: key, actor: "someone-else" })).toEqual({ outcome: "aborted" });
+          expect(currentLease(directory, key)?.orchId).toBe(owner);
+        } else {
+          expect(await deliverControl(key, { kind: "abort" })).toEqual({ outcome: "invoke", ack: "none" });
+        }
+        expect(aborted).toBe(scenario.canAbort ? 1 : 0);
+        expect(sent).toEqual(scenario.canAbort ? [] : [{ handle: key, keys: ["Escape"] }, { handle: key, keys: ["Escape"] }]);
+        expect(deliveries).toEqual([]);
+      } finally {
+        registerBackend(previous);
+      }
+    });
+  }
+});
+
 describe("deliverControl bridge dispatch", () => {
   test("pushes run and steer with their action ids", async () => {
     const directory = tempDir();
@@ -111,6 +175,29 @@ describe("deliverControl bridge dispatch", () => {
     const steer = captureBridge(steerTarget);
     await deliverControl(steerTarget, { kind: "steer", text: "adjust", id: "steer-1" });
     expect(steer).toEqual([{ id: "steer-1", message: { action: "steer", text: "adjust" } }]);
+  });
+
+  test("steers through a link when the adapter has no bridge", async () => {
+    const directory = tempDir();
+    process.env.ORCH_DIR = directory;
+    const key = target();
+    presence(directory, key, "claude");
+    const deliveries: BridgeDelivery[] = [];
+    const link: AgentLink = { takes: ["steer"], abort: null, push: (delivery) => { deliveries.push(delivery); }, close: () => undefined };
+    attachLink(key, link);
+    links.push({ key, link });
+
+    expect(await deliverControl(key, { kind: "steer", text: "adjust", id: "steer-link" })).toEqual({ outcome: "invoke", ack: "expected" });
+    expect(deliveries).toEqual([{ id: "steer-link", message: { action: "steer", text: "adjust" } }]);
+  });
+
+  test("queues dispatch for a detached adapter bridge", async () => {
+    const directory = tempDir();
+    process.env.ORCH_DIR = directory;
+    const key = target();
+    presence(directory, key, "pi");
+
+    expect(await rejection(deliverControl(key, { kind: "run", text: "queued", id: "run-detached" }))).toBeInstanceOf(LinkDetachedError);
   });
 
   test("reports a detached bridge for a live agent", async () => {
@@ -143,7 +230,7 @@ describe("deliverControl bridge dispatch", () => {
     presence(directory, key, "pi");
     const deliveries = captureBridge(key);
 
-    expect(await deliverControl(key, { kind: "answer", text: "yes", id: "answer-1" }))
+    expect(await deliverControl(key, { kind: "answer", text: "yes", optionId: null, id: "answer-1" }))
       .toEqual({ outcome: "answer", reason: "not-asking", text: `${key} is not asking a question` });
     expect(deliveries).toHaveLength(0);
   });
@@ -159,10 +246,10 @@ describe("deliverControl bridge dispatch", () => {
     recordQuestion(directory, { id: "question-1", agentId: key, question: "ship?", askedAt: Date.now(), options: [], supersede: true });
     const deliveries = captureBridge(key);
 
-    await deliverControl(key, { kind: "answer", text: "yes", id: "answer-1" });
+    await deliverControl(key, { kind: "answer", text: "yes", optionId: null, id: "answer-1" });
     expect(deliveries).toEqual([{
       id: "answer-1",
-      message: { action: "answer", text: "yes", questionId: "question-1" },
+      message: { action: "answer", text: "yes", questionId: "question-1", optionId: null },
     }]);
   });
 

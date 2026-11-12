@@ -2,8 +2,27 @@ import { describe, expect, test } from "bun:test";
 import { allAdapters } from "../src/adapters/registry.ts";
 import { planShimInstall } from "../src/daemon/server/setup.ts";
 import { fakeAdapter } from "./helpers/adapter.ts";
+import { piAdapter } from "../src/adapters/pi.ts";
+import { ompAdapter } from "../src/adapters/omp.ts";
+import { claudeAdapter } from "../src/adapters/claude.ts";
+import { codexAdapter } from "../src/adapters/codex.ts";
 
 describe("adapter role composition", () => {
+  test.each([
+    { adapter: piAdapter, flag: "--session" },
+    { adapter: ompAdapter, flag: "--resume" },
+    { adapter: claudeAdapter, flag: "--resume" },
+    { adapter: codexAdapter, flag: "resume" },
+  ])("$adapter.id resumes a terminal conversation by id", ({ adapter, flag }) => {
+    const opts = { model: "test-model" };
+    const sessionId = "conversation-id";
+    expect(adapter.resume.argv(opts, sessionId)).toEqual([...adapter.interactiveArgv(opts), flag, sessionId]);
+  });
+
+  test("fake adapters have no resume role by default", () => {
+    expect(fakeAdapter().resume).toBeNull();
+  });
+
   test("composes complete roles per adapter", () => {
     const roles = new Map(allAdapters().map((adapter) => [adapter.id, {
       thinking: adapter.thinking !== null,

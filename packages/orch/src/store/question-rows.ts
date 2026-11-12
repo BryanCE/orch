@@ -1,5 +1,5 @@
 import type { OrchDir } from "../types/core.ts";
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, isNull, type SQL } from "drizzle-orm";
 import { orm, withTransaction } from "./connection.ts";
 import { questionOptions, questions } from "../db/schema.ts";
 import { isQuestionOptionKind, type QuestionOption } from "../types/question.ts";
@@ -12,12 +12,7 @@ export function recordQuestion(
   input: { id: string; agentId: string; question: string; askedAt: number; options: readonly QuestionOption[]; supersede: boolean },
 ): void {
   withTransaction(directory, () => {
-    if (input.supersede) {
-      orm(directory).update(questions)
-        .set({ answeredAt: input.askedAt, answer: null })
-        .where(and(eq(questions.agentId, input.agentId), isNull(questions.answeredAt)))
-        .run();
-    }
+    if (input.supersede) closeOpen(directory, eq(questions.agentId, input.agentId), input.askedAt);
     orm(directory).insert(questions).values({
       id: input.id,
       agentId: input.agentId,
@@ -36,6 +31,19 @@ export function recordQuestion(
       }).run();
     });
   });
+}
+
+/** Settle every open question matching `where` with no answer. */
+function closeOpen(directory: OrchDir, where: SQL, at: number): void {
+  orm(directory).update(questions)
+    .set({ answeredAt: at, answer: null })
+    .where(and(where, isNull(questions.answeredAt)))
+    .run();
+}
+
+/** Close one open question with no answer, so it can never be answered. */
+export function dropQuestion(directory: OrchDir, id: string, at: number): void {
+  closeOpen(directory, eq(questions.id, id), at);
 }
 
 /** Settle an open question, rejecting late and duplicate answers. */
@@ -59,11 +67,25 @@ export function pendingQuestion(directory: OrchDir, agentId: string): QuestionRo
     .get();
 }
 
-export function pendingQuestions(directory: OrchDir): QuestionRow[] {
-  return orm(directory).select().from(questions)
+/** All open questions with their choices in stored order, read together. */
+export function pendingQuestions(directory: OrchDir): (QuestionRow & { options: QuestionOption[] })[] {
+  const rows = orm(directory).select().from(questions)
+    .leftJoin(questionOptions, eq(questionOptions.questionId, questions.id))
     .where(isNull(questions.answeredAt))
-    .orderBy(asc(questions.askedAt), asc(questions.id))
+    .orderBy(asc(questions.askedAt), asc(questions.id), asc(questionOptions.position))
     .all();
+  const pending = new Map<string, QuestionRow & { options: QuestionOption[] }>();
+  for (const { questions: question, question_options: option } of rows) {
+    let row = pending.get(question.id);
+    if (row === undefined) {
+      row = { ...question, options: [] };
+      pending.set(question.id, row);
+    }
+    if (option !== null && isQuestionOptionKind(option.kind)) {
+      row.options.push({ id: option.optionId, label: option.label, kind: option.kind });
+    }
+  }
+  return [...pending.values()];
 }
 
 /** The options a question was asked with, in the order the agent offered them. */

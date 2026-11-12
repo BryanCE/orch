@@ -21,6 +21,7 @@ import { ORCH_RUNTIMES } from "../../runtimes.ts";
 import { ADAPTER_IDS, type HarnessModel, type SessionView, type SessionViewEntry } from "../../types/adapter.ts";
 import { RESULT_SOURCES, type AgentRead, type AgentReading } from "../../types/agent-read.ts";
 import type { FleetStatus, PeerFleetStatus, PeerView, PendingQuestionView } from "../../types/daemon.ts";
+import { QUESTION_OPTION_KINDS } from "../../types/question.ts";
 import type { BridgeNotification } from "../../types/agent.ts";
 import { LIVENESS, type ResultReport, type StatusPatch } from "../../types/presence.ts";
 import { GRANT_KINDS, type GrantRequest, type SpaceListing, type SpaceRow, type SpawnRegistration } from "../../types/store.ts";
@@ -189,6 +190,7 @@ export type SessionClaim = z.infer<typeof SESSION_CLAIM>;
 /** The one record a placed spawn states, over the wire: the same shape as
  *  {@link SpawnRegistration}, checked field by field at the daemon. */
 const SPAWN_REGISTRATION = z.object({
+  form: AGENT_VIEW.shape.form.unwrap(),
   key: nonBlank,
   harnessId: nonBlank,
   backendId: nonBlank.optional(),
@@ -554,6 +556,7 @@ const statusRow = z.object({
   name: z.string().nullable(),
   tab: z.string().nullable(),
   agent: z.string().nullable(),
+  form: AGENT_VIEW.shape.form,
   spawnedBy: z.string().nullable(),
   worktree: z.string().nullable(),
   branch: z.string().nullable(),
@@ -657,6 +660,7 @@ export const RPC_PARAMS = {
   /** Cancel an agent's current turn, wherever it runs. A kill verb: never gated by a lease. */
   abort: GOVERNANCE.extend({ target: nonBlank }),
   "spawn-headless": GOVERNANCE.extend({
+    form: SPAWN_REGISTRATION.shape.form.nullable(),
     key: nonBlank,
     name: nonBlank,
     spawner: z.string().nullable(),
@@ -677,6 +681,7 @@ export const RPC_PARAMS = {
   /** Launch named agents for the caller, in its plexer on this machine, headless, or on a linked
    *  host. orchd admits the spawn, places it, and launches each agent; `plexer` is --plexer. */
   spawn: GOVERNANCE.extend({
+    form: SPAWN_REGISTRATION.shape.form.nullable(),
     agents: z.array(SPAWN_AGENT).min(1),
     cmd: nonBlank.nullable(),
     plexer: nonBlank.nullable(),
@@ -844,7 +849,7 @@ export const RPC_RESULTS = {
   answer: ACCEPTED,
   /** `backend` is the environment the agent runs in where it was spawned: a held PTY when a
    *  peer asked, a detached process otherwise. */
-  "spawn-headless": z.object({ key: z.string(), backend: z.enum(BACKEND_IDS), handle: z.string(), process: HOSTED_PROCESS }),
+  "spawn-headless": z.object({ form: SPAWN_REGISTRATION.shape.form, key: z.string(), backend: z.enum(BACKEND_IDS), handle: z.string(), process: HOSTED_PROCESS }),
   "set-model": z.object({ ok: z.literal(true), applied: z.string() }),
   lifecycle: LIFECYCLE_OUTCOME,
   "settings-reload": OK,
@@ -1017,6 +1022,7 @@ function isPendingQuestionView(value: unknown): value is PendingQuestionView {
     && HOST_IDENTITY.safeParse(value.host).success
     && (typeof value.space === "string" || value.space === null)
     && typeof value.question === "string"
+    && z.array(z.object({ id: z.string(), label: z.string(), kind: z.enum(QUESTION_OPTION_KINDS) })).safeParse(value.options).success
     && typeof value.askedAt === "number";
 }
 

@@ -11,11 +11,14 @@ import { admitModel } from "../policy/model.ts";
 import { splitThinkingSuffix } from "../policy/thinking.ts";
 import { setTuning } from "../store/interval-rows.ts";
 import { awaitControlOutcome } from "./outcome.ts";
-import { pushToLink } from "./agent-links.ts";
+import { attachedLink, pushToLink } from "./agent-links.ts";
+import { paneBoundary } from "./pane-boundary.ts";
+import { sleep } from "../util.ts";
 import { echoAwaited, expectEcho, type TypedPrompt } from "./echo.ts";
 import type { OrchSettings } from "../types/settings.ts";
 import type { Backend, BackendHandle } from "../types/backend.ts";
 import type { AdapterCommand, AgentAdapter, LifecycleVerb, ModelCatalogue } from "../types/adapter.ts";
+import type { BridgeAction } from "../shared/bridge-message.ts";
 import type { ControlAction, ControlBoundaryOutcome } from "../types/control.ts";
 import { hereIsLive } from "../process-place.ts";
 import type { AgentId, HereAgent } from "../types/agent-place.ts";
@@ -94,10 +97,14 @@ function refuseSteerWhileAsking(orchDir: OrchDir, target: AgentId, action: Promp
   throw new Error(`cannot steer ${target}: it is awaiting an answer - use 'orch answer ${target} "<text>"'`);
 }
 
+function takesLinkAction(agent: HereAgent, adapter: AgentAdapter, action: BridgeAction): boolean {
+  return (attachedLink(agent)?.takes ?? adapter.bridge?.takes)?.includes(action) === true;
+}
+
 async function deliverPrompt(orchDir: OrchDir, agent: HereAgent, adapter: AgentAdapter, action: PromptAction, timeouts: OrchSettings["timeouts"]): Promise<ControlBoundaryOutcome> {
   refuseSteerWhileAsking(orchDir, agent.id, action);
   const bridgeAction = action.kind === "run" ? "dispatch" : "steer";
-  if (adapter.bridge?.takes.includes(bridgeAction)) {
+  if (takesLinkAction(agent, adapter, bridgeAction)) {
     requireLiveAgent(orchDir, agent, adapter, action.kind);
     pushToLink(agent, { id: action.id, message: { action: bridgeAction, text: action.text } });
     return { outcome: "invoke", ack: "expected" };
@@ -135,7 +142,7 @@ function retypeIgnored(orchDir: OrchDir, agent: HereAgent, prompt: TypedPrompt):
 
 /** A bridge applies the answer to the blocked tool call. A harness whose question ends its turn takes the answer as its next prompt. */
 function deliverAnswer(orchDir: OrchDir, agent: HereAgent, adapter: AgentAdapter, action: Extract<ControlAction, { kind: "answer" }>, ackMs: number): ControlBoundaryOutcome {
-  const bridged = adapter.bridge?.takes.includes("answer") === true;
+  const bridged = takesLinkAction(agent, adapter, "answer");
   if (!bridged && !echoesPrompts(adapter)) {
     return { outcome: "answer", reason: "no-environment-role", text: `cannot answer ${agent.id}: adapter ${adapter.id} takes no answers` };
   }
@@ -143,7 +150,7 @@ function deliverAnswer(orchDir: OrchDir, agent: HereAgent, adapter: AgentAdapter
   const questionId = pendingQuestion(orchDir, agent.id)?.id;
   if (questionId === undefined) return { outcome: "answer", reason: "not-asking", text: `${agent.id} is not asking a question` };
   if (!bridged) return typePrompt(orchDir, agent, adapter, { id: action.id, kind: "answer", text: action.text }, ackMs);
-  pushToLink(agent, { id: action.id, message: { action: "answer", text: action.text, questionId } });
+  pushToLink(agent, { id: action.id, message: { action: "answer", text: action.text, questionId, optionId: action.optionId } });
   return { outcome: "invoke", ack: "expected" };
 }
 
@@ -163,7 +170,7 @@ async function deliverModel(orchDir: OrchDir, settings: OrchSettings, catalogue:
   requireLiveAgent(orchDir, agent, adapter, "set model on");
   const command = adapter.modelControl?.setModel({ key: agent.id, model, id });
   if (command) await runAdapterCommand(command, timeoutMs);
-  if (adapter.bridge?.takes.includes("model")) {
+  if (takesLinkAction(agent, adapter, "model")) {
     pushToLink(agent, { id, message: { action: "model", model } });
   }
   const outcome = await awaitControlOutcome(id, timeoutMs);
@@ -215,9 +222,29 @@ function deliverLifecycle(orchDir: OrchDir, agent: HereAgent, adapter: AgentAdap
   return { outcome: "invoke", ack: "none" };
 }
 
+/** Cancel the current turn through the attached link's abort role, otherwise through keys. */
+async function deliverAbort(orchDir: OrchDir, agent: HereAgent, timeouts: OrchSettings["timeouts"]): Promise<ControlBoundaryOutcome> {
+  const link = attachedLink(agent);
+  if (link !== null && link.abort !== null) {
+    link.abort();
+    return { outcome: "invoke", ack: "none" };
+  }
+  const route = resolveTargetRoute(orchDir, agent);
+  const input = route?.backend.agentInput ?? null;
+  const pane = route === undefined || input === null ? null : { input, handle: route.handle };
+  const plan = paneBoundary(agentView(orchDir, agent.id)?.name ?? agent.id, "abort", pane, route !== undefined);
+  if (plan.outcome === "answer") return plan;
+  const { input: keys, handle } = plan.role;
+  keys.sendKeys(handle, ["Escape"]);
+  await sleep(timeouts.abort_gap_ms);
+  keys.sendKeys(handle, ["Escape"]);
+  return { outcome: "invoke", ack: "none" };
+}
+
 /** Apply one control action to an agent this orchd runs through its recorded adapter, failing
  *  loudly on any gap. */
 export async function deliverControl(orchDir: OrchDir, settings: OrchSettings, catalogue: ModelCatalogue, agent: HereAgent, action: ControlAction): Promise<ControlBoundaryOutcome> {
+  if (action.kind === "abort") return deliverAbort(orchDir, agent, settings.timeouts);
   const timeoutMs = settings.timeouts.adapter_command_ms;
   const adapter = resolveTargetAdapter(orchDir, agent.id);
   if (!adapter) throw new Error(`target ${agent.id} has no recorded adapter (presence or spawn registry)`);

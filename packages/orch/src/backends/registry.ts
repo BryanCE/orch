@@ -8,10 +8,10 @@ import type { Backend } from "../types/backend.ts";
 /** The environment that places an agent nowhere, which a daemon-owned launch
  *  runs on. Re-exported here so core
  *  reaches it through this boundary instead of reaching into a backend. */
-export { headlessBackend } from "./headless/index.ts";
+export { headlessBackend, logPathOf } from "./headless/index.ts";
 
-/** The environment orchd runs an agent in when it holds that agent's PTY. */
-export { bindHeldPtys, heldBackend, startHeldAgent } from "./held/index.ts";
+/** The environment orchd runs an agent in when it holds that agent's process. */
+export { bindHeldPtys, heldBackend, heldKeyOf, heldLaunchEnv, recordHeldAgent, startHeldAgent } from "./held/index.ts";
 
 const backends = new Map<string, Backend>();
 

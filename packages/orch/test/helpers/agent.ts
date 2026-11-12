@@ -76,6 +76,7 @@ export function seedOperator(directory: OrchDir, now = Date.now()): string {
 export function seedAgent(key: string, facts: AgentFacts = {}, directory: OrchDir): void {
   if (facts.owner !== undefined && facts.owner !== key) seedOrch(directory, facts.owner, facts.adapter ?? "pi");
   registerSpawnedAgent(directory, {
+    form: "tui",
     key,
     harnessId: facts.adapter ?? "pi",
     ...(facts.backend === undefined ? {} : { backendId: facts.backend }),

@@ -1,32 +1,6 @@
-/**
- * The PTYs this orchd holds, keyed by the id each was started under. Every call but `start`
- * and `kill` names what the PTY is for (`HeldTerminal`): an agent only as proven to run here.
- *
- * orchd is long-lived and owns the terminal of every agent it runs, so a viewer can
- * attach, detach and reattach to the live screen. Each entry is the agent's PTY, an
- * `@xterm/headless` terminal fed by everything the PTY prints, and a serializer over it.
- *
- * API, which the attach stream builds on:
- * - `start(key, request)` runs `request.file` with `request.args` in a new PTY sized by the
- *   `pty` settings and resolves with its pid. A key is held once.
- * - `has(terminal)` says whether a PTY is held for the terminal.
- * - `snapshot(terminal)` is the screen plus up to `pty.scrollback_lines` of scrollback, as escape
- *   sequences that redraw it on an empty terminal.
- * - `text(terminal, lines)` is the last `lines` lines of the screen and scrollback as plain text.
- * - `subscribe(terminal, onData, onExit)` follows the output from exactly where the current
- *   snapshot ends: a chunk reaches subscribers only once the terminal has taken it, so a
- *   snapshot taken and a subscription made in the same tick neither miss nor repeat a byte.
- *   `onExit` fires once when the program ends. Returns the unsubscribe.
- * - `write(terminal, data)` types into the PTY; `resize(terminal, cols, rows)` resizes the PTY and its
- *   screen together.
- * - `kill(key)` ends the program; the entry goes when its exit arrives.
- * - `count()` is how many PTYs are held; `killAll()` ends them all as orchd stops.
- *
- * A call naming a key that is not held throws.
- */
 import { Terminal } from "@xterm/headless";
 import { SerializeAddon } from "@xterm/addon-serialize";
-import { heldId, type HeldPtySettings, type HeldPtysByPid, type HeldStartRequest, type HeldTerminal, type PtyExit, type PtyHolder, type PtyProcess, type PtyProvider } from "../../types/pty.ts";
+import { heldId, type HeldPtySettings, type HeldPtysByPid, type HeldStartRequest, type HeldTerminal, type PtyExit, type PtyHolder, type PtyProcess, type PtyProvider, type PtyScreens } from "../../types/pty.ts";
 
 /** The bytes that reset a terminal to an empty screen: a viewer's screen after a relaunch,
  *  matching the new program's fresh one. */
@@ -37,16 +11,19 @@ interface Subscriber {
   readonly onExit: (exit: PtyExit) => void;
 }
 
+type HeldSource =
+  | { readonly kind: "pty"; readonly pty: PtyProcess; readonly request: HeldStartRequest }
+  | { readonly kind: "writer"; readonly close: () => void };
+
 interface HeldEntry {
-  /** What the PTY was started with, for a relaunch that keeps all of it but the arguments. */
-  readonly request: HeldStartRequest;
-  readonly pty: PtyProcess;
+  readonly source: HeldSource;
   readonly terminal: Terminal;
   readonly serializer: SerializeAddon;
   readonly subscribers: Set<Subscriber>;
 }
 
-export class PtyHold implements PtyHolder, HeldPtysByPid {
+/** Screens fed by held PTYs or orchd writers, with one replay and live output path. */
+export class PtyHold implements PtyHolder, HeldPtysByPid, PtyScreens {
   private readonly entries = new Map<string, HeldEntry>();
   /** Ids whose PTY is being started, so a second start for one is refused at once. */
   private readonly starting = new Set<string>();
@@ -63,27 +40,48 @@ export class PtyHold implements PtyHolder, HeldPtysByPid {
     } finally {
       this.starting.delete(key);
     }
-    const terminal = new Terminal({ cols, rows, scrollback, allowProposedApi: true });
+    const entry = this.openEntry(key, { kind: "pty", request, pty }, { cols, rows, scrollback });
+    pty.onData((data) => { this.output(entry, data); });
+    pty.onExit((exit) => { this.end(key, entry, exit); });
+    return { pid: pty.pid };
+  }
+
+  /** Open a screen whose transcript orchd writes instead of a PTY. */
+  openScreen(key: string, size: { readonly cols: number; readonly rows: number }): { write(text: string): void; close(): void } {
+    if (this.entries.has(key) || this.starting.has(key)) throw new Error(`a PTY is already held for ${key}`);
+    let closed = false;
+    const close = (): void => {
+      if (closed) return;
+      closed = true;
+      this.end(key, entry, { exitCode: 0, signal: null });
+    };
+    const entry = this.openEntry(key, { kind: "writer", close }, { ...size, scrollback: this.settings().scrollback_lines });
+    return { write: (text) => { if (!closed) this.output(entry, text); }, close };
+  }
+
+  private openEntry(key: string, source: HeldSource, size: { readonly cols: number; readonly rows: number; readonly scrollback: number }): HeldEntry {
+    const terminal = new Terminal({ ...size, allowProposedApi: true });
     const serializer = new SerializeAddon();
     terminal.loadAddon(serializer);
-    const entry: HeldEntry = { request, pty, terminal, serializer, subscribers: new Set() };
+    const entry: HeldEntry = { source, terminal, serializer, subscribers: new Set() };
     this.entries.set(key, entry);
-    pty.onData((data) => {
-      terminal.write(data, () => {
-        for (const subscriber of entry.subscribers) subscriber.onData(data);
-      });
+    return entry;
+  }
+
+  private output(entry: HeldEntry, data: string): void {
+    entry.terminal.write(data, () => {
+      for (const subscriber of entry.subscribers) subscriber.onData(data);
     });
-    pty.onExit((exit) => {
-      // After every chunk already written: the exit is the feed's last word.
-      terminal.write("", () => {
-        if (this.entries.get(key) === entry) this.entries.delete(key);
-        const subscribers = [...entry.subscribers];
-        entry.subscribers.clear();
-        terminal.dispose();
-        for (const subscriber of subscribers) subscriber.onExit(exit);
-      });
+  }
+
+  private end(key: string, entry: HeldEntry, exit: PtyExit): void {
+    entry.terminal.write("", () => {
+      if (this.entries.get(key) === entry) this.entries.delete(key);
+      const subscribers = [...entry.subscribers];
+      entry.subscribers.clear();
+      entry.terminal.dispose();
+      for (const subscriber of subscribers) subscriber.onExit(exit);
     });
-    return { pid: pty.pid };
   }
 
   has(terminal: HeldTerminal): boolean {
@@ -110,12 +108,13 @@ export class PtyHold implements PtyHolder, HeldPtysByPid {
   }
 
   write(terminal: HeldTerminal, data: string): void {
-    this.entry(heldId(terminal)).pty.write(data);
+    const { source } = this.entry(heldId(terminal));
+    if (source.kind === "pty") source.pty.write(data);
   }
 
   resize(terminal: HeldTerminal, cols: number, rows: number): void {
     const entry = this.entry(heldId(terminal));
-    entry.pty.resize(cols, rows);
+    if (entry.source.kind === "pty") entry.source.pty.resize(cols, rows);
     entry.terminal.resize(cols, rows);
   }
 
@@ -124,7 +123,7 @@ export class PtyHold implements PtyHolder, HeldPtysByPid {
   writeToPid(pid: number, data: string): boolean {
     const held = this.byPid(pid);
     if (held === null) return false;
-    held.entry.pty.write(data);
+    held.source.pty.write(data);
     return true;
   }
 
@@ -136,23 +135,23 @@ export class PtyHold implements PtyHolder, HeldPtysByPid {
   async relaunchPid(pid: number, args: readonly string[]): Promise<{ readonly pid: number } | null> {
     const held = this.byPid(pid);
     if (held === null) return null;
-    const { key, entry } = held;
+    const { key, entry, source } = held;
     const subscribers = [...entry.subscribers];
     entry.subscribers.clear();
     const { cols, rows } = entry.terminal;
     const exit = await new Promise<PtyExit>((resolve) => {
       entry.subscribers.add({ onData: () => undefined, onExit: resolve });
-      entry.pty.kill();
+      source.pty.kill();
     });
     let started: { readonly pid: number };
     try {
-      started = await this.start(key, { ...entry.request, args: [...args] });
+      started = await this.start(key, { ...source.request, args: [...args] });
     } catch (error: unknown) {
       for (const subscriber of subscribers) subscriber.onExit(exit);
       throw error;
     }
     const next = this.entry(key);
-    next.pty.resize(cols, rows);
+    if (next.source.kind === "pty") next.source.pty.resize(cols, rows);
     next.terminal.resize(cols, rows);
     for (const subscriber of subscribers) {
       subscriber.onData(RESET_SCREEN);
@@ -161,13 +160,18 @@ export class PtyHold implements PtyHolder, HeldPtysByPid {
     return started;
   }
 
-  private byPid(pid: number): { readonly key: string; readonly entry: HeldEntry } | null {
-    for (const [key, entry] of this.entries) if (entry.pty.pid === pid) return { key, entry };
+  private byPid(pid: number): { readonly key: string; readonly entry: HeldEntry; readonly source: Extract<HeldSource, { kind: "pty" }> } | null {
+    for (const [key, entry] of this.entries) {
+      const { source } = entry;
+      if (source.kind === "pty" && source.pty.pid === pid) return { key, entry, source };
+    }
     return null;
   }
 
   kill(key: string): void {
-    this.entry(key).pty.kill();
+    const { source } = this.entry(key);
+    if (source.kind === "pty") source.pty.kill();
+    else source.close();
   }
 
   count(): number {
@@ -179,7 +183,7 @@ export class PtyHold implements PtyHolder, HeldPtysByPid {
   }
 
   killAll(): void {
-    for (const entry of this.entries.values()) entry.pty.kill();
+    for (const key of this.entries.keys()) this.kill(key);
   }
 
   private entry(key: string): HeldEntry {

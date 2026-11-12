@@ -9,7 +9,7 @@ import { resolveAdapter } from "../../adapters/registry.ts";
 import { installCommand, PREREQUISITES } from "../../shared/prerequisites.ts";
 import { hostOs, isNixOs } from "../../host.ts";
 import { homeDir } from "../../shared/home.ts";
-import { binaryStatus } from "./doctor/bins.ts";
+import { binaryStatus, checkBindingPrerequisites } from "./doctor/bins.ts";
 import { shebangRuntime, writeShebangRuntime } from "./doctor/runtime.ts";
 import { ORCH_DING_BIN } from "../../notify/ding.ts";
 import { ARROW, binaryOnPath, binaryPath, errorMessage, orchRootAbove, packageRoot } from "../../util.ts";
@@ -111,6 +111,9 @@ function probePrerequisites(adapters: readonly AdapterId[], backends: readonly B
     const binPath = bins[id] ? binaryPath(id) ?? "" : "";
     say(`  ${binPath ? "ok      " : "MISSING "}${id}${binPath ? `  (${binPath})` : ""}`);
     if (!bins[id]) queueInstall(id);
+  }
+  for (const binding of checkBindingPrerequisites(adapters.map((id) => resolveAdapter(id)))) {
+    say(`  ${binding.status === "ok" ? "ok      " : "MISSING "}${binding.detail}`);
   }
   for (const id of backends) {
     const available = getBackend(id)!.isAvailable();

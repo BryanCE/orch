@@ -273,6 +273,7 @@ async function recordAdoptedAgent(services: Services, self: CallerSelf, key: str
   // adopting it would register a row that reads as dead at once.
   if (ent.backend === null || ent.paneId === null) die(`cannot adopt ${displayName(ent.name, ent.key)}: it sits in no pane orch can read, so orch cannot watch it. Spawn it with orch instead.`);
   await callDaemon(services, "adopt-agent", {
+    form: "tui",
     key,
     harnessId: dispatchSettings.adapter,
     backendId: ent.backend,

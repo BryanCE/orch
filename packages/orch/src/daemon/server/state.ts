@@ -7,7 +7,8 @@ import { fleetLeaseFacts } from "../../agent/drive-state.ts";
 import { linkAttached } from "../../control/agent-links.ts";
 import { buildFleetStatus } from "./fleet-status.ts";
 import type { FleetStatus, RpcServer } from "../../types/daemon.ts";
-import type { HeldPtysByPid, PtyHolder } from "../../types/pty.ts";
+import type { HeldPtysByPid, PtyHolder, PtyScreens } from "../../types/pty.ts";
+import type { PipesProvider } from "../../types/pipes.ts";
 import type { SettingsWatch } from "../../types/settings.ts";
 import type { DaemonServices } from "../../types/services.ts";
 import type { WakeSignal } from "./wake.ts";
@@ -45,7 +46,9 @@ export interface DaemonState {
   /** What this orchd answered to requests linked hosts sent to be done once. */
   readonly receipts: Receipts;
   /** The PTY of every agent this orchd runs as an interactive session. */
-  readonly held: PtyHolder & HeldPtysByPid;
+  readonly held: PtyHolder & HeldPtysByPid & PtyScreens;
+  /** Starts the programs orchd runs on pipes: an agent in the `acp` form, and the doctor's probes. */
+  readonly pipes: PipesProvider;
   fatalLogged: boolean;
 }
 

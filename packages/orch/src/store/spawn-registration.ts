@@ -1,7 +1,7 @@
 import type { OrchDir } from "../types/core.ts";
 import { eq } from "drizzle-orm";
 import { agentById, ensureHarness, ensurePlexer, insertAgent, originOf, setOrigin, setWorktree } from "./agent-rows.ts";
-import { recordProcess, setAgentPlexer, setHandle, setSpace, setTuning } from "./interval-rows.ts";
+import { recordProcess, setAgentPlexer, setForm, setHandle, setSpace, setTuning } from "./interval-rows.ts";
 import { hostIdentity } from "../hosts/identity.ts";
 import { placeHere } from "../process-place.ts";
 import { spaces } from "../db/schema.ts";
@@ -33,6 +33,7 @@ export function registerHostedAgent(directory: OrchDir, input: HostedSpawnRegist
   return withTransaction(directory, () => {
     const now = input.now ?? Date.now();
     const spawnerId = insertSpawnedRow(directory, input, input.host, now);
+    setForm(directory, input.key, now, input.form);
     setTuning(directory, input.key, now, { model: input.model, thinking: input.thinking });
     holdSpawned(directory, input.key, spawnerId, now);
     return input.key;
@@ -63,6 +64,7 @@ function writeSpawnedAgent(directory: OrchDir, input: SpawnRegistration): string
   // carries one, so the asking host's whole tree stays its own.
   const origin = input.origin ?? (spawnerId === null ? null : originOf(directory, spawnerId));
   if (origin !== null) setOrigin(directory, agentId, origin);
+  setForm(directory, agentId, now, input.form);
   writeEnvironment(directory, placeHere(directory, agentId), now, input);
   holdSpawned(directory, agentId, input.owner ?? spawnerId, now);
   return agentId;

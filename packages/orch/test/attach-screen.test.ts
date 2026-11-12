@@ -110,7 +110,7 @@ async function serveScreens(state: DaemonState, holder: FakeScreenHolder): Promi
 function hereAgent(orchDir: OrchDir): string {
   const key = mintAgentId();
   registerSpawnedAgent(orchDir, {
-    key, harnessId: "pi", placed: false, cwd: "/tmp", name: key, model: "openai/gpt-5.6", spawner: null,
+    form: "tui", key, harnessId: "pi", placed: false, cwd: "/tmp", name: key, model: "openai/gpt-5.6", spawner: null,
     process: { host: hostIdentity().id, pid: process.pid, startToken: `here-${key}` },
   });
   return key;
@@ -235,7 +235,7 @@ describe("attaching to a screen on a linked host", () => {
     links.push(hosts);
     await hosts.link("box").connect();
     const key = mintAgentId();
-    const agent = { key, harnessId: "pi", cwd: "/tmp", name: key, model: "openai/gpt-5.6", spawner: null };
+    const agent: Parameters<typeof registerSpawnedAgent>[1] = { form: "tui", key, placed: false, process: { host: hostIdentity().id, pid: process.pid, startToken: `far-${key}` }, harnessId: "pi", cwd: "/tmp", name: key, model: "openai/gpt-5.6", spawner: null };
     // The far orchd runs in this process, so on its own store the agent is here.
     registerSpawnedAgent(far.orchDir, { ...agent, placed: false, process: { host: hostIdentity().id, pid: process.pid, startToken: `far-${key}` }, origin: { askedBy: hostIdentity().id, spawner: null } });
     registerHostedAgent(orchDir, { ...agent, host: far.greeting.host });
@@ -273,7 +273,7 @@ describe("attaching to a screen on a linked host", () => {
     const link = hosts.link("box");
     await link.connect();
     const key = mintAgentId();
-    registerSpawnedAgent(far.orchDir, { key, harnessId: "pi", placed: false, cwd: "/tmp", name: key, model: "m", spawner: null, process: { host: hostIdentity().id, pid: process.pid, startToken: `far-${key}` }});
+    registerSpawnedAgent(far.orchDir, { form: "tui", key, harnessId: "pi", placed: false, cwd: "/tmp", name: key, model: "m", spawner: null, process: { host: hostIdentity().id, pid: process.pid, startToken: `far-${key}` }});
     farHolder.hold(key);
     const { started } = link.attachScreen(key, { cols: 80, rows: 24 }, () => undefined);
     let refusal = "";

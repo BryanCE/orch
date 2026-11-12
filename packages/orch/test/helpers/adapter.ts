@@ -20,6 +20,7 @@ export function fakeAdapter(overrides: Partial<AgentAdapter> = {}): AgentAdapter
     bridge: null,
     hooks: null,
     acp: null,
+    resume: null,
     commandGate: false,
     interactiveCmd,
     interactiveArgv: (opts: SpawnOpts): readonly string[] => interactiveCmd(opts).split(" "),

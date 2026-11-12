@@ -31,6 +31,7 @@ const text = "Fixture result";
 const cwd = "/tmp/smoke";
 
 registerSpawnedAgent(root, {
+  form: "oneshot",
   key,
   harnessId: "pi",
   placed: false,

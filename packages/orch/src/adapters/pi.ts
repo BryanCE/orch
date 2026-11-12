@@ -336,6 +336,8 @@ function piLaunchArgv(opts: SpawnOpts, worker: boolean, prompt: string | undefin
 
 /** The roles pi and omp share: both run orch's bridge extension and pi's session format. */
 export abstract class PiBridgeAdapter {
+  protected abstract readonly resumeFlag: string;
+  abstract interactiveArgv(opts: SpawnOpts): readonly string[];
   abstract restrictedInteractiveCmd(opts: SpawnOpts): string;
   abstract restrictedHeadlessCmd(prompt: string, opts: SpawnOpts): string[];
 
@@ -349,6 +351,9 @@ export abstract class PiBridgeAdapter {
   readonly bridge: BridgeRole = { takes: ["dispatch", "steer", "answer", "model"] };
   readonly hooks = null;
   readonly acp = null;
+  readonly resume = {
+    argv: (opts: SpawnOpts, sessionId: string): readonly string[] => [...this.interactiveArgv(opts), this.resumeFlag, sessionId],
+  };
   readonly settingsFile = null;
   readonly commandGate = true;
 
@@ -385,6 +390,7 @@ export abstract class PiBridgeAdapter {
 
 /** Adapter for pi (@earendil-works/pi-coding-agent), driven through orch's pi-bridge extension. */
 export class PiAdapter extends PiBridgeAdapter implements AgentAdapter {
+  protected readonly resumeFlag = "--session";
   readonly id = "pi" as const;
 
   /** pi exposes a neutral CLI flag for launch-time thinking effort. */

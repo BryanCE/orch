@@ -7,8 +7,10 @@ import { modelShort } from "../../policy/thinking.ts";
 import { formatAge, formatHostOffline } from "../../format.ts";
 import type { StatusRow } from "../../types/command.ts";
 import type { FleetNames, FleetStatus } from "../../types/daemon.ts";
+import { FORM_IDS } from "../../types/form.ts";
 
 const DETACHED_ENVIRONMENT = "headless";
+const FORM_CAP = Math.max(...FORM_IDS.map((form) => form.length));
 
 /** A host's name is shown whole: two hosts whose names share a prefix must never read alike. */
 const HOST_CAP = Number.POSITIVE_INFINITY;
@@ -148,7 +150,7 @@ function lastText(row: StatusRow): string {
 function humanTableCells(row: StatusRow, names: FleetNames, host: boolean, callerId: string | null, name: string): string[] {
   return [
     ...(host ? [row.host.name] : []), name,
-    row.agent ?? "-", truncate(row.cwd ?? "-", 30), truncate(row.worktree ?? "-", 24),
+    row.agent ?? "-", row.form ?? "-", truncate(row.cwd ?? "-", 30), truncate(row.worktree ?? "-", 24),
     truncate(row.branch ?? "-", 20), formatOwnerCell(row, names, callerId), tableStateCell(row, true, callerId),
   ];
 }
@@ -158,7 +160,7 @@ function standardTableCells(row: StatusRow, names: FleetNames, flags: TableFlags
     ? [row.host.name, localIdCell(row), environmentCell(row), localNameCell(row, names, flags, callerId, ownsOthers)]
     : [localIdCell(row), environmentCell(row), localNameCell(row, names, flags, callerId, ownsOthers)];
   return [
-    ...prefix, ...tableOptionalCells(row, names, flags, callerId), row.tab ?? "-", row.agent ?? "-",
+    ...prefix, ...tableOptionalCells(row, names, flags, callerId), row.tab ?? "-", row.agent ?? "-", row.form ?? "-", 
     modelShort(row.model) || "-", tableStateCell(row, true, callerId), tableCostCell(row),
     tableContextCell(row), truncate(collapse(row.task ?? ""), 40), tableLastCell(row),
   ];
@@ -195,13 +197,13 @@ function ownerBranchCaps(flags: TableFlags): number[] {
 function tableColumns(flags: TableFlags, host: boolean): { headers: string[]; caps: number[] } {
   if (flags.human) {
     return {
-      headers: [...(host ? ["HOST"] : []), "NAME", "HARNESS", "CWD", "WORKTREE", "BRANCH", "OWNER", "STATE"],
-      caps: [...(host ? [HOST_CAP] : []), 32, 10, 30, 24, 20, 32, 12],
+      headers: [...(host ? ["HOST"] : []), "NAME", "HARNESS", "FORM", "CWD", "WORKTREE", "BRANCH", "OWNER", "STATE"],
+      caps: [...(host ? [HOST_CAP] : []), 32, 10, FORM_CAP, 30, 24, 20, 32, 12],
     };
   }
   return {
-    headers: [...(host ? ["HOST"] : []), "ID", "ENV", "NAME", ...ownerBranchHeaders(flags), "TAB", "AGENT", "MODEL", "STATE", "COST", "CTX", "TASK", "LAST"],
-    caps: [...(host ? [HOST_CAP] : []), 12, 10, 32, ...ownerBranchCaps(flags), 8, 6, 20, 10, 6, 4, 24, 34],
+    headers: [...(host ? ["HOST"] : []), "ID", "ENV", "NAME", ...ownerBranchHeaders(flags), "TAB", "AGENT", "FORM", "MODEL", "STATE", "COST", "CTX", "TASK", "LAST"],
+    caps: [...(host ? [HOST_CAP] : []), 12, 10, 32, ...ownerBranchCaps(flags), 8, 6, FORM_CAP, 20, 10, 6, 4, 24, 34],
   };
 }
 

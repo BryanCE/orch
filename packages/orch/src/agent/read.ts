@@ -1,6 +1,9 @@
 // The one reader of an agent, run by the orchd whose store holds the agent: for a caller on
 // this host, or for the linked host's orchd that asked for the agent. It reads this store, the
 // agent's session file, screen and log records here; it never asks another orchd.
+import { readFileSync } from "node:fs";
+import { FORM_TRANSCRIPT } from "../types/form.ts";
+import { parseSessionLog } from "./session-log.ts";
 import { isAgentId } from "../shared/agent-id.ts";
 import { resolveTargetRoute } from "../control/dispatch.ts";
 import { paneBoundary } from "../control/pane-boundary.ts";
@@ -40,6 +43,7 @@ interface ReadSubject {
   readonly presence: PresenceEntry | null;
   readonly adapter: AgentAdapter | undefined;
   readonly sessionPath: string | null;
+  readonly transcript: "harness" | "orchd";
   readonly logger: Logger;
 }
 
@@ -54,21 +58,35 @@ function subjectOf(orchDir: OrchDir, agent: HereAgent, logger: Logger): ReadSubj
     presence,
     adapter: view === null ? undefined : getAdapter(view.harnessId),
     sessionPath: presence?.status?.sessionPath ?? null,
+    transcript: view?.form == null ? "harness" : FORM_TRANSCRIPT[view.form],
     logger: agentLogger(logger, key),
   };
 }
 
-function readSession(subject: ReadSubject, adapter: AgentAdapter): SessionView | undefined {
-  return adapter.sessionView?.readSessionView({ sessionPath: subject.sessionPath ?? undefined });
+function readSession(subject: ReadSubject): SessionView | undefined {
+  if (subject.transcript === "orchd") {
+    if (subject.sessionPath === null) return undefined;
+    const entries = parseSessionLog(readFileSync(subject.sessionPath, "utf8"));
+    let task: string | undefined;
+    let lastText: string | undefined;
+    for (const entry of entries) {
+      if (entry.role === "user" && entry.text !== undefined) task = entry.text;
+      if (entry.role === "assistant" && entry.text !== undefined) lastText = entry.text;
+    }
+    return { entries, task, lastText };
+  }
+  return subject.adapter?.sessionView?.readSessionView({ sessionPath: subject.sessionPath ?? undefined });
 }
 
-/** What the agent's own session says it last wrote, when its harness can read one. */
+/** What the agent's transcript says it last wrote. */
 function sessionResult(subject: ReadSubject): ResultLookup | undefined {
-  const adapter = subject.adapter;
-  const text = adapter?.extractResult({ sessionPath: subject.sessionPath ?? undefined }, subject.orchDir);
-  if (!adapter || !text) return undefined;
+  let view = subject.transcript === "orchd" ? readSession(subject) : undefined;
+  const text = subject.transcript === "orchd"
+    ? view?.lastText
+    : subject.adapter?.extractResult({ sessionPath: subject.sessionPath ?? undefined }, subject.orchDir);
+  if (!text) return undefined;
+  view ??= readSession(subject);
   subject.logger.info("result.adapter-fallback");
-  const view = readSession(subject, adapter);
   return {
     kind: "found",
     source: "session",
@@ -127,27 +145,27 @@ export function readAgentResult(orchDir: OrchDir, agent: HereAgent, logger: Logg
   };
 }
 
-/** The agent's session read through its harness, with only its last `lines` entries. */
+/** The agent's transcript with only its last `lines` entries. */
 export function readAgentTail(orchDir: OrchDir, agent: HereAgent, lines: number, logger: Logger): TailLookup {
   const subject = subjectOf(orchDir, agent, logger);
   const adapter = subject.adapter;
-  if (!adapter?.sessionView) {
+  if (subject.transcript === "harness" && !adapter?.sessionView) {
     return { kind: "missing", reason: `Target "${subject.label}" (${adapter?.id ?? "unknown adapter"}) exposes no session tail; a session is read only through an adapter that declares one.` };
   }
-  const view = readSession(subject, adapter);
+  const view = readSession(subject);
   if (!view) return { kind: "missing", reason: `No session data for "${subject.label}" (${subject.sessionPath ?? "unknown path"}).` };
   return { kind: "found", sessionPath: subject.sessionPath, view: view.entries ? { ...view, entries: view.entries.slice(-lines) } : view };
 }
 
-/** Where the agent's session is, and what its harness reads of it. */
+/** The agent's recorded transcript path and parsed session. */
 function readAgentSession(orchDir: OrchDir, agent: HereAgent, logger: Logger): SessionLookup {
   const subject = subjectOf(orchDir, agent, logger);
   if (subject.sessionPath === null) return { kind: "missing", reason: `No session path known for "${subject.label}".` };
   const adapter = subject.adapter;
-  if (!adapter?.sessionView) {
+  if (subject.transcript === "harness" && !adapter?.sessionView) {
     return { kind: "missing", reason: `Target "${subject.label}" (${adapter?.id ?? "unknown adapter"}) exposes no session tail; a session is read only through an adapter that declares one.` };
   }
-  return { kind: "found", sessionPath: subject.sessionPath, view: readSession(subject, adapter) ?? null };
+  return { kind: "found", sessionPath: subject.sessionPath, view: readSession(subject) ?? null };
 }
 
 /** The last `lines` lines of the agent's screen: from the PTY this orchd holds for it, else

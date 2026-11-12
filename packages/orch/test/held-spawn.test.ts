@@ -31,7 +31,7 @@ afterEach(() => {
 /** What a bridge does when it dials orchd: hold a link for its key and take what is pushed. */
 function attachFakeBridge(directory: OrchDir, key: string): BridgeDelivery[] {
   const deliveries: BridgeDelivery[] = [];
-  const link: AgentLink = { push: (delivery): void => { deliveries.push(delivery); }, close: () => undefined };
+  const link: AgentLink = { takes: ["dispatch", "steer", "answer", "model"], abort: null, push: (delivery): void => { deliveries.push(delivery); }, close: () => undefined };
   attachLink(directory, key, link);
   links.push({ directory, key, link });
   return deliveries;
@@ -47,6 +47,20 @@ function servicesAt(orchDir: OrchDir, fleet: Record<string, unknown> = {}): Daem
 }
 
 describe("a spawn another host asks for", () => {
+  test("a local terminal form uses the existing held start path and records its form", async () => {
+    const orchDir = tempOrchDir("orch-local-held-form-");
+    dirs.push(orchDir);
+    const provider = new FakePtyProvider();
+    const state = idleDaemonState(servicesAt(orchDir), orchDir, provider);
+    const key = mintAgentId();
+    const result = await spawnHeadless(state, {
+      form: "tui", key, name: "local-held", spawner: null, adapter: "pi",
+      model: "openai/gpt-5.6-luna", thinking: "medium", prompt: null, cwd: orchDir,
+    });
+    expect(result).toMatchObject({ form: "tui", backend: heldBackend.id });
+    expect(agentView(orchDir, key)?.form).toBe("tui");
+    expect(provider.spawned).toHaveLength(1);
+  });
   test("runs the interactive harness in a PTY orchd holds, recorded as held, with its prompt queued", async () => {
     const orchDir = tempOrchDir("orch-held-spawn-");
     dirs.push(orchDir);
@@ -55,6 +69,7 @@ describe("a spawn another host asks for", () => {
     const key = mintAgentId();
 
     const result = await spawnHeadless(state, {
+      form: null,
       key,
       name: "far-worker",
       spawner: "spawner-on-the-other-host",
@@ -88,7 +103,7 @@ describe("a spawn another host asks for", () => {
     const state = idleDaemonState(servicesAt(orchDir), orchDir, new FakePtyProvider());
     const key = mintAgentId();
     await spawnHeadless(state, {
-      key, name: "far-idle", spawner: "spawner-on-the-other-host", adapter: "pi",
+      form: null, key, name: "far-idle", spawner: "spawner-on-the-other-host", adapter: "pi",
       model: "openai/gpt-5.6-luna", thinking: "medium", prompt: null, cwd: orchDir,
     }, hostIdFrom("the-other-host"));
     expect(state.held.has({ kind: "agent", agent: placeHere(orchDir, key) })).toBe(true);
@@ -102,7 +117,7 @@ describe("a spawn another host asks for", () => {
     const provider = new FakePtyProvider(() => process.pid);
     const state = idleDaemonState(servicesAt(orchDir, { max_agents_total: 1 }), orchDir, provider);
     const ask = (name: string): Promise<string | null> => spawnHeadless(state, {
-      key: mintAgentId(), name, spawner: "spawner-on-the-other-host", adapter: "pi",
+      form: null, key: mintAgentId(), name, spawner: "spawner-on-the-other-host", adapter: "pi",
       model: "openai/gpt-5.6-luna", thinking: "medium", prompt: null, cwd: orchDir,
     }, hostIdFrom("the-other-host")).then(() => null, (error: unknown) => errorMessage(error));
 
@@ -117,7 +132,7 @@ describe("a spawn another host asks for", () => {
     const state = idleDaemonState(servicesAt(orchDir), orchDir, new FakePtyProvider());
     const key = mintAgentId();
     const refused = await spawnHeadless(state, {
-      key, name: "here-idle", spawner: null, adapter: "pi",
+      form: null, key, name: "here-idle", spawner: null, adapter: "pi",
       model: "openai/gpt-5.6-luna", thinking: "medium", prompt: null, cwd: orchDir,
     }).then(() => null, (error: unknown) => errorMessage(error));
     expect(refused).toBe(`cannot spawn ${key}: a headless agent needs its prompt at launch`);
@@ -131,6 +146,7 @@ describe("a spawn another host asks for", () => {
     const key = mintAgentId();
 
     await spawnHeadless(state, {
+      form: null,
       key,
       name: "far-worker",
       spawner: "spawner-on-the-other-host",

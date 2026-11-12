@@ -85,7 +85,7 @@ beforeEach(() => {
 afterEach(async () => {
   while (servers.length) await servers.pop()!.close();
   for (const key of attachedBridgeKeys()) {
-    const link: AgentLink = { push: () => undefined, close: () => undefined };
+    const link: AgentLink = { takes: [], abort: null, push: () => undefined, close: () => undefined };
     const directory = directories[0];
     if (directory !== undefined) {
       attachLink(directory, key, link);

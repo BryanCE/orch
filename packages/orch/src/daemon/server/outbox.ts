@@ -1,4 +1,6 @@
 import type { OrchDir } from "../../types/core.ts";
+import { acknowledgeDelivery } from "../../control/ack.ts";
+import type { DaemonState } from "./state.ts";
 import { isAgentGone } from "../../control/agent-gone.ts";
 import { isLinkDetached } from "../../control/agent-links.ts";
 import type { OutboxDelivery, OutboxDeps } from "../../types/daemon.ts";
@@ -15,6 +17,18 @@ import {
 } from "../../store/outbox-rows.ts";
 
 const inFlight = new Set<string>();
+
+/** Settle an acknowledged outbox row and wake the work loop. */
+export function ackOutboxRow(state: DaemonState, id: string): { ok: true } {
+  const { directory, services } = state;
+  const row = selectOutboxMessage(directory, id);
+  markOutboxDelivered(directory, id);
+  if (row === undefined) services.logger.forCorrelation(id).debug("dispatch.acked", { target: null });
+  else services.logger.forCorrelation(id).info("dispatch.acked", { target: row.target });
+  acknowledgeDelivery(id);
+  state.wake.wake();
+  return { ok: true };
+}
 
 function retryDelay(attempts: number): number {
   const safeAttempts = Number.isFinite(attempts) ? Math.max(0, Math.floor(attempts)) : 0;

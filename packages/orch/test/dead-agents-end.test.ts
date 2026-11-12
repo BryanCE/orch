@@ -33,7 +33,7 @@ function fixture(): OrchDir {
 
 /** An agent `orch` asked another host to run: its row here is the reference. */
 function seedFarAgent(d: OrchDir, key: string): void {
-  registerHostedAgent(d, { key, harnessId: "pi", cwd: "/far/repo", name: key, model: "", spawner: "orch", host: testHost("far-host-id", "far"), now: 2 });
+  registerHostedAgent(d, { form: "tui", key, harnessId: "pi", cwd: "/far/repo", name: key, model: "", spawner: "orch", host: testHost("far-host-id", "far"), now: 2 });
 }
 
 describe("a dead agent that owns nothing running is ended", () => {

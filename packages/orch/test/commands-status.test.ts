@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { orchDirAt } from "../src/orch-dir.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
-import { displayStatusState, formatNoRowsMessage, formatSpace, parseStatusOptions, scopeFleetRows } from "../src/commands/status/options.ts";
+import { displayStatusState, filterRowKeys, formatNoRowsMessage, formatSpace, parseStatusOptions, scopeFleetRows } from "../src/commands/status/options.ts";
 import { normalizeStatusRow, readStatusResult, resolveStatusAgent, rowCounts } from "../src/commands/status/fetch.ts";
 import { formatStatusTable } from "../src/commands/status/table.ts";
 import { fleetNames, statusRowFromEntity } from "../src/daemon/server/fleet-rows.ts";
@@ -53,6 +53,23 @@ function composedRow(
 }
 
 describe("commands/status", () => {
+  test("renders forms and preserves them in JSON rows", () => {
+    const rows = [
+      statusRowFixture({ key: "terminal", name: "terminal", agent: "pi", form: "tui" }),
+      statusRowFixture({ key: "unset", name: "unset", agent: "pi", form: null }),
+    ];
+    for (const human of [false, true]) {
+      const lines = formatStatusTable(fleetFixture(rows), { all: false, host: false, human, columns: new Set() }).split("\n");
+      expect(lines.find((line) => line.includes("FORM"))).toMatch(/(?:AGENT|HARNESS)\s+FORM/);
+      expect(lines.find((line) => line.includes("terminal"))).toMatch(/pi\s+tui\s/);
+      expect(lines.find((line) => line.includes("unset"))).toMatch(/pi\s+-\s/);
+    }
+    const json = JSON.stringify({ rows: rows.map((row) => filterRowKeys(row, parseStatusOptions(["--json"]).hide.columns)) });
+    expect(JSON.parse(json)).toMatchObject({ rows: [{ form: "tui" }, { form: null }] });
+    const views = new Map([[seededEntity.key, agentViewFixture(seededEntity.key, { form: "tui" })]]);
+    expect(composedRow(seededEntity, views).form).toBe("tui");
+    expect(composedRow(seededEntity, new Map()).form).toBeNull();
+  });
   test("reads fleet rows from the served daemon", async () => {
     const directory = tempOrchDir("orch-status-daemon-");
     const servers: RpcServer[] = [];

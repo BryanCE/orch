@@ -1,11 +1,12 @@
 // What one spawn launches, planned by orchd from what the CLI asked for and orchd's own settings:
 // the plexer, each agent's harness command, the worker policy, and the worktree intent.
-import { headlessBackend, resolveBackend } from "../../../backends/registry.ts";
+import { heldBackend, resolveBackend } from "../../../backends/registry.ts";
 import { workerPolicyFrom, workerTools } from "../../../policy/workers.ts";
 import { SpawnRefusalError } from "../../../refusal.ts";
 import { errorMessage } from "../../../util.ts";
-import { adapterCommand } from "./models.ts";
-import type { AdapterId } from "../../../types/adapter.ts";
+import { adapterCommand, resolveAdapterOrDie } from "./models.ts";
+import { nativeForm, offersForm, type FormId } from "../../../types/form.ts";
+import type { AgentAdapter, AdapterId } from "../../../types/adapter.ts";
 import type { Backend } from "../../../types/backend.ts";
 import type { ThinkingLevel, WorkerPolicy } from "../../../types/policy.ts";
 import type { OrchSettings } from "../../../types/settings.ts";
@@ -13,6 +14,9 @@ import type { WorktreeIntent } from "../../../worktrees/agent.ts";
 import type { ParamsOf } from "../../client/protocol.ts";
 
 export interface SpawnAgentPlan {
+  readonly form: FormId | null;
+  readonly backend: Backend;
+  readonly requestedForm: FormId | null;
   readonly name: string;
   readonly adapter: AdapterId;
   /** The harness command this agent launches under: `--cmd`, or its adapter's own. */
@@ -57,6 +61,22 @@ export function selectBackend(explicit: string | null, settings: OrchSettings): 
   }
 }
 
+/** Match an agent's selected form to the stdio a backend offers. */
+export function selectSpawnForm(requested: FormId | null, defaults: OrchSettings["defaults"]["forms"], adapter: AgentAdapter, backend: Backend, held: Backend): { form: FormId; backend: Backend } {
+  const selected = requested ?? defaults[adapter.id];
+  if (selected === undefined) {
+    const form = nativeForm(backend.offers);
+    if (form === null) throw new SpawnRefusalError(`no backend here runs a native form`);
+    return { form, backend };
+  }
+  const supported: Record<FormId, boolean> = { tui: true, oneshot: true, acp: adapter.acp !== null };
+  if (!supported[selected]) throw new SpawnRefusalError(`harness ${adapter.id} has no ${selected} form`);
+  const compatible = offersForm(backend.offers, selected);
+  if (compatible) return { form: selected, backend };
+  if (offersForm(held.offers, selected)) return { form: selected, backend: held };
+  throw new SpawnRefusalError(`no backend here runs the ${selected} form`);
+}
+
 /** A worktree the launch asked for, with orchd's worktree settings. */
 export function worktreeIntent(requested: ParamsOf<"spawn">["worktree"], settings: OrchSettings): WorktreeIntent | null {
   return requested === null ? null : { provider: requested.provider, config: settings.worktrees };
@@ -64,12 +84,16 @@ export function worktreeIntent(requested: ParamsOf<"spawn">["worktree"], setting
 
 /** The settings a spawn runs on. On another host the agents run with no pane: the backend
  *  that places nothing. */
-export function planSpawn(params: ParamsOf<"spawn">, settings: OrchSettings): SpawnSettings {
-  const backend = params.host === null ? selectBackend(params.plexer, settings) : headlessBackend;
+export function planSpawn(params: ParamsOf<"spawn">, settings: OrchSettings, chosen?: Backend): SpawnSettings {
+  const backend = chosen ?? (params.host === null ? selectBackend(params.plexer, settings) : heldBackend);
   const agents = params.agents.map((agent): SpawnAgentPlan => {
     const preferredModels = settings.models.preferred[agent.harness] ?? [];
     const cmd = params.cmd ?? adapterCommand(agent.harness, settings, { model: agent.model, thinking: agent.thinking, preferredModels });
-    return { name: agent.name, adapter: agent.harness, cmd, preferredModels, model: agent.model, thinking: agent.thinking, prompt: agent.prompt };
+    const requestedForm = params.host === null ? params.form ?? settings.defaults.forms[agent.harness] ?? null : params.form;
+    const selected = params.host === null
+      ? selectSpawnForm(requestedForm, settings.defaults.forms, resolveAdapterOrDie(agent.harness), backend, heldBackend)
+      : { form: null, backend };
+    return { ...selected, requestedForm, name: agent.name, adapter: agent.harness, cmd, preferredModels, model: agent.model, thinking: agent.thinking, prompt: agent.prompt };
   });
   const first = agents[0];
   if (first === undefined) throw new SpawnRefusalError("spawn requires at least one agent");

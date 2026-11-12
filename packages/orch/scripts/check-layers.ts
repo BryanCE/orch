@@ -35,6 +35,7 @@ export const SERVER: readonly string[] = [
   "src/presence/",
   "src/backends/",
   "src/adapters/",
+  "src/acp/",
   "src/control/",
   "src/agent/drive-state.ts",
   "src/agent/read.ts",

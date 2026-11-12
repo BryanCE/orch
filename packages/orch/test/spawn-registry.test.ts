@@ -27,6 +27,7 @@ function register(dir: OrchDir, overrides: Partial<Parameters<typeof registerSpa
   // written to their own satellites below — never welded into the identity.
   const key = "worker0001";
   registerSpawnedAgent(dir, {
+    form: "tui",
     key,
     harnessId: "pi",
     backendId: "herdr",
@@ -45,6 +46,11 @@ function register(dir: OrchDir, overrides: Partial<Parameters<typeof registerSpa
 }
 
 describe("spawn agent registration", () => {
+  test("records exactly one open form interval in the registration transaction", () => {
+    const dir = fixture();
+    const key = register(dir, { form: "acp" });
+    expect(orm(dir).all(sql`SELECT form, since, until FROM agent_forms WHERE agent_id = ${key}`)).toEqual([{ form: "acp", since: 10, until: null }]);
+  });
   test("writes the hub, environment, tuning, and lease", () => {
     const dir = fixture();
     register(dir);

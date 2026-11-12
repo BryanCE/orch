@@ -14,7 +14,7 @@ export function adoptAgent(state: DaemonState, params: ParamsOf<"adopt-agent">):
   const { key, harnessId, backendId, handle, cwd, name, space, model, thinking, spawner, owner, worktree } = params;
   const running = backend.process.running(handle);
   registerSpawnedAgent(state.directory, {
-    key, harnessId, backendId, handle, cwd, name, model, spawner,
+    form: params.form, key, harnessId, backendId, handle, cwd, name, model, spawner,
     ...(space === undefined ? {} : { space }),
     ...(thinking === undefined ? {} : { thinking }),
     ...(owner === undefined ? {} : { owner }),

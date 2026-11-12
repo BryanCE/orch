@@ -32,7 +32,7 @@ function fleetWithFarAgent(): OrchDir {
   const orchDir = tempOrchDir("orch-status-linked-");
   dirs.push(orchDir);
   bindHostName(orchDir, "far", FAR, Date.now());
-  registerHostedAgent(orchDir, { key: FAR_AGENT, harnessId: "pi", cwd: "/home/far", name: "far-test", model: "m", spawner: null, host: FAR });
+  registerHostedAgent(orchDir, { form: "tui", key: FAR_AGENT, harnessId: "pi", cwd: "/home/far", name: "far-test", model: "m", spawner: null, host: FAR });
   return orchDir;
 }
 

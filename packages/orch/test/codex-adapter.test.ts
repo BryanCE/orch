@@ -63,6 +63,13 @@ afterAll(() => {
 });
 
 describe("CodexAdapter", () => {
+  test("launches the ACP binding without inventing runtime overrides or session sharing", () => {
+    const adapter = new CodexAdapter();
+    expect(adapter.acp.argv({})).toEqual(["codex-acp"]);
+    expect(adapter.acp.env({})).toEqual({});
+    expect(adapter.acp.sharesSessions).toBe(false);
+  });
+
   test("uses the codex launch shapes and declares honest capabilities", () => {
     const adapter = new CodexAdapter();
 

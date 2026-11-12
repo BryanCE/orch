@@ -8,6 +8,7 @@ import { PtyHold } from "./held.ts";
 import { endHeldAgents } from "./held-ending.ts";
 import { bindHeldPtys } from "../../backends/registry.ts";
 import { nodePtyProvider } from "../../pty/node-pty.ts";
+import { nodePipes } from "../../pty/node-pipes.ts";
 import type { DaemonState } from "./state.ts";
 import { outboxDeps } from "./handlers/write.ts";
 import { rpcHandlers } from "./handlers/table.ts";
@@ -105,6 +106,7 @@ export async function startDaemon(): Promise<DaemonState> {
       agents: (host, rows, askedAt) => { reconcileHostAgents(state, host, rows, askedAt); },
     }),
     held,
+    pipes: nodePipes,
     fatalLogged: false,
   };
   if (invokedAsMain()) {

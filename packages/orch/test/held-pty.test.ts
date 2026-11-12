@@ -28,6 +28,99 @@ function nextChunk(hold: PtyHold, terminal: HeldTerminal): Promise<string> {
   });
 }
 
+describe("writer screens", () => {
+  test("replays earlier text and follows live output through the held feed", async () => {
+    const { hold, provider } = holder();
+    const terminal = login("agent-a");
+    const writer = hold.openScreen("agent-a", SETTINGS_DEFAULTS.pty);
+    const taken = nextChunk(hold, terminal);
+    writer.write("before");
+    await taken;
+    expect(hold.snapshot(terminal)).toBe("before");
+    const live = nextChunk(hold, terminal);
+    writer.write(" after");
+    expect(await live).toBe(" after");
+    expect(hold.snapshot(terminal)).toBe("before after");
+    expect(provider.spawned).toEqual([]);
+    writer.close();
+  });
+
+  test("drops viewer input and resizes the screen without a PTY", async () => {
+    const { hold, provider } = holder();
+    const terminal = login("agent-a");
+    const writer = hold.openScreen("agent-a", SETTINGS_DEFAULTS.pty);
+    expect(() => hold.write(terminal, "ignored")).not.toThrow();
+    expect(hold.writeToPid(process.pid, "ignored")).toBe(false);
+    expect(await hold.relaunchPid(process.pid, [])).toBeNull();
+    const { cols, rows } = SETTINGS_DEFAULTS.pty;
+    hold.resize(terminal, rows, cols);
+    const text = "x".repeat(rows + rows);
+    const taken = nextChunk(hold, terminal);
+    writer.write(text);
+    await taken;
+    expect(hold.text(terminal, cols).split("\n").filter((line) => line.length > 0)).toEqual(["x".repeat(rows), "x".repeat(rows)]);
+    expect(provider.spawned).toEqual([]);
+    writer.close();
+  });
+
+  test("close delivers pending output before ending an attached feed once", async () => {
+    const { hold } = holder();
+    const terminal = login("agent-a");
+    const writer = hold.openScreen("agent-a", SETTINGS_DEFAULTS.pty);
+    const chunks: string[] = [];
+    const exits: PtyExit[] = [];
+    const ended = new Promise<void>((resolve) => {
+      hold.subscribe(terminal, (data) => chunks.push(data), (exit) => { exits.push(exit); resolve(); });
+    });
+    writer.write("last");
+    writer.close();
+    writer.close();
+    writer.write("ignored");
+    await ended;
+    expect(chunks).toEqual(["last"]);
+    expect(exits).toEqual([{ exitCode: 0, signal: null }]);
+    expect(hold.has(terminal)).toBe(false);
+  });
+
+  test("detaching a viewer leaves the writer screen open", async () => {
+    const { hold } = holder();
+    const terminal = login("agent-a");
+    const writer = hold.openScreen("agent-a", SETTINGS_DEFAULTS.pty);
+    const detached: string[] = [];
+    hold.subscribe(terminal, (data) => detached.push(data), ignore)();
+    const taken = nextChunk(hold, terminal);
+    writer.write("still here");
+    await taken;
+    expect(detached).toEqual([]);
+    expect(hold.snapshot(terminal)).toBe("still here");
+    writer.close();
+  });
+
+  test("a writer and a PTY cannot hold the same key", async () => {
+    const { hold } = holder();
+    const writer = hold.openScreen("agent-a", SETTINGS_DEFAULTS.pty);
+    expect(() => hold.openScreen("agent-a", SETTINGS_DEFAULTS.pty)).toThrow("already held");
+    const refused = await hold.start("agent-a", REQUEST).then(() => null, (error: unknown) => error);
+    expect(String(refused)).toContain("already held");
+    await hold.start("agent-b", REQUEST);
+    expect(() => hold.openScreen("agent-b", SETTINGS_DEFAULTS.pty)).toThrow("already held");
+    writer.close();
+    hold.killAll();
+  });
+
+  test("killAll ends writer screens as well as PTYs", async () => {
+    const { hold, provider } = holder();
+    const terminal = login("agent-a");
+    hold.openScreen("agent-a", SETTINGS_DEFAULTS.pty);
+    await hold.start("agent-b", REQUEST);
+    const ended = new Promise<PtyExit>((resolve) => { hold.subscribe(terminal, ignore, resolve); });
+    hold.killAll();
+    await ended;
+    expect(hold.has(terminal)).toBe(false);
+    expect(provider.last().killed).toBe(true);
+  });
+});
+
 describe("the PTY holder", () => {
   test("starts the program in a PTY sized and typed by the pty settings", async () => {
     const { hold, provider } = holder();

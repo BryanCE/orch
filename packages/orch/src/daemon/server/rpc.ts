@@ -4,6 +4,9 @@ import { randomBytes } from "node:crypto";
 import { chmodSync, unlinkSync, writeFileSync } from "node:fs";
 import { readDaemonLock } from "../client/process.ts";
 import { attachLink, detachLink, attachedBridgeKeys, type AgentLink } from "../../control/agent-links.ts";
+import { resolveTargetAdapter } from "../../control/dispatch.ts";
+import { agentIdFromRow } from "../../shared/agent-id.ts";
+import { normalizeControlTarget } from "../../control/normalize-target.ts";
 import type { BridgeDelivery } from "../../shared/bridge-message.ts";
 import { ensurePrivateDir, errorMessage } from "../../util.ts";
 import { createEventBus, type EventBus } from "./event-bus.ts";
@@ -92,12 +95,17 @@ function attachRequest(
   const startedAt = Date.now();
   const key = request.params.key;
   detachConnectionBridge(orchDir, state);
-  const link: AgentLink = {
-    push: (delivery: BridgeDelivery) => lineResponse(socket, { kind: "delivery", delivery }),
-    close: () => socket.destroy(),
-  };
+  let link: AgentLink;
   // A bridge for an agent this store does not know is refused on its own socket; it never ends the daemon.
   try {
+    const canonical = normalizeControlTarget(orchDir, key);
+    const adapter = resolveTargetAdapter(orchDir, agentIdFromRow(canonical));
+    link = {
+      takes: adapter?.bridge?.takes ?? [],
+      abort: null,
+      push: (delivery: BridgeDelivery) => lineResponse(socket, { kind: "delivery", delivery }),
+      close: () => socket.destroy(),
+    };
     attachLink(orchDir, key, link);
   } catch (error: unknown) {
     lineResponse(socket, errorResponse(request.id, "UNKNOWN_AGENT", errorMessage(error)));

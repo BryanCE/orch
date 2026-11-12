@@ -111,7 +111,14 @@ export class CodexAdapter implements AgentAdapter {
   readonly compaction = launchCompaction((tokens) => ({ env: {}, args: ["-c", `${CODEX_COMPACT_KEY}=${tokens}`] }));
   readonly bridge = null;
   readonly hooks = null;
-  readonly acp = null;
+  readonly acp = {
+    argv: (_opts: SpawnOpts): readonly string[] => ["codex-acp"],
+    env: (_opts: SpawnOpts): Readonly<Record<string, string>> => ({}),
+    sharesSessions: false,
+  };
+  readonly resume = {
+    argv: (opts: SpawnOpts, sessionId: string): readonly string[] => [...this.interactiveArgv(opts), "resume", sessionId],
+  };
   readonly commandGate = false;
 
   /** Marker consumed by callers that render heuristic states with a dagger. */

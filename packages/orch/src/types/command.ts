@@ -138,6 +138,7 @@ export interface CreatedAgent {
 }
 
 export interface TabSpawnSpec {
+  form?: import("./form.ts").FormId;
   backend: Backend;
   adapter: AgentAdapter;
   adapterId: AdapterId;
@@ -207,6 +208,7 @@ export interface StatusRow extends LeaseStatusPayload {
   name: string | null;
   tab: string | null;
   agent: string | null;
+  form: import("./form.ts").FormId | null;
   spawnedBy: string | null;
   worktree: string | null;
   branch: string | null;

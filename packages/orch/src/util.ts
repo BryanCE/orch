@@ -186,6 +186,11 @@ export function isUnknownArray(value: unknown): value is unknown[] {
   return Array.isArray(value);
 }
 
+/** The entries of `source` whose values are defined, as the string map a process starts with. */
+export function definedEnv(source: Readonly<Record<string, string | undefined>>): Record<string, string> {
+  return Object.fromEntries(Object.entries(source).filter((entry): entry is [string, string] => entry[1] !== undefined));
+}
+
 /** A string field, or undefined when absent or the wrong type. */
 export function optionalString(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;

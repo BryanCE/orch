@@ -112,7 +112,7 @@ describe("the repo-root wall and other hosts", () => {
     const caller = mintAgentId();
     seedOrch(orchDir, caller);
     const far = mintAgentId();
-    registerHostedAgent(orchDir, { key: far, harnessId: "pi", cwd: "/mnt/c/dev/elsewhere", name: "far", model: "m", spawner: caller, host: testHost("far-host-id", "far-machine") });
+    registerHostedAgent(orchDir, { form: "tui", key: far, harnessId: "pi", cwd: "/mnt/c/dev/elsewhere", name: "far", model: "m", spawner: caller, host: testHost("far-host-id", "far-machine") });
     expect(checkWall(orchDir, caller, far, { crossSpace: false })).toEqual({ allowed: true });
     removeTempDir(orchDir);
   });

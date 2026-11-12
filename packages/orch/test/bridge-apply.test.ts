@@ -154,11 +154,11 @@ describe("presence bridge delivery", () => {
     const value = await presence(link.daemon, harness);
 
     const answer = value.answers.await("question-1", undefined);
-    link.deliveries({ id: "answer-1", message: { action: "answer", questionId: "question-1", text: "yes" } });
+    link.deliveries({ id: "answer-1", message: { action: "answer", questionId: "question-1", text: "yes", optionId: null } });
     expect(await answer).toEqual({ deliveryId: "answer-1", text: "yes" });
     expect(link.acks).toEqual(["answer-1"]);
 
-    link.deliveries({ id: "answer-2", message: { action: "answer", questionId: "question-2", text: "no" } });
+    link.deliveries({ id: "answer-2", message: { action: "answer", questionId: "question-2", text: "no", optionId: null } });
     expect(link.acks).toEqual(["answer-1"]);
     value.stopPresence();
   });

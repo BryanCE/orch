@@ -3,9 +3,10 @@ import type { LifecycleVerb } from "./adapter.ts";
 export type ControlAction =
   | { readonly kind: "run"; readonly text: string; readonly id: string }
   | { readonly kind: "steer"; readonly text: string; readonly id: string }
-  | { readonly kind: "answer"; readonly text: string; readonly id: string }
+  | { readonly kind: "answer"; readonly text: string; readonly optionId: string | null; readonly id: string }
   | { readonly kind: "model"; readonly model: string; readonly id: string }
-  | { readonly kind: "lifecycle"; readonly verb: LifecycleVerb };
+  | { readonly kind: "lifecycle"; readonly verb: LifecycleVerb }
+  | { readonly kind: "abort" };
 
 /**
  * Route prompt text into a live agent through the mechanism its adapter declares.
@@ -24,4 +25,4 @@ export type ControlAck = "expected" | "echo" | "none";
 
 export type ControlBoundaryOutcome =
   | { readonly outcome: "invoke"; readonly ack: ControlAck }
-  | { readonly outcome: "answer"; readonly text: string; readonly reason: "not-placed" | "no-environment-role" | "not-asking" };
+  | { readonly outcome: "answer"; readonly text: string; readonly reason: "not-placed" | "no-pane" | "no-environment-role" | "not-asking" };

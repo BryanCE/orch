@@ -27,6 +27,9 @@ import { errorMessage, isRecord } from "../src/util.ts";
 import { sql } from "drizzle-orm";
 import { recordAgentStatus } from "../src/presence/store.ts";
 import { selectRuns, upsertRun } from "../src/store/run-rows.ts";
+import { pendingQuestions, recordQuestion } from "../src/store/question-rows.ts";
+import { questionView } from "../src/daemon/server/handlers/lifecycle.ts";
+import type { QuestionOption } from "../src/types/question.ts";
 
 /** Target resolution loads settings.json (host lookup) and die()s — killing the whole
  *  test process — when it is absent, so every command-invoking test seeds one. */
@@ -115,7 +118,7 @@ describe("commands/results", () => {
     seedLiveAgent(root, key);
     const askedAt = Date.parse("2026-09-11T00:00:00.000Z");
     try {
-      const output = await captureStdoutAsync(() => withQuestionsServer(root, [{ host: hostIdentity(), space: null, questionId: "q1", agentId: key, key, name: "question-agent", question: "need input", askedAt }], async () => {
+      const output = await captureStdoutAsync(() => withQuestionsServer(root, [{ host: hostIdentity(), space: null, questionId: "q1", agentId: key, key, name: "question-agent", question: "need input", options: [], askedAt }], async () => {
         await cmdQuestions(testServices({ orchDir: root, settings: SETTINGS_FIXTURE }), ["--all", "--json"]);
       }));
       const parsed: unknown = JSON.parse(output);
@@ -136,20 +139,51 @@ describe("commands/results", () => {
     try {
       const output = await captureStdoutAsync(async () => {
         await withQuestionsServer(root, [
-          { host: hostIdentity(), space: null, questionId: "live-id", agentId: "liveques01", key: "liveques01", name: null, question: "live", askedAt: Date.parse("2026-09-11T00:00:00.000Z") },
+          { host: hostIdentity(), space: null, questionId: "live-id", agentId: "liveques01", key: "liveques01", name: null, question: "live", options: [], askedAt: Date.parse("2026-09-11T00:00:00.000Z") },
         ], async () => { await cmdQuestions(testServices({ orchDir: root, settings: SETTINGS_FIXTURE }), ["--all", "--json"]); });
       });
       const parsed: unknown = JSON.parse(output);
       expect(parsed).toEqual([expect.objectContaining({ key: "liveques01", id: "live-id", question: "live" })]);
       const text = await captureStdoutAsync(async () => {
         await withQuestionsServer(root, [
-          { host: hostIdentity(), space: null, questionId: "live-id", agentId: "liveques01", key: "liveques01", name: null, question: "live", askedAt: Date.parse("2026-09-11T00:00:00.000Z") },
+          { host: hostIdentity(), space: null, questionId: "live-id", agentId: "liveques01", key: "liveques01", name: null, question: "live", options: [], askedAt: Date.parse("2026-09-11T00:00:00.000Z") },
         ], async () => { await cmdQuestions(testServices({ orchDir: root, settings: SETTINGS_FIXTURE }), ["--all"]); });
       });
       expect(text).toMatch(/^-  \S+\nlive\n$/);
       expect(text).not.toContain("liveques01");
     } finally {
       if (old === undefined) delete process.env.ORCH_DIR; else process.env.ORCH_DIR = old;
+      removeTempDir(root);
+    }
+  });
+
+  test.serial("returns stored options over RPC and prints them in offered order", async () => {
+    const root = tempOrchDir("orch-command-question-options-");
+    process.env.ORCH_DIR = root;
+    seedSettings(root);
+    seedLiveAgent(root, "option-agent");
+    const options: QuestionOption[] = [
+      { id: "z", label: "Allow once", kind: "allow-once" },
+      { id: "a", label: "Reject", kind: "reject-once" },
+    ];
+    recordQuestion(root, { id: "choices", agentId: "option-agent", question: "Allow?", askedAt: 100, options, supersede: false });
+    recordQuestion(root, { id: "free-text", agentId: "option-agent", question: "Why?", askedAt: 200, options: [], supersede: false });
+    const server = await startRpcServer(root, stubRpcHandlers({
+      questions: () => ({ questions: pendingQuestions(root).map((row) => questionView(root, row)) }),
+      self: () => ({ id: null, kind: "operator", space: null, view: null, depth: 0, stored: null }),
+    }), { logger: recordingLogger().logger });
+    try {
+      const services = testServices({ orchDir: root, settings: SETTINGS_FIXTURE });
+      const json = await captureStdoutAsync(() => cmdQuestions(services, ["--json"]));
+      const parsed: unknown = JSON.parse(json);
+      expect(parsed).toEqual([
+        expect.objectContaining({ id: "choices", options }),
+        expect.objectContaining({ id: "free-text", options: [] }),
+      ]);
+      const text = await captureStdoutAsync(() => cmdQuestions(services, []));
+      expect(text).toContain("Allow?\n  1. Allow once\n  2. Reject\n");
+    } finally {
+      await server.close();
       removeTempDir(root);
     }
   });

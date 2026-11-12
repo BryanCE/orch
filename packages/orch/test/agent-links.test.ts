@@ -25,7 +25,7 @@ const held: { key: string; link: AgentLink }[] = [];
 /** A link that records every delivery pushed down it. */
 function recordingLink(): AgentLink & { readonly pushed: BridgeDelivery[] } {
   const pushed: BridgeDelivery[] = [];
-  return { pushed, push: (delivery) => { pushed.push(delivery); }, close: () => undefined };
+  return { pushed, takes: [], abort: null, push: (delivery) => { pushed.push(delivery); }, close: () => undefined };
 }
 
 /** Attach and remember the link, so afterEach can detach exactly what this test held. */
@@ -127,13 +127,16 @@ describe("bridge message guards", () => {
   test("accept every action shape", () => {
     expect(isBridgeMessage({ action: "dispatch", text: "t" })).toBe(true);
     expect(isBridgeMessage({ action: "steer", text: "t" })).toBe(true);
-    expect(isBridgeMessage({ action: "answer", text: "t", questionId: "q" })).toBe(true);
+    expect(isBridgeMessage({ action: "answer", text: "t", questionId: "q", optionId: null })).toBe(true);
     expect(isBridgeMessage({ action: "model", model: "m" })).toBe(true);
   });
 
   test("refuse a missing field, an unknown action, and a non-record", () => {
     expect(isBridgeMessage({ action: "dispatch" })).toBe(false);
     expect(isBridgeMessage({ action: "answer", text: "t" })).toBe(false);
+    expect(isBridgeMessage({ action: "answer", text: "t", questionId: "q" })).toBe(false);
+    expect(isBridgeMessage({ action: "answer", text: "t", questionId: "q", optionId: 1 })).toBe(false);
+    expect(isBridgeMessage({ action: "answer", text: "t", questionId: "q", optionId: "allow" })).toBe(true);
     expect(isBridgeMessage({ action: "on_done", text: "t" })).toBe(false);
     expect(isBridgeMessage("dispatch")).toBe(false);
   });

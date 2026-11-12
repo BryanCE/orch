@@ -1,3 +1,4 @@
+import { nativeForm } from "../../../types/form.ts";
 import { basename } from "node:path";
 import { assertNameFree } from "../../../policy/name.ts";
 import { mintAgentId } from "../../../shared/agent-id.ts";
@@ -130,7 +131,7 @@ function launchSpawnBackend(orchDir: OrchDir, spec: TabSpawnSpec, key: string, e
   let handle: BackendHandle;
   try {
     handle = spec.backend.spawn(spec.adapter, {
-      key, env, cwd: spec.cwd, name: spec.name, workspace: spec.workspace, group: spec.group,
+      form: spec.form, key, env, cwd: spec.cwd, name: spec.name, workspace: spec.workspace, group: spec.group,
       intoHandle: place, orchDir, model: spec.model, thinking, preferredModels: spec.preferredModels,
       tools: spec.tools, workers: spec.workers, cmd: spec.cmd,
     });
@@ -150,7 +151,10 @@ function registerSpawnedTabAgent(services: DaemonClient, spec: TabSpawnSpec, key
   // harness, plexer, handle, space, model, worktree, holder, process — because a
   // second writer filling in the rest is how the two came to disagree about
   // which record was authoritative.
+  const form = spec.form ?? nativeForm(spec.backend.offers);
+  if (form === null) throw new SpawnRefusalError(`backend ${spec.backend.id} has no native form`);
   registerSpawnedAgent(services.orchDir, {
+    form,
     key, harnessId: spec.adapterId, backendId: spec.backend.id, placed: spec.backend.placementInventory !== null,
     handle: String(handle), cwd: spec.cwd, name: spec.name, model: spec.model, thinking, space: spec.space ?? undefined,
     spawner: spec.spawner,
@@ -213,6 +217,7 @@ function placeAgent(services: DaemonClient, settings: SpawnSettings, plan: Spawn
     backend,
     adapter,
     adapterId: plan.adapter,
+    form: plan.form ?? undefined,
     name,
     cwd,
     space,

@@ -138,7 +138,7 @@ export interface CreatedAgent {
 }
 
 export interface TabSpawnSpec {
-  form?: import("./form.ts").FormId;
+  form: import("./form.ts").FormId;
   backend: Backend;
   adapter: AgentAdapter;
   adapterId: AdapterId;

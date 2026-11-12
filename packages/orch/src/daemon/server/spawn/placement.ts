@@ -1,4 +1,3 @@
-import { nativeForm } from "../../../types/form.ts";
 import { basename } from "node:path";
 import { assertNameFree } from "../../../policy/name.ts";
 import { mintAgentId } from "../../../shared/agent-id.ts";
@@ -22,7 +21,7 @@ import { liveFleet, type CallerSelf } from "./admission.ts";
 import { resolveAdapterOrDie } from "./models.ts";
 import type { HomeSubject } from "../../../types/backend.ts";
 import type { AgentWorktree } from "../../../types/worktree.ts";
-import type { SpawnAgentPlan, SpawnSettings } from "./plan.ts";
+import { localAgentPlan, type LocalSpawnAgentPlan, type SpawnSettings } from "./plan.ts";
 
 /** Lines a spawn reports to whoever asked for it, in the order they happened: warnings about an
  *  agent that did not come up, and why a launch went headless. */
@@ -151,10 +150,8 @@ function registerSpawnedTabAgent(services: DaemonClient, spec: TabSpawnSpec, key
   // harness, plexer, handle, space, model, worktree, holder, process — because a
   // second writer filling in the rest is how the two came to disagree about
   // which record was authoritative.
-  const form = spec.form ?? nativeForm(spec.backend.offers);
-  if (form === null) throw new SpawnRefusalError(`backend ${spec.backend.id} has no native form`);
   registerSpawnedAgent(services.orchDir, {
-    form,
+    form: spec.form,
     key, harnessId: spec.adapterId, backendId: spec.backend.id, placed: spec.backend.placementInventory !== null,
     handle: String(handle), cwd: spec.cwd, name: spec.name, model: spec.model, thinking, space: spec.space ?? undefined,
     spawner: spec.spawner,
@@ -208,7 +205,7 @@ export function discardUnusedWorkspace(logger: Logger, intent: WorktreeIntent | 
 }
 
 /** Tile one of this launch's named agents, in its own worktree when asked. */
-function placeAgent(services: DaemonClient, settings: SpawnSettings, plan: SpawnAgentPlan, space: string | null, workspace: string | undefined, group: string, backend: Backend, self: CallerSelf, role: GroupLayoutRole): CreatedAgent {
+function placeAgent(services: DaemonClient, settings: SpawnSettings, plan: LocalSpawnAgentPlan, space: string | null, workspace: string | undefined, group: string, backend: Backend, self: CallerSelf, role: GroupLayoutRole): CreatedAgent {
   const name = plan.name;
   const adapter = resolveAdapterOrDie(plan.adapter);
   const { cwd, worktree } = prepareWorkspace(settings.cwd, settings.worktree, name, adapter, plan.cmd);
@@ -217,7 +214,7 @@ function placeAgent(services: DaemonClient, settings: SpawnSettings, plan: Spawn
     backend,
     adapter,
     adapterId: plan.adapter,
-    form: plan.form ?? undefined,
+    form: plan.form,
     name,
     cwd,
     space,
@@ -252,7 +249,7 @@ export function growFleetIntoGroup(services: DaemonClient, settings: SpawnSettin
       continue;
     }
     try {
-      created.push(placeAgent(services, settings, plan, space, workspace, group, backend, self, role));
+      created.push(placeAgent(services, settings, localAgentPlan(plan), space, workspace, group, backend, self, role));
     } catch (error: unknown) {
       const message = errorMessage(error);
       logger.warn("spawn.place-failed", { backend: backend.id, name, error: message });

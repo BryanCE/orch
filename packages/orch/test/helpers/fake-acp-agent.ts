@@ -28,6 +28,8 @@ export interface FakeAcpScript {
   readonly configOptions: SessionConfigOption[];
   readonly replay: readonly SessionUpdate[];
   readonly turns: readonly FakeAcpTurn[];
+  /** When set, `session/load` rejects with this message. */
+  readonly loadError?: string;
 }
 
 /** Runs an SDK agent on in-memory byte streams. */
@@ -50,6 +52,7 @@ export function fakeAcpAgent(script: FakeAcpScript) {
   });
   app.onRequest(methods.agent.session.load, async ({ params, client }) => {
     record(methods.agent.session.load, params);
+    if (script.loadError !== undefined) throw new Error(script.loadError);
     for (const update of script.replay) {
       await client.notify(methods.client.session.update, { sessionId: params.sessionId, update });
     }

@@ -108,7 +108,7 @@ describe("the preferred quicklist reaches every launch route", () => {
     seedSpace(directory, "wsA");
     const { backend, seen } = capturingPaneBackend();
 
-    spawnOneIntoTab(await spawningServices(directory), {
+    spawnOneIntoTab(await spawningServices(directory), { form: "tui",
       backend,
       adapter: piAdapter,
       adapterId: "pi",
@@ -133,7 +133,7 @@ describe("the preferred quicklist reaches every launch route", () => {
 
     const agents = [["quick-a", "openai/gpt-5.6", "medium"], ["quick-b", "anthropic/claude-sonnet-4.5", "high"]] satisfies readonly (readonly [string, string, ThinkingLevel])[];
     for (const [name, model, thinking] of agents) {
-      spawnOneIntoTab(services, {
+      spawnOneIntoTab(services, { form: "tui",
         backend,
         adapter: piAdapter,
         adapterId: "pi",
@@ -159,7 +159,7 @@ describe("the preferred quicklist reaches every launch route", () => {
     seedSpace(directory, "wsA");
     const { backend, seen } = capturingPaneBackend();
 
-    spawnOneIntoTab(await spawningServices(directory), {
+    spawnOneIntoTab(await spawningServices(directory), { form: "tui",
       backend,
       adapter: piAdapter,
       adapterId: "pi",
@@ -201,7 +201,7 @@ describe("the preferred quicklist reaches every launch route", () => {
     // The key a real spawn hands a backend is the minted id alone — registration parses it
     // through the one identity boundary, and a `<plexer>~<space>~<name>` key welds environment
     // into identity, which Rule 11 forbids.
-    new HeadlessBackend().spawn(adapter, {
+    new HeadlessBackend().spawn(adapter, { form: "oneshot",
       key: mintAgentId(),
       cwd: directory,
       orchDir: directory,

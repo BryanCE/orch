@@ -20,9 +20,10 @@ export interface AcpStreams {
   readonly output: ReadableStream<Uint8Array>;
 }
 
-/** How to open the conversation. */
+/** How to open the conversation. `existing` loads the session when the agent offers load, else resumes it. */
 export type AcpOpen =
   | { readonly kind: "new"; readonly cwd: string }
+  | { readonly kind: "existing"; readonly cwd: string; readonly sessionId: string }
   | { readonly kind: "load"; readonly cwd: string; readonly sessionId: string }
   | { readonly kind: "resume"; readonly cwd: string; readonly sessionId: string };
 
@@ -37,6 +38,8 @@ export interface AcpPermissionAsk {
 export interface AcpSessionHandlers {
   onUpdate(update: SessionUpdate): void;
   onPermission(ask: AcpPermissionAsk): Promise<string | null>;
+  /** Called once, before a `session/load` request replays the whole conversation as updates. */
+  onLoad?(): void;
 }
 
 /** What the agent said it supports. */
@@ -79,6 +82,8 @@ export interface AcpAgentProbe {
   readonly name: string | null;
   readonly version: string | null;
   readonly protocolVersion: number;
+  readonly load: boolean;
+  readonly resume: boolean;
 }
 
 type AcpConnection = ReturnType<ReturnType<typeof client>["connect"]>;
@@ -93,16 +98,29 @@ async function initializeAgent(connection: AcpConnection, info: AcpClientInfo): 
   return connection.agent.request(methods.agent.initialize, initializeParams);
 }
 
-/** Connects, initializes, and reports who the agent is. Opens no session and ends the connection. */
+/** Which ways to reopen a session the agent said it supports. */
+function offeredSessions(initialized: InitializeResponse): { readonly load: boolean; readonly resume: boolean; readonly close: boolean } {
+  const caps = initialized.agentCapabilities;
+  return {
+    load: caps?.loadSession === true,
+    resume: caps?.sessionCapabilities?.resume != null,
+    close: caps?.sessionCapabilities?.close != null,
+  };
+}
+
+/** Connects, initializes, and reports who the agent is and which ways it reopens a session. Opens no session and ends the connection. */
 export async function probeAcpAgent(streams: AcpStreams, info: AcpClientInfo): Promise<AcpAgentProbe> {
   const app = client({ name: info.name });
   const connection = app.connect(ndJsonStream(streams.input, streams.output));
   try {
     const initialized = await initializeAgent(connection, info);
+    const { load, resume } = offeredSessions(initialized);
     return {
       name: initialized.agentInfo?.name ?? null,
       version: initialized.agentInfo?.version ?? null,
       protocolVersion: initialized.protocolVersion,
+      load,
+      resume,
     };
   } finally {
     connection.close();
@@ -166,12 +184,11 @@ export async function openAcpSession(
     if (initialized.protocolVersion !== PROTOCOL_VERSION) {
       throw new Error(`ACP protocol version ${initialized.protocolVersion} does not match client version ${PROTOCOL_VERSION}`);
     }
-    const caps = initialized.agentCapabilities;
-    const load = caps?.loadSession === true;
-    const resume = caps?.sessionCapabilities?.resume != null;
-    const close = caps?.sessionCapabilities?.close != null;
-    if (open.kind === "load" && !load) throw new Error("Agent does not offer session/load");
-    if (open.kind === "resume" && !resume) throw new Error("Agent does not offer session/resume");
+    const { load, resume, close } = offeredSessions(initialized);
+    const mode = open.kind === "existing" ? (load ? "load" : "resume") : open.kind;
+    if (open.kind === "existing" && !load && !resume) throw new Error("Agent offers neither session/load nor session/resume");
+    if (mode === "load" && !load) throw new Error("Agent does not offer session/load");
+    if (mode === "resume" && !resume) throw new Error("Agent does not offer session/resume");
     const params = { cwd: open.cwd, mcpServers: [] } satisfies AgentRequestParamsByMethod[typeof methods.agent.session.new];
     let response: LoadSessionResponse;
     if (open.kind === "new") {
@@ -179,8 +196,9 @@ export async function openAcpSession(
       sessionId = created.sessionId;
       response = created;
     } else {
+      if (mode === "load") handlers.onLoad?.();
       response = await connection.agent.request(
-        open.kind === "load" ? methods.agent.session.load : methods.agent.session.resume,
+        mode === "load" ? methods.agent.session.load : methods.agent.session.resume,
         { ...params, sessionId: open.sessionId },
       );
     }

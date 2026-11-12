@@ -281,7 +281,7 @@ export interface CaptureRole {
 
 /** Options common to backend launches. */
 export interface BackendSpawnOpts {
-  readonly form?: FormId;
+  readonly form: FormId;
   /** Initial task sent to the adapter. */
   readonly prompt?: string;
   /** Presence key to associate with the process, when known. */

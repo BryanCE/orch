@@ -102,7 +102,7 @@ describe("reload and restart of an agent held on a linked host", () => {
     const reloaded = applyLifecycle(held.near, { target: held.key, request: { verb: "reload" } });
     await until("the reload typed", () => pty.typed().includes("/reload\r"));
     setTimeout(() => { held.report("idle"); }, 30);
-    expect(await reloaded).toEqual({ ok: true, reason: null, command: null, relaunched: null });
+    expect(await reloaded).toEqual({ ok: true, reason: null, command: null, relaunched: null, bridge: true, form: "tui" });
     // The prompt is cleared first, then the reload submitted, into the same PTY.
     expect(pty.written.slice(typedBefore)).toEqual(["\x1b", "/reload", "\r"]);
     expect(held.pty.spawned).toHaveLength(1);
@@ -113,7 +113,7 @@ describe("reload and restart of an agent held on a linked host", () => {
     const old = held.pty.last();
     const chunks = await viewer(held);
     bridgeReportsOnRelaunch(held);
-    const outcome = await applyLifecycle(held.near, { target: held.key, request: { verb: "restart", harness: null, model: null, thinking: null, cmd: null } });
+    const outcome = await applyLifecycle(held.near, { target: held.key, request: { verb: "restart", harness: null, model: null, thinking: null, cmd: null, form: null } });
     expect(outcome.ok).toBe(true);
     expect(outcome.reason).toBeNull();
     expect(outcome.command).toContain("gpt-5.6-luna");
@@ -136,7 +136,7 @@ describe("reload and restart of an agent held on a linked host", () => {
   test("restart with --model relaunches on that model, and both hosts record it", async () => {
     const held = await heldFar("lc-3");
     bridgeReportsOnRelaunch(held);
-    const outcome = await applyLifecycle(held.near, { target: held.key, request: { verb: "restart", harness: null, model: "openai/gpt-5.6-sol", thinking: null, cmd: null } });
+    const outcome = await applyLifecycle(held.near, { target: held.key, request: { verb: "restart", harness: null, model: "openai/gpt-5.6-sol", thinking: null, cmd: null, form: null } });
     expect(outcome).toMatchObject({ ok: true, reason: null, relaunched: { harnessId: "pi", model: "openai/gpt-5.6-sol", thinking: "medium" } });
     expect(outcome.command).toContain("gpt-5.6-sol");
     expect(agentView(held.far.orchDir, held.key)?.tuning.model).toBe("openai/gpt-5.6-sol");
@@ -146,7 +146,7 @@ describe("reload and restart of an agent held on a linked host", () => {
   test("restart with another --harness relaunches the PTY on that harness, and both hosts record it", async () => {
     const held = await heldFar("lc-4");
     bridgeReportsOnRelaunch(held);
-    const outcome = await applyLifecycle(held.near, { target: held.key, request: { verb: "restart", harness: "claude", model: "haiku", thinking: null, cmd: null } });
+    const outcome = await applyLifecycle(held.near, { target: held.key, request: { verb: "restart", harness: "claude", model: "haiku", thinking: null, cmd: null, form: null } });
     expect(outcome).toMatchObject({ ok: true, reason: null, relaunched: { harnessId: "claude", model: "haiku" } });
     expect(outcome.command).toMatch(/^claude\b/);
     expect(held.pty.last().child.pid).not.toBe(held.pty.spawned[0]?.child.pid);
@@ -162,7 +162,7 @@ describe("reload and restart of an agent held on a linked host", () => {
     // and the new one being recorded.
     ticks.push(startLivenessTick(held.far.orchDir, 1, (event) => { events.push(event); held.far.emit(event); }, recordingLogger().logger));
     bridgeReportsOnRelaunch(held);
-    const outcome = await applyLifecycle(held.near, { target: held.key, request: { verb: "restart", harness: null, model: null, thinking: null, cmd: null } });
+    const outcome = await applyLifecycle(held.near, { target: held.key, request: { verb: "restart", harness: null, model: null, thinking: null, cmd: null, form: null } });
     expect(outcome.ok).toBe(true);
     expect(events.filter((event) => event.type === "transition" && event.newState === "exited")).toEqual([]);
     expect(agentView(held.far.orchDir, held.key)?.endedAt).toBeNull();
@@ -171,7 +171,7 @@ describe("reload and restart of an agent held on a linked host", () => {
 
   test("a restart whose harness never reports back says so, as it does here", async () => {
     const held = await heldFar("lc-5");
-    const outcome = await applyLifecycle(held.near, { target: held.key, request: { verb: "restart", harness: null, model: null, thinking: null, cmd: null } });
+    const outcome = await applyLifecycle(held.near, { target: held.key, request: { verb: "restart", harness: null, model: null, thinking: null, cmd: null, form: null } });
     expect(outcome.ok).toBe(false);
     expect(outcome.reason).toBe("relaunched but bridge status did not refresh within 3s");
   });

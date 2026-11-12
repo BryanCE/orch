@@ -119,7 +119,7 @@ describe("tmux backend registry and capabilities", () => {
       TmuxBackend.prototype.isAvailable = () => true;
       delete process.env.TMUX;
       expect(resolveBackend({ explicit: "tmux", configured: null }).id).toBe("tmux");
-      expect(() => new TmuxBackend().spawn(fakeAdapter(), { key: "k", cwd: "/tmp", orchDir: orchDirAt(process.cwd()) }))
+      expect(() => new TmuxBackend().spawn(fakeAdapter(), { form: "tui", key: "k", cwd: "/tmp", orchDir: orchDirAt(process.cwd()) }))
         .toThrow(/tmux spawn requires running inside a tmux session/);
     } finally {
       TmuxBackend.prototype.isAvailable = oldTmuxAvailable;

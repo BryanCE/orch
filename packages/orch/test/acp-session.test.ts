@@ -162,7 +162,7 @@ describe("ACP session", () => {
 
   test("probeAcpAgent reports the agent's name, version and protocol version and opens no session", async () => {
     const fake = setup({ initialize: { protocolVersion: PROTOCOL_VERSION, agentInfo: { name: "probe-agent", version: "1.2.3" } } });
-    expect(await probeAcpAgent(fake.streams, info)).toEqual({ name: "probe-agent", version: "1.2.3", protocolVersion: PROTOCOL_VERSION });
+    expect(await probeAcpAgent(fake.streams, info)).toEqual({ name: "probe-agent", version: "1.2.3", protocolVersion: PROTOCOL_VERSION, load: false, resume: false });
     expect(fake.received.map((request) => request.method)).toEqual([methods.agent.initialize]);
   });
 

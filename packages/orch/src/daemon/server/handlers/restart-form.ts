@@ -1,0 +1,165 @@
+// Restart in a held form: an agent whose process orchd holds is relaunched on its recorded session,
+// in its own form or in another. The agent keeps its id, its lease and its backend; only the
+// process, the channel and, on a switch, the open `agent_forms` row change.
+import { attachedLink } from "../../../control/agent-links.ts";
+import { getBackend, startHeldAgent, type HeldProgram } from "../../../backends/registry.ts";
+import { agentView } from "../../../store/agent-view.ts";
+import { selectAgentStatus } from "../../../store/status-rows.ts";
+import { worktreeOf } from "../../../store/agent-rows.ts";
+import { setForm } from "../../../store/interval-rows.ts";
+import { whileSwappingProcess } from "../../../presence/store.ts";
+import { isThinkingLevel } from "../../../policy/thinking.ts";
+import { FORM_STDIO, offersForm, type FormId } from "../../../types/form.ts";
+import { startAcpAgent } from "../acp-agents.ts";
+import { probeBinding } from "../acp-probe.ts";
+import { heldPipes, releasePipes } from "../held-pipes.ts";
+import { reclaim } from "./lifecycle.ts";
+import type { AcpRole, AgentAdapter, ResumeRole } from "../../../types/adapter.ts";
+import type { BackendSpawnOpts } from "../../../types/backend.ts";
+import type { AgentView } from "../../../types/store.ts";
+import type { HeldTerminal } from "../../../types/pty.ts";
+import type { HereAgent } from "../../../types/agent-place.ts";
+import type { DaemonState } from "../state.ts";
+
+/** What a form needs from its harness: a binding on pipes, or a resume argv for a terminal. */
+type FormRole =
+  | { readonly stdio: "pipes"; readonly role: AcpRole }
+  | { readonly stdio: "terminal"; readonly role: ResumeRole };
+
+/** What a restart in a held form leaves to its caller. */
+export interface FormRestart {
+  /** True when the relaunched harness reports through a bridge or hooks, so the restart is
+   *  done once it has reported again. */
+  readonly awaitBridge: boolean;
+}
+
+function formRole(adapter: AgentAdapter, form: FormId): FormRole | null {
+  switch (FORM_STDIO[form]) {
+    case "pipes":
+      return adapter.acp === null ? null : { stdio: "pipes", role: adapter.acp };
+    case "terminal":
+      return adapter.resume === null ? null : { stdio: "terminal", role: adapter.resume };
+    case "none":
+      return null;
+    default: {
+      const exhaustive: never = FORM_STDIO[form];
+      throw new Error(`unknown stdio ${String(exhaustive)}`);
+    }
+  }
+}
+
+/** The spawn opts of a restart, from what the store holds about the agent. The store holds no
+ *  env, tools or workers for an agent, so a restart carries none. */
+function restartOpts(state: DaemonState, adapter: AgentAdapter, agent: HereAgent, view: AgentView, form: FormId): BackendSpawnOpts {
+  const { model, thinking } = view.tuning;
+  const worktree = worktreeOf(state.directory, agent);
+  return {
+    ...(worktree === null ? {} : { worktree }),
+    form,
+    key: view.id,
+    name: view.name,
+    orchDir: state.directory,
+    cwd: view.environment.cwd,
+    ...(model === null ? {} : { model }),
+    ...(isThinkingLevel(thinking) ? { thinking } : {}),
+    preferredModels: state.services.settings.current().models.preferred[adapter.id] ?? [],
+  };
+}
+
+/** Refuse unless the binding offers to reopen a session, by a probe on a process of its own. */
+async function requireReopen(state: DaemonState, view: AgentView, adapter: AgentAdapter, form: FormId, acp: AcpRole): Promise<void> {
+  const offered = await probeBinding(state.pipes, acp, state.services.settings.current().timeouts.acp_probe_ms).catch(() => null);
+  if (offered === null || (!offered.load && !offered.resume)) throw new Error(`cannot switch ${view.name} to ${form}: the ${adapter.id} binding does not offer session load`);
+}
+
+/** End the agent's process and its channel, and wait until orchd holds nothing under its key. */
+async function endHeldProcess(state: DaemonState, agent: HereAgent): Promise<void> {
+  const key = agent.id;
+  attachedLink(agent)?.close();
+  const pipes = heldPipes(key);
+  if (pipes !== null) {
+    releasePipes(key);
+    await pipes.exited;
+  }
+  const terminal: HeldTerminal = { kind: "agent", agent };
+  if (state.held.has(terminal)) {
+    await new Promise<void>((resolve) => {
+      state.held.subscribe(terminal, () => undefined, () => { resolve(); });
+      state.held.kill(key);
+    });
+  }
+}
+
+/** Swap the agent's held process for the one `start` runs. The old claim goes first, since the
+ *  relaunched harness claims the row afresh; a switch opens the next form row before it starts. */
+async function swapProcess(state: DaemonState, agent: HereAgent, form: FormId | null, start: () => Promise<unknown>): Promise<void> {
+  const key = agent.id;
+  await whileSwappingProcess(state.directory, key, async () => {
+    await endHeldProcess(state, agent);
+    reclaim(state.directory, { target: key });
+    await start();
+    if (form !== null) setForm(state.directory, key, Date.now(), form);
+  });
+}
+
+function viewOf(state: DaemonState, agent: HereAgent): AgentView {
+  const view = agentView(state.directory, agent.id);
+  if (view === null) throw new Error(`unknown agent: ${agent.id}`);
+  return view;
+}
+
+/** Start an agent that runs on pipes again, on its recorded session when it has one. */
+export async function restartPipes(state: DaemonState, agent: HereAgent, adapter: AgentAdapter): Promise<FormRestart> {
+  const view = viewOf(state, agent);
+  if (view.form === null) throw new Error(`${view.name} records no form to restart in`);
+  const sessionId = selectAgentStatus(state.directory, agent.id)?.sessionId ?? null;
+  const opts = restartOpts(state, adapter, agent, view, view.form);
+  if (sessionId !== null) {
+    const role = formRole(adapter, view.form);
+    if (role?.stdio === "pipes") await requireReopen(state, view, adapter, view.form, role.role);
+  }
+  await swapProcess(state, agent, null, () => startAcpAgent(state, adapter, opts, sessionId, "existing-agent"));
+  return { awaitBridge: false };
+}
+
+/** The session and role a switch to `form` rests on, or the first refusal. Nothing of the
+ *  running agent is ended here. */
+async function planSwitch(state: DaemonState, view: AgentView, adapter: AgentAdapter, form: FormId): Promise<{ readonly target: FormRole; readonly sessionId: string }> {
+  const target = formRole(adapter, form);
+  if (target === null) throw new Error(`harness ${adapter.id} has no ${form} form`);
+  const backendId = view.environment.plexer;
+  const offers = backendId === null ? undefined : getBackend(backendId)?.offers;
+  if (offers === undefined || !offersForm(offers, form)) {
+    throw new Error(`cannot switch ${view.name} to ${form}: its backend ${backendId ?? "none"} does not run that form`);
+  }
+  const sessionId = selectAgentStatus(state.directory, view.id)?.sessionId ?? null;
+  if (sessionId === null) throw new Error(`cannot switch ${view.name} to ${form}: no session id is recorded`);
+  if (adapter.acp?.sharesSessions !== true) throw new Error(`cannot switch ${view.name} to ${form}: the ${adapter.id} binding does not share sessions with its TUI`);
+  if (target.stdio === "pipes") {
+    await requireReopen(state, view, adapter, form, target.role);
+  }
+  return { target, sessionId };
+}
+
+/** Relaunch an agent in another form, on its recorded session. */
+export async function switchForm(state: DaemonState, agent: HereAgent, adapter: AgentAdapter, form: FormId): Promise<FormRestart> {
+  const view = viewOf(state, agent);
+  const opts = restartOpts(state, adapter, agent, view, form);
+  const { target, sessionId } = await planSwitch(state, view, adapter, form);
+  switch (target.stdio) {
+    case "pipes":
+      await swapProcess(state, agent, form, () => startAcpAgent(state, adapter, opts, sessionId, "existing-agent"));
+      return { awaitBridge: false };
+    case "terminal": {
+      const [file, ...args] = target.role.argv(opts, sessionId);
+      if (file === undefined) throw new Error(`harness ${adapter.id} gave an empty resume command`);
+      const program: HeldProgram = { file, args };
+      await swapProcess(state, agent, form, () => startHeldAgent(state.held, adapter, opts, "existing-agent", program));
+      return { awaitBridge: adapter.bridge !== null || adapter.hooks !== null };
+    }
+    default: {
+      const exhaustive: never = target;
+      throw new Error(`unknown form role ${String(exhaustive)}`);
+    }
+  }
+}

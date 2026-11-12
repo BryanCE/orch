@@ -88,7 +88,7 @@ afterAll(() => {
 describe("herdr and notification hardening", () => {
   test("uses a non-empty agent name and preserves shell command as one argv value", () => {
     const backend = new HerdrBackend(createHerdrCli(fakeExecutor));
-    const handle = backend.spawn(adapter, { cwd: "/tmp/work dir", workspace: "ws-test", key: "  ", orchDir: tempOrchDir("herdr-hardening-") });
+    const handle = backend.spawn(adapter, { form: "tui", cwd: "/tmp/work dir", workspace: "ws-test", key: "  ", orchDir: tempOrchDir("herdr-hardening-") });
 
     expect(handle).toBe("w6:p10");
     expect(lastCall("pane", "rename")).toEqual(["pane", "rename", "w6:p10", "pi-agent"]);
@@ -110,7 +110,7 @@ describe("herdr and notification hardening", () => {
     // What is asserted is the GRAMMAR, not a particular stripped value - the
     // namer no longer splits on "~" (A1: the key IS the minted id, so there is
     // no component to keep), it normalizes whatever it is handed.
-    new HerdrBackend(createHerdrCli(fakeExecutor)).spawn(adapter, { workspace: "ws-test", key: "herdr~ws-test~ABC_123", orchDir: tempOrchDir("herdr-hardening-") });
+    new HerdrBackend(createHerdrCli(fakeExecutor)).spawn(adapter, { form: "tui", workspace: "ws-test", key: "herdr~ws-test~ABC_123", orchDir: tempOrchDir("herdr-hardening-") });
     const name = lastCall("pane", "rename")?.[3] ?? "";
     expect(name).toMatch(/^[a-z][a-z0-9_-]{0,31}$/);
     expect(name).not.toContain("~");

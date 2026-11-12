@@ -13,10 +13,10 @@ import type { OrchSettings } from "../../../types/settings.ts";
 import type { WorktreeIntent } from "../../../worktrees/agent.ts";
 import type { ParamsOf } from "../../client/protocol.ts";
 
-export interface SpawnAgentPlan {
-  readonly form: FormId | null;
-  readonly backend: Backend;
+interface SpawnAgentCommon {
+  /** The form the spawn asked for with `--form`, unresolved; a linked host resolves it. */
   readonly requestedForm: FormId | null;
+  readonly backend: Backend;
   readonly name: string;
   readonly adapter: AdapterId;
   /** The harness command this agent launches under: `--cmd`, or its adapter's own. */
@@ -28,6 +28,18 @@ export interface SpawnAgentPlan {
   /** The initial task, or null when the fleet starts idle. All agents have one or none have one. */
   readonly prompt: string | null;
 }
+
+/** An agent launched here: its form and the backend that holds it are resolved. */
+export interface LocalSpawnAgentPlan extends SpawnAgentCommon {
+  readonly form: FormId;
+}
+
+/** An agent on a linked host: that host's orchd resolves its form. */
+export interface FarSpawnAgentPlan extends SpawnAgentCommon {
+  readonly form: null;
+}
+
+export type SpawnAgentPlan = LocalSpawnAgentPlan | FarSpawnAgentPlan;
 
 export interface SpawnSettings {
   readonly backend: string;
@@ -77,6 +89,20 @@ export function selectSpawnForm(requested: FormId | null, defaults: OrchSettings
   throw new SpawnRefusalError(`no backend here runs the ${selected} form`);
 }
 
+/** The plexer a spawn asks for, and whether the human chose it: the one reading both spawn paths share. */
+export function plexerRequest(params: Pick<ParamsOf<"spawn">, "plexer" | "host">, settings: OrchSettings): { backend: Backend; backendChosen: boolean } {
+  return {
+    backend: params.host === null ? selectBackend(params.plexer, settings) : heldBackend,
+    backendChosen: params.plexer !== null || settings.defaults.backend !== undefined,
+  };
+}
+
+/** The local plan of one agent. Its form was resolved here, so a far agent's plan is refused. */
+export function localAgentPlan(plan: SpawnAgentPlan): LocalSpawnAgentPlan {
+  if (plan.form === null) throw new SpawnRefusalError(`agent ${plan.name} has no form resolved here`);
+  return plan;
+}
+
 /** A worktree the launch asked for, with orchd's worktree settings. */
 export function worktreeIntent(requested: ParamsOf<"spawn">["worktree"], settings: OrchSettings): WorktreeIntent | null {
   return requested === null ? null : { provider: requested.provider, config: settings.worktrees };
@@ -85,15 +111,14 @@ export function worktreeIntent(requested: ParamsOf<"spawn">["worktree"], setting
 /** The settings a spawn runs on. On another host the agents run with no pane: the backend
  *  that places nothing. */
 export function planSpawn(params: ParamsOf<"spawn">, settings: OrchSettings, chosen?: Backend): SpawnSettings {
-  const backend = chosen ?? (params.host === null ? selectBackend(params.plexer, settings) : heldBackend);
+  const requested = plexerRequest(params, settings);
+  const backend = chosen ?? requested.backend;
   const agents = params.agents.map((agent): SpawnAgentPlan => {
     const preferredModels = settings.models.preferred[agent.harness] ?? [];
     const cmd = params.cmd ?? adapterCommand(agent.harness, settings, { model: agent.model, thinking: agent.thinking, preferredModels });
-    const requestedForm = params.host === null ? params.form ?? settings.defaults.forms[agent.harness] ?? null : params.form;
-    const selected = params.host === null
-      ? selectSpawnForm(requestedForm, settings.defaults.forms, resolveAdapterOrDie(agent.harness), backend, heldBackend)
-      : { form: null, backend };
-    return { ...selected, requestedForm, name: agent.name, adapter: agent.harness, cmd, preferredModels, model: agent.model, thinking: agent.thinking, prompt: agent.prompt };
+    const common = { requestedForm: params.form, name: agent.name, adapter: agent.harness, cmd, preferredModels, model: agent.model, thinking: agent.thinking, prompt: agent.prompt, backend };
+    if (params.host !== null) return { ...common, form: null };
+    return { ...common, ...selectSpawnForm(params.form, settings.defaults.forms, resolveAdapterOrDie(agent.harness), backend, heldBackend) };
   });
   const first = agents[0];
   if (first === undefined) throw new SpawnRefusalError("spawn requires at least one agent");
@@ -102,7 +127,7 @@ export function planSpawn(params: ParamsOf<"spawn">, settings: OrchSettings, cho
     tools: workerTools(settings),
     workers: workerPolicyFrom(settings),
     tab: params.tab,
-    backendChosen: (params.plexer ?? settings.defaults.backend ?? null) !== null,
+    backendChosen: requested.backendChosen,
     cwd: params.cwd,
     commandFlag: params.cmd !== null,
     space: params.space,

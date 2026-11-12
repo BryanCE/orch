@@ -3,7 +3,7 @@
 import { bootCodeHash, startedAt } from "../state.ts";
 import type { DaemonState } from "../state.ts";
 import { agentView } from "../../../store/agent-view.ts";
-import { FORM_STATE_OWNER } from "../../../types/form.ts";
+import { FORM_SESSION_OWNER } from "../../../types/form.ts";
 import type { OrchDir } from "../../../types/core.ts";
 import { answer, dispatch, message, steer } from "./write.ts";
 import { clearSession, enqueue, listPendingQuestions, reclaim, recordAgentQuestion, moveHandle, setModel, spawnHeadless } from "./lifecycle.ts";
@@ -68,7 +68,7 @@ function waking<P, R>(state: DaemonState, handler: (params: P) => R): (params: P
 /** Whether a harness report about `key` is ignored: orchd owns the state of an agent whose form it reports itself. */
 function harnessReportIgnored(directory: OrchDir, key: string): boolean {
   const form = agentView(directory, key)?.form ?? null;
-  return form !== null && FORM_STATE_OWNER[form] === "orchd";
+  return form !== null && FORM_SESSION_OWNER[form] === "orchd";
 }
 
 /** The id a peer's request is remembered under: one host's ids never meet another's. */

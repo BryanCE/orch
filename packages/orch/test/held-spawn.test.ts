@@ -132,7 +132,7 @@ describe("a spawn another host asks for", () => {
     const state = idleDaemonState(servicesAt(orchDir), orchDir, new FakePtyProvider());
     const key = mintAgentId();
     const refused = await spawnHeadless(state, {
-      form: null, key, name: "here-idle", spawner: null, adapter: "pi",
+      form: "oneshot", key, name: "here-idle", spawner: null, adapter: "pi",
       model: "openai/gpt-5.6-luna", thinking: "medium", prompt: null, cwd: orchDir,
     }).then(() => null, (error: unknown) => errorMessage(error));
     expect(refused).toBe(`cannot spawn ${key}: a headless agent needs its prompt at launch`);

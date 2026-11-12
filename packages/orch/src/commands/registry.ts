@@ -227,6 +227,7 @@ const AGENTS: readonly CommandSpec[] = [
       { ...CMD, help: "The command to relaunch with. Default: the recorded harness command." },
       { ...HARNESS, help: "Relaunch on this harness. Default: the recorded one." },
       { ...MODEL, help: "Model for the relaunch. Required when --harness changes the harness." },
+      { name: "--form", arity: "one", placeholder: "<tui|acp>", help: "Relaunch in this form, resuming the recorded session. Default: the agent's current form." },
       STEAL,
     ],
   },

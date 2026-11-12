@@ -78,7 +78,7 @@ describe("one writer records a spawned agent (2.1)", () => {
     seedSpace(dir, "wsTwo");
     const owner = seedOperator(dir);
 
-    const agent = spawnOneIntoTab(await spawningServices(dir), {
+    const agent = spawnOneIntoTab(await spawningServices(dir), { form: "tui",
       backend: new FakePanedBackend({ id: "herdr" }),
       adapter: piAdapter,
       adapterId: "pi",
@@ -107,7 +107,7 @@ describe("one writer records a spawned agent (2.1)", () => {
     seedOperator(dir);
     const backend = new FakePanedBackend({ id: "herdr" });
 
-    const agent = spawnOneIntoTab(await spawningServices(dir), {
+    const agent = spawnOneIntoTab(await spawningServices(dir), { form: "tui",
       backend,
       adapter: piAdapter,
       adapterId: "pi",

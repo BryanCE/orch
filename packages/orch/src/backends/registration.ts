@@ -1,5 +1,4 @@
 import type { SpawnRegistration } from "../types/store.ts";
-import { nativeForm } from "../types/form.ts";
 import type { Backend, BackendSpawnOpts } from "../types/backend.ts";
 import type { HostedProcess } from "../types/process.ts";
 
@@ -12,10 +11,8 @@ export interface LaunchedAgent {
 /** The record of an agent no plexer places, launched on this host. `backend` is the
  *  environment that runs it. */
 export function unplacedRegistration(backend: Backend, harnessId: string, key: string, opts: BackendSpawnOpts, launched: LaunchedAgent): SpawnRegistration {
-  const form = opts.form ?? nativeForm(backend.offers);
-  if (form === null) throw new Error(`backend ${backend.id} has no native form`);
   return {
-    form,
+    form: opts.form,
     key,
     harnessId,
     backendId: backend.id,

@@ -17,11 +17,11 @@ import { callerSelf } from "../handlers/self.ts";
 import { spawnHeadless } from "../handlers/lifecycle.ts";
 import { resolveTabFor } from "../tabs.ts";
 import { adapterCommand, admitLaunchModel, offeredModels, resolveAdapterOrDie } from "./models.ts";
-import { planSpawn, selectBackend, worktreeIntent, type SpawnAgentPlan, type SpawnSettings } from "./plan.ts";
+import { localAgentPlan, planSpawn, plexerRequest, selectBackend, selectSpawnForm, worktreeIntent, type SpawnAgentPlan, type SpawnSettings } from "./plan.ts";
 import { admitSpawn, assertNewSpaceGranted, assertSpaceCapacity, assertSpawnCapacity, assertSpawnPolicy, assertTabCapacity, claimSpawnNames, liveFleet, type CallerSelf } from "./admission.ts";
 import { discardUnusedWorkspace, findGroupInSpace, growFleetIntoGroup, openFleetHome, prepareWorkspace, resolveSpawnPlacement, spawnBackend, spawnEnv, spawnOneIntoTab, type SpawnNotes } from "./placement.ts";
 import { freeTabLabel, liveTabLabels } from "./tab-label.ts";
-import { openViewers, planViewers } from "./viewers.ts";
+import { openViewers, planViewers, viewerHost } from "./viewers.ts";
 import type { AgentAdapter } from "../../../types/adapter.ts";
 import type { Backend, BackendGroup, CreatedHome, GroupHomeRole, GroupLayoutRole, TileFirstSplit } from "../../../types/backend.ts";
 import type { CreatedAgent, PreparedAgent, SpawnPlacement, TabSpawnSpec } from "../../../types/command.ts";
@@ -88,8 +88,8 @@ function spawnedResult(settings: SpawnSettings, created: readonly CreatedAgent[]
   };
 }
 
-// Headless agents run their prompt and exit. A spawn on a linked host runs each agent in a PTY
-// that host's orchd holds, and shows it here in a pane of the caller's own plexer.
+// Headless agents run their prompt and exit. An agent in a process orchd holds, on a linked host
+// or here, is shown in a pane of the caller's own plexer.
 async function executeHeadlessSpawn(state: DaemonState, params: ParamsOf<"spawn">, self: CallerSelf, settings: SpawnSettings, environment: AgentEnvironment, notes: SpawnNotes): Promise<SpawnResult> {
   const services = state.services;
   const settingsFile = services.settings.current();
@@ -107,7 +107,7 @@ async function executeHeadlessSpawn(state: DaemonState, params: ParamsOf<"spawn"
   if (settings.host === null) assertSpawnCapacity(settingsFile, space, settings.agents.length, views, presence);
   else assertSpaceCapacity(settingsFile, space, settings.agents.length, views, presence);
   const maySpawn = self.depth + 1 < settingsFile.fleet.max_depth;
-  const viewers = settings.host === null ? null : planViewers({ services, settings, environment, actor: self.id });
+  const viewers = planViewers({ services, settings, environment, actor: self.id });
   const created: CreatedAgent[] = [];
   const names = claimSpawnNames(views, presence, settings.agents.map((agent) => agent.name), space);
   for (const name of names) {
@@ -152,9 +152,9 @@ async function executeHeadlessSpawn(state: DaemonState, params: ParamsOf<"spawn"
       break;
     }
   }
-  const panes = viewers === null || settings.host === null
+  const panes = viewers === null
     ? new Map<string, string>()
-    : openViewers(viewers, { orchDir: state.directory, logger: services.logger, cwd: environment.cwd, notes }, settings.host.name, created);
+    : openViewers(viewers, { orchDir: state.directory, logger: services.logger, cwd: environment.cwd, notes }, viewerHost(settings), created);
   return spawnedResult(settings, created, { headless: true, tab: null, panes, notes });
 }
 
@@ -231,11 +231,11 @@ function launchPrepared(state: DaemonState, prepared: readonly PreparedAgent[], 
   const failures: string[] = [];
   for (const item of prepared) {
     if (item.handle === undefined) continue;
-    const plan = planFor(settings, item.name);
+    const plan = localAgentPlan(planFor(settings, item.name));
     try {
       created.push(spawnOneIntoTab(state.services, {
         backend, adapter: resolveAdapterOrDie(plan.adapter), adapterId: plan.adapter, name: item.name, cwd: item.cwd, space, workspace, group: groupId,
-        form: plan.form ?? undefined, model: plan.model, thinking: plan.thinking, preferredModels: plan.preferredModels,
+        form: plan.form, model: plan.model, thinking: plan.thinking, preferredModels: plan.preferredModels,
         tools: settings.tools, workers: settings.workers, cmd: settings.commandFlag ? plan.cmd : undefined,
         worktree: item.worktree,
         spawner: self.id, owner: self.id ?? undefined,
@@ -315,9 +315,10 @@ export async function spawnAgents(state: DaemonState, params: ParamsOf<"spawn">)
   const self = spawner(state, params.caller);
   const environment = callerEnvironment(self);
   const notes: SpawnNotes = [];
+  const requested = plexerRequest(params, settingsFile);
   const chosen = params.host === null
-    ? spawnBackend(services.logger, { backend: selectBackend(params.plexer, settingsFile).id, space: params.space, backendChosen: (params.plexer ?? settingsFile.defaults.backend ?? null) !== null }, environment.plexer, notes)
-    : heldBackend;
+    ? spawnBackend(services.logger, { backend: requested.backend.id, space: params.space, backendChosen: requested.backendChosen }, environment.plexer, notes)
+    : requested.backend;
   const settings = await admitSpawn(state.directory, self, settingsFile, planSpawn(params, settingsFile, chosen), services.logger, services.models);
   const partitions = new Map<string, SpawnAgentPlan[]>();
   for (const agent of settings.agents) {
@@ -396,6 +397,7 @@ export function tileAgent(state: DaemonState, params: ParamsOf<"tile">): ResultO
   const { cwd, worktree } = prepareWorkspace(params.cwd, intent, agent.name, adapter, launchCommand);
   const spec: TabSpawnSpec = {
     backend, adapter, adapterId: agent.harness, name: agent.name, cwd, worktree, space,
+    form: selectSpawnForm(null, settingsFile.defaults.forms, adapter, backend, heldBackend).form,
     workspace: tab.workspace ?? undefined,
     group: tab.id,
     // Same planner `spawn` uses, off the same tab-wide geometry.

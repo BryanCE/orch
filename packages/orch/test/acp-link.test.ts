@@ -160,3 +160,17 @@ describe("ACP link", () => {
     expect(rec.log).not.toContain("applied:a1");
   });
 });
+
+describe("ACP link after close", () => {
+  test("a dispatch pushed after close reports the closed link once and applies nothing", async () => {
+    const fake = setup();
+    const rec = recorder();
+    const { link } = await open(fake, rec.events);
+    link.close();
+    link.push(delivery("late", { action: "dispatch", text: "too late" }));
+    expect(rec.log.filter((line) => line.startsWith("error:"))).toEqual([
+      "error:ACP link is closed: dispatch late was not sent",
+    ]);
+    expect(rec.log.filter((line) => line.startsWith("applied:"))).toEqual([]);
+  });
+});

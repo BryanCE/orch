@@ -19,6 +19,7 @@ import { CHECK_STATUSES, type CheckFinding } from "../../types/doctor.ts";
 import type { NotifierChoice } from "../../types/notify.ts";
 import { ORCH_RUNTIMES } from "../../runtimes.ts";
 import { ADAPTER_IDS, type HarnessModel, type SessionView, type SessionViewEntry } from "../../types/adapter.ts";
+import { FORM_IDS } from "../../types/form.ts";
 import { RESULT_SOURCES, type AgentRead, type AgentReading } from "../../types/agent-read.ts";
 import type { FleetStatus, PeerFleetStatus, PeerView, PendingQuestionView } from "../../types/daemon.ts";
 import { QUESTION_OPTION_KINDS } from "../../types/question.ts";
@@ -368,13 +369,14 @@ export type PaneOutcome = z.infer<typeof PANE_OUTCOME>;
  *  agent runs plans the launch with its own settings. */
 const LIFECYCLE_REQUEST = z.discriminatedUnion("verb", [
   z.object({ verb: z.literal("reload") }),
-  z.object({ verb: z.literal("restart"), harness: nonBlank.nullable(), model: nonBlank.nullable(), thinking: nonBlank.nullable(), cmd: nonBlank.nullable() }),
+  z.object({ verb: z.literal("restart"), harness: nonBlank.nullable(), model: nonBlank.nullable(), thinking: nonBlank.nullable(), cmd: nonBlank.nullable(), form: z.enum(FORM_IDS).nullable() }),
 ]);
 export type LifecycleRequest = z.infer<typeof LIFECYCLE_REQUEST>;
 
-/** How a reload or restart went: back with a live bridge, or why not; the command a restart
- *  launched, and the harness and tuning the agent's store moved it onto, once it got that far. */
-const LIFECYCLE_OUTCOME = z.object({ ok: z.boolean(), reason: z.string().nullable(), command: z.string().nullable(), relaunched: RELAUNCH.nullable() });
+/** How a reload or restart went: why not when it failed; the command a restart launched, and the
+ *  harness and tuning the agent's store moved it onto, once it got that far; `bridge` when a
+ *  bridge came back and reported; `form` the form the agent runs in now. */
+const LIFECYCLE_OUTCOME = z.object({ ok: z.boolean(), reason: z.string().nullable(), command: z.string().nullable(), relaunched: RELAUNCH.nullable(), bridge: z.boolean(), form: z.enum(FORM_IDS).nullable() });
 export type LifecycleOutcome = z.infer<typeof LIFECYCLE_OUTCOME>;
 
 /** Whether an agent reached the state a wait asked for in time, and the state it was last in. */

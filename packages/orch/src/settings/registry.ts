@@ -219,7 +219,7 @@ const HELP: Readonly<Record<string, string>> = {
   "timeouts.spawn_attach_ms": "How long spawn waits for every agent to come up (its bridge attached, or its start report landed), in milliseconds.",
   "timeouts.spawn_attach_poll_ms": "How often spawn asks orchd which agents came up, in milliseconds.",
   "timeouts.daemon_probe_ms": "How long a command waits for a busy orchd to answer before it gives up and does nothing, in milliseconds.",
-  "timeouts.acp_probe_ms": "How long doctor waits for an ACP binding to answer initialize before it reports the binding as not answering, in milliseconds.",
+  "timeouts.acp_probe_ms": "How long doctor, or a restart that reopens a session on the binding, waits for an ACP binding to answer initialize before it counts the binding as not answering, in milliseconds.",
   "timeouts.abort_gap_ms": "Pause between the two Escape keys abort sends an agent's pane, in milliseconds.",
   "timeouts.machine_ms": "How long doctor and setup wait on orchd to check, install and integrate on this machine, in milliseconds.",
   notify: "Where agent state changes are delivered. enter picks the sinks - sound (a ding on this machine), desktop, herdr, webhook (a URL), command (any command line you want) - space turns one on, e sets what it carries, w picks which states it fires on.",

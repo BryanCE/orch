@@ -21,6 +21,8 @@ export interface AcpLinkEvents {
   onAskDropped(questionId: string): void;
   onApplied(deliveryId: string): void;
   onError(error: Error): void;
+  /** Called once, before a session load replays the whole conversation through `onEntries`. */
+  onLoad?(): void;
 }
 
 /** A control link and the session it drives. */
@@ -60,6 +62,9 @@ export async function openAcpLink(
     }
   };
   const session = await openAcpSession(streams, open, {
+    onLoad() {
+      events.onLoad?.();
+    },
     onUpdate(update) {
       if (update.sessionUpdate === "agent_message_chunk" && update.content.type === "text") {
         const id = update.messageId ?? null;

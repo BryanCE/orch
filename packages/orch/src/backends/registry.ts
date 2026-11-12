@@ -11,7 +11,7 @@ import type { Backend } from "../types/backend.ts";
 export { headlessBackend, logPathOf } from "./headless/index.ts";
 
 /** The environment orchd runs an agent in when it holds that agent's process. */
-export { bindHeldPtys, heldBackend, heldKeyOf, heldLaunchEnv, recordHeldAgent, startHeldAgent } from "./held/index.ts";
+export { bindHeldPtys, heldBackend, heldCwd, heldKeyOf, heldLaunchEnv, recordHeld, startHeldAgent, type HeldProgram, type HeldRecording } from "./held/index.ts";
 
 const backends = new Map<string, Backend>();
 

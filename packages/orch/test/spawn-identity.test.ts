@@ -87,7 +87,7 @@ describe("one key per pane spawn (12.1)", () => {
     seedSpace(dir, "wsA");
     const { backend, envKey } = fakePaneBackend("%5");
 
-    const agent = spawnOneIntoTab(await spawningServices(dir), {
+    const agent = spawnOneIntoTab(await spawningServices(dir), { form: "tui",
       backend,
       adapter: piAdapter,
       adapterId: "pi",
@@ -125,7 +125,7 @@ describe("one key per pane spawn (12.1)", () => {
     const dir = makeTempOrchDir();
     seedSpace(dir, "wsC");
     const services = await spawningServices(dir);
-    const spawnAudit = () => spawnOneIntoTab(services, {
+    const spawnAudit = () => spawnOneIntoTab(services, { form: "tui",
       backend: fakePaneBackend("%9").backend,
       adapter: piAdapter,
       adapterId: "pi",
@@ -157,7 +157,7 @@ describe("one key per pane spawn (12.1)", () => {
     seedSpace(dir, "wsB");
     const { backend } = fakePaneBackend("%7");
 
-    const agent = spawnOneIntoTab(await spawningServices(dir), {
+    const agent = spawnOneIntoTab(await spawningServices(dir), { form: "tui",
       backend,
       adapter: piAdapter,
       adapterId: "pi",

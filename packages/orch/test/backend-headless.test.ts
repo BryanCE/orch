@@ -93,7 +93,7 @@ afterAll(() => {
 describe("HeadlessBackend", () => {
   test("refuses to spawn with no prompt — a headless agent runs its prompt and exits", () => {
     for (const prompt of [undefined, "", "   "]) {
-      expect(() => backend.spawn(fakeAdapter, { key: "fake-promptless", prompt, orchDir: testOrchDir }))
+      expect(() => backend.spawn(fakeAdapter, { form: "oneshot", key: "fake-promptless", prompt, orchDir: testOrchDir }))
         .toThrow(/no prompt/);
     }
     expect(hereAgentIfAny(testOrchDir, "fake-promptless")).toBeNull();
@@ -106,7 +106,7 @@ describe("HeadlessBackend", () => {
     expect(backend.logPruning).not.toBeNull();
     expect(backend.handleLookup).not.toBeNull();
     expect(backend.identity).toBeNull();
-    const handle = backend.spawn(fakeAdapter, { key, prompt: "sleep", orchDir: testOrchDir });
+    const handle = backend.spawn(fakeAdapter, { form: "oneshot", key, prompt: "sleep", orchDir: testOrchDir });
     handles.push(handle);
 
     await waitFor(() => fs.existsSync(path.join(testOrchDir, "agents", key, "status.json")));
@@ -135,7 +135,7 @@ describe("HeadlessBackend", () => {
         ].join(" ")];
       },
     });
-    const handle = backend.spawn(adapter, { key, prompt: "dispatch", orchDir: testOrchDir });
+    const handle = backend.spawn(adapter, { form: "oneshot", key, prompt: "dispatch", orchDir: testOrchDir });
     handles.push(handle);
     const dir = path.join(testOrchDir, "agents", key);
     await waitFor(() => fs.existsSync(path.join(dir, "status.json")));
@@ -145,7 +145,7 @@ describe("HeadlessBackend", () => {
 
   test("records and mirrors the headless log for Codex session-tail parsing", async () => {
     const key = "hcodextal1";
-    const handle = backend.spawn(codexLogAdapter, { key, prompt: "tail", orchDir: testOrchDir });
+    const handle = backend.spawn(codexLogAdapter, { form: "oneshot", key, prompt: "tail", orchDir: testOrchDir });
     handles.push(handle);
     const statusPath = path.join(testOrchDir, "agents", key, "status.json");
     await waitFor(() => fs.existsSync(statusPath));

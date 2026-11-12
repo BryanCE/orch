@@ -2,7 +2,7 @@
 // this host, or for the linked host's orchd that asked for the agent. It reads this store, the
 // agent's session file, screen and log records here; it never asks another orchd.
 import { readFileSync } from "node:fs";
-import { FORM_TRANSCRIPT } from "../types/form.ts";
+import { FORM_SESSION_OWNER } from "../types/form.ts";
 import { parseSessionLog } from "./session-log.ts";
 import { isAgentId } from "../shared/agent-id.ts";
 import { resolveTargetRoute } from "../control/dispatch.ts";
@@ -58,7 +58,7 @@ function subjectOf(orchDir: OrchDir, agent: HereAgent, logger: Logger): ReadSubj
     presence,
     adapter: view === null ? undefined : getAdapter(view.harnessId),
     sessionPath: presence?.status?.sessionPath ?? null,
-    transcript: view?.form == null ? "harness" : FORM_TRANSCRIPT[view.form],
+    transcript: view?.form == null ? "harness" : FORM_SESSION_OWNER[view.form],
     logger: agentLogger(logger, key),
   };
 }

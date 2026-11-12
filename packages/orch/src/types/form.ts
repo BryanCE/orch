@@ -7,11 +7,9 @@ export type StdioKind = (typeof STDIO_KINDS)[number];
 export const FORM_IDS = ["tui", "oneshot", "acp"] as const;
 export type FormId = (typeof FORM_IDS)[number];
 
-/** Who writes each form's transcript. */
-export const FORM_TRANSCRIPT: Record<FormId, "harness" | "orchd"> = { tui: "harness", oneshot: "harness", acp: "orchd" };
-
-/** Who sets each form's presence state: an agent in an `orchd` form ignores its harness's reports. */
-export const FORM_STATE_OWNER: Record<FormId, "harness" | "orchd"> = { tui: "harness", oneshot: "harness", acp: "orchd" };
+/** Who holds each form's session: that side writes the transcript and reports the agent's
+ *  state. An agent in an `orchd` form ignores its harness's reports. */
+export const FORM_SESSION_OWNER: Readonly<Record<FormId, "harness" | "orchd">> = { tui: "harness", oneshot: "harness", acp: "orchd" };
 
 export function isFormId(value: string): value is FormId {
   return FORM_IDS.some((id) => id === value);

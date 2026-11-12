@@ -193,7 +193,7 @@ describe("fleet ownership scoping", () => {
     delete process.env.HERDR_PANE_ID;
     const backend = new FakePanedBackend({ id: "headless" });
 
-    const agent = spawnOneIntoTab(await commandServices(dir), {
+    const agent = spawnOneIntoTab(await commandServices(dir), { form: "tui",
       backend,
       adapter: fakeAdapter(),
       adapterId: "pi",

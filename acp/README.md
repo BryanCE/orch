@@ -14,19 +14,20 @@ Read in this order:
 
 Working material:
 
-- `tasks/`. One file per wave, one section per agent. `L1-map.md` is the lookup wave that
-  produced the findings.
-- `findings/`. Maps of today's code with `path:line` for every fact, one file per area.
+- `tasks/`. One markdown file per wave, one section per agent, indexed in `TASKS.md`.
+  `L1-map.md` and `L2-wiring-lookup.md` are lookup files that produced findings.
+- `findings/`. Markdown. Maps of today's code with `path:line` for every fact, one file per
+  area, and the `review-*.md` reports on landed work.
 - `reference/`. The published protocol as fetched: the v1 JSON schema, the docs pages, the
-  binding READMEs and their npm metadata. Data, never run.
+  binding READMEs and their npm metadata, as `.md`, `.json` and `.txt` files. Data, never run.
 
 ## Where it stands
 
-`TASKS.md` carries the checkboxes. In short, on 2026-11-11:
+`TASKS.md` carries the checkboxes. In short:
 
 - [x] Findings, PRD, model, rules, task index.
-- [x] Wave 1: forms, backend `offers`, the null `acp` role, the link registry rename.
+- [x] Wave 1, and waves 3, 4 and 5 typed.
 - [ ] Wave 2: typed and `bun check` clean. Waiting on Bryan's `bun db:gen` and `bun db:reset`.
-- [ ] Waves 3 to 8 and the MVP run.
+- [ ] Waves 6, 7 and 8, and the MVP run.
 
 `ACP-LAYER-PLAN.md` at the repo root is the plan this directory replaces.

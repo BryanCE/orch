@@ -56,9 +56,9 @@ A linked host runs the same steps. Its chosen backend is `held`, as it is today.
 
 ### Viewers
 
-An agent whose backend has no panes gets a viewer pane in the spawner's plexer when the spawner
-is in one. Far spawns do this today. The rule moves from "the agent is far" to "the agent's
-backend has no placement role", so a local `held` agent gets one too.
+An agent gets a viewer pane in the spawner's plexer when the spawner is in one, its backend has
+no placement role, and its backend offers a stdio other than `none`. A far agent and a local
+`held` agent get one. A `headless` agent offers `none`, so it gets none.
 
 Every held agent has a screen. For a `tui` form the harness draws it through the PTY. For an
 `acp` form orchd draws the transcript onto the same kind of screen. `orch attach`, the viewer
@@ -78,8 +78,9 @@ The bridge link and the ACP link sit in one registry, keyed by agent, behind one
 Both take the same `BridgeMessage`. A message for a link that is not attached stays in the
 outbox and is delivered when the link attaches, as bridge messages are today.
 
-Abort becomes a control action in the one dispatcher. It is never queued and never gated by a
-lease.
+A link states the actions it takes, and may have an abort role. Abort is a control action in the
+one dispatcher. It calls the role when the attached link has one, else it sends the abort keys.
+It is never queued and never gated by a lease.
 
 Steer on an ACP agent never cancels. The ACP link holds a steer until the turn ends and sends
 it as the next prompt.
@@ -98,16 +99,18 @@ The ACP link calls the same server functions the report RPCs call. No new ingest
 | message, thought, tool call, plan | appended to the agent's log, drawn on its screen | the session log |
 | the process exits | state `exited` | the liveness tick |
 
-One presence owner per form. In `acp` form the owner is the ACP session. A hook or shim report
-for an agent in `acp` form is not a second owner: the launch environment for the `acp` form
-does not enable status reports from the harness shim.
+One session owner per form. `FORM_SESSION_OWNER` in `src/types/form.ts` says who holds a
+form's session: the harness for `tui` and `oneshot`, orchd for `acp`. The owner writes the
+transcript and reports the agent's state. orchd ignores a `report-status` or `report-result`
+from the harness of an agent whose form's owner is `orchd`.
 
 ### Questions
 
 A permission request is a question with options. Two can be open at once, since an agent can
 run tool calls in parallel and each request waits for its own answer.
 
-- A question may carry options: an id, a label and a kind, in order.
+- A question may carry options: an id, a label and a kind, in order. `orch answer` then takes a
+  whole number from 1 to the count, and anything else is refused with `answer with a number from 1 to <count>`.
 - An agent may have several open questions. `orch answer <agent> <n>` answers the oldest.
 - A free-text ask from a bridge still supersedes that agent's earlier ask. The asker decides.
 
@@ -115,6 +118,9 @@ run tool calls in parallel and each request waits for its own answer.
 
 Fleet events are unchanged: `transition`, `asking`, `message`, `closed`, `task`. They are few,
 durable and replayed to linked hosts.
+
+A thought chunk writes no entry. A plan writes one assistant message with one line per item.
+An agent's session log exists from the moment it starts.
 
 Transcript traffic never enters the event log. orchd appends each normalized entry to the
 agent's log on the agent's host. The one log reader of Rule 20 reads it, so `orch tail`,
@@ -130,10 +136,35 @@ same backend. It keeps the agent id, the lease and the conversation. It closes t
 `agent_forms` row and opens a new one.
 
 - To `tui`: orchd ends the ACP session and starts the harness TUI in a PTY with the session id.
-- To `acp`: orchd ends the TUI and loads the session id over ACP.
+- To `acp`: orchd ends the TUI and opens the session id over ACP. It loads the session when the
+  binding offers load, else resumes it.
 
-The switch needs a binding that shares sessions with its TUI and offers session load. Without
-both, the verb refuses with exit 1 and says which is missing.
+The switch needs a binding that shares sessions with its TUI and offers session load or resume.
+Every refusal is thrown before anything of the running agent is ended. The refusals are:
+
+- `cannot restart <agent> in a form and on another harness, model or command at once`
+- `harness <harness> has no <form> form`
+- `cannot switch <agent> to <form>: its backend <backend> does not run that form`
+- `cannot switch <agent> to <form>: no session id is recorded`
+- `cannot switch <agent> to <form>: the <harness> binding does not share sessions with its TUI`
+- `cannot switch <agent> to <form>: the <harness> binding does not offer session load`
+
+Before it ends anything, orchd probes the binding. A probe that fails or times out refuses the
+switch.
+
+A restart of an agent whose form needs pipes, with a session id recorded, makes the same probe.
+
+The form row changes only after the new form has started. A start that fails leaves the agent
+recorded in its old form.
+
+A restart starts the agent with its worktree. The store does not hold the spawn's `env`, `tools`
+or `workers`, so a restart carries none of them.
+
+A restart with no form on an agent that runs on pipes is refused with
+`<agent> records no form to restart in` when no form is recorded.
+
+A load sets the session log aside and writes the replay into a new one. A load that fails puts
+the old log back. A resume keeps the log.
 
 ## Worked examples
 

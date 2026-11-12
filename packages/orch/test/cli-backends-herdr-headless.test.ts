@@ -136,7 +136,7 @@ describe("headless common path: identity key -> presence", () => {
     // The spawner mints the identity BEFORE launch (one id per agent) and passes
     // it via opts.key; the backend never mints its own.
     const key = mintAgentId();
-    const handle = backend.spawn(spawnAdapter, { key, orchDir: dir, cwd: dir, prompt: "write your presence and exit" });
+    const handle = backend.spawn(spawnAdapter, { form: "oneshot", key, orchDir: dir, cwd: dir, prompt: "write your presence and exit" });
 
     // The handle carries the caller's key unchanged — the minted id, nothing else.
     expect(handle.key).toBe(key);
@@ -160,7 +160,7 @@ describe("headless common path: identity key -> presence", () => {
   test("spawn refuses a launch with no caller-minted key", () => {
     const dir = tempDir("orch-cli-headless-nokey-");
     process.env.ORCH_DIR = dir;
-    expect(() => new HeadlessBackend().spawn(makeFakeAdapter(), { orchDir: dir, cwd: dir }))
+    expect(() => new HeadlessBackend().spawn(makeFakeAdapter(), { form: "oneshot", orchDir: dir, cwd: dir }))
       .toThrow(/requires a caller-minted presence key/);
   });
 

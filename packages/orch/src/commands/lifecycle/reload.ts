@@ -5,9 +5,11 @@ import { placeLabel, resolveLifecycle, refuseForeignHolder, targetName } from ".
 import { whoAmI, type CallerSelf } from "../self.ts";
 import { lifecycleTargets, requireLifecycleTargets } from "./index.ts";
 import { parseCommand } from "../registry.ts";
+import { formFlag } from "../spawn/flags.ts";
 import { usageError } from "../../cli/usage.ts";
 import type { LifecycleOutcome, LifecycleRequest } from "../../daemon/client/protocol.ts";
 import type { AgentFlags } from "../../types/command.ts";
+import type { FormId } from "../../types/form.ts";
 import type { Services } from "../../types/services.ts";
 
 export interface ReloadResult {
@@ -73,13 +75,19 @@ export async function cmdReload(services: Services, args: string[]): Promise<voi
 }
 
 /** The restart request every target gets: the harness, model and command the caller named. */
-function restartRequest(selection: AgentFlags, cmd: string | null): Extract<LifecycleRequest, { verb: "restart" }> {
-  return { verb: "restart", harness: selection.adapterFlag ?? null, model: selection.modelFlag ?? null, thinking: selection.thinkingFlag ?? null, cmd };
+function restartRequest(selection: AgentFlags, cmd: string | null, form: FormId | null): Extract<LifecycleRequest, { verb: "restart" }> {
+  return { verb: "restart", harness: selection.adapterFlag ?? null, model: selection.modelFlag ?? null, thinking: selection.thinkingFlag ?? null, cmd, form };
+}
+
+/** What a restart prints for one agent: the bridge line when a bridge came back, else its form. */
+function restartLine(name: string, outcome: LifecycleOutcome): string {
+  if (outcome.bridge) return `${name}: bridge live.\n`;
+  return outcome.form === null ? `restarted ${name}.\n` : `restarted ${name} in the ${outcome.form} form.\n`;
 }
 
 export async function cmdRestart(services: Services, args: string[]): Promise<void> {
   const { invocation, self, targets, json, steal, selection } = await requireLifecycleTargets(services, "restart", args);
-  const request = restartRequest(selection, invocation.flags.value("--cmd") ?? null);
+  const request = restartRequest(selection, invocation.flags.value("--cmd") ?? null, formFlag(invocation));
   const results: ReloadResult[] = [];
   let ok = 0;
   for (const target of targets) {
@@ -89,7 +97,7 @@ export async function cmdRestart(services: Services, args: string[]): Promise<vo
       if (outcome.ok) {
         ok++;
         results.push({ handle: target, ok: true });
-        if (!json) process.stdout.write(`${name}: bridge live.\n`);
+        if (!json) process.stdout.write(restartLine(name, outcome));
       } else {
         const reason = outcome.reason ?? "restart failed";
         services.logger.error("lifecycle.restart-failed", { target, error: reason });
@@ -103,7 +111,7 @@ export async function cmdRestart(services: Services, args: string[]): Promise<vo
     }
   }
   if (json) process.stdout.write(JSON.stringify({ results, targets, ok, total: targets.length, hard: true }) + "\n");
-  else process.stdout.write(`${ok}/${targets.length} restarted with fresh bridge.\n`);
+  else process.stdout.write(`${ok}/${targets.length} restarted.\n`);
   // `process.exitCode`, never `process.exit()` — same rule as reload above.
   if (ok !== targets.length) process.exitCode = 1;
 }

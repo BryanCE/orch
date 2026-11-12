@@ -16,6 +16,8 @@ import { agentLaunchEnv } from "../../policy/spawner.ts";
 import { environmentStamp } from "../../shared/environment.ts";
 import { createBackendCaptureRole } from "../../presence/roles.ts";
 import { registerSpawnedAgent } from "../../store/spawn-registration.ts";
+import { recordProcess, setHandle } from "../../store/interval-rows.ts";
+import { placeHere } from "../../process-place.ts";
 import { hostShell } from "../../host.ts";
 import { hostedHere } from "../../local-process.ts";
 import { definedEnv } from "../../util.ts";
@@ -23,7 +25,7 @@ import { isAgentId } from "../../shared/agent-id.ts";
 import type { AgentAdapter } from "../../types/adapter.ts";
 import type { AgentInputRole, Backend, BackendId, BackendSpawnOpts, CaptureRole, ProcessRole, RelaunchRole } from "../../types/backend.ts";
 import type { StdioKind } from "../../types/form.ts";
-import type { HeldPtysByPid, PtyHolder } from "../../types/pty.ts";
+import type { HeldPtysByPid, HeldStartRequest, PtyHolder } from "../../types/pty.ts";
 
 const HELD_BACKEND: BackendId = "held";
 
@@ -52,8 +54,11 @@ function boundPtys(): HeldPtysByPid {
   return heldPtys;
 }
 
+/** The program a held PTY runs. */
+export type HeldProgram = Pick<HeldStartRequest, "file" | "args">;
+
 /** A held PTY runs its command through this host's shell, as a pane would run it. */
-function shellRun(command: string): { readonly file: string; readonly args: readonly string[] } {
+function shellRun(command: string): HeldProgram {
   const [file, ...args] = hostShell();
   return { file, args: [...args, command] };
 }
@@ -155,35 +160,71 @@ export function heldKeyOf(adapter: AgentAdapter, opts: BackendSpawnOpts): string
   return key;
 }
 
+/** The directory a held agent starts in. */
+export function heldCwd(opts: BackendSpawnOpts): string {
+  return opts.cwd ?? process.cwd();
+}
+
 /** The environment a held process starts with: orchd's own, plus the agent's launch variables. */
 export function heldLaunchEnv(opts: BackendSpawnOpts, extra: Readonly<Record<string, string>> = {}): Record<string, string> {
   return definedEnv({ ...process.env, ...agentLaunchEnv(opts, HELD_ENVIRONMENT_STAMP), ...extra });
 }
 
-/** Record a process orchd started for a held agent, with its pid as the handle. */
-export function recordHeldAgent(adapter: AgentAdapter, opts: BackendSpawnOpts, key: string, pid: number): LaunchedAgent {
+function launchedHere(pid: number): LaunchedAgent {
   const handle = String(pid);
   const running = heldBackend.process.running(handle);
-  const launched: LaunchedAgent = { handle, process: hostedHere(running.pid, running.startToken) };
+  return { handle, process: hostedHere(running.pid, running.startToken) };
+}
+
+/** Record a process orchd started for a new held agent, with its pid as the handle. A key the
+ *  store already holds fails on the registration conflict. */
+export function recordHeldAgent(adapter: AgentAdapter, opts: BackendSpawnOpts, key: string, pid: number): LaunchedAgent {
+  const launched = launchedHere(pid);
   registerSpawnedAgent(opts.orchDir, unplacedRegistration(heldBackend, adapter.id, key, opts, launched));
   return launched;
 }
 
+/** Record a new process and handle for a held agent the store already holds. */
+export function recordHeldProcess(opts: BackendSpawnOpts, key: string, pid: number): LaunchedAgent {
+  const launched = launchedHere(pid);
+  const agent = placeHere(opts.orchDir, key);
+  const now = Date.now();
+  recordProcess(opts.orchDir, agent, now, launched.process);
+  setHandle(opts.orchDir, agent, now, launched.handle);
+  return launched;
+}
+
+/** Whether a held process belongs to a new agent or to one the store already holds. */
+export type HeldRecording = "new-agent" | "existing-agent";
+
+/** Record a held process the way `recording` says. */
+export function recordHeld(recording: HeldRecording, adapter: AgentAdapter, opts: BackendSpawnOpts, key: string, pid: number): LaunchedAgent {
+  switch (recording) {
+    case "new-agent":
+      return recordHeldAgent(adapter, opts, key, pid);
+    case "existing-agent":
+      return recordHeldProcess(opts, key, pid);
+    default: {
+      const exhaustive: never = recording;
+      throw new Error(`unknown held recording ${String(exhaustive)}`);
+    }
+  }
+}
+
 /**
  * Start one agent's interactive harness in a PTY the holder keeps, and record it in this
- * orch dir's store with the PTY program as its process. The command runs through this
- * host's shell, as a pane would run it.
+ * orch dir's store with the PTY program as its process. By default the command runs through
+ * this host's shell, as a pane would run it; `program` runs another instead.
  */
-export async function startHeldAgent(holder: PtyHolder, adapter: AgentAdapter, opts: BackendSpawnOpts): Promise<LaunchedAgent> {
+export async function startHeldAgent(holder: PtyHolder, adapter: AgentAdapter, opts: BackendSpawnOpts, recording: HeldRecording, program: HeldProgram = shellRun(createInteractiveCommand(adapter, opts))): Promise<LaunchedAgent> {
   const key = heldKeyOf(adapter, opts);
-  const command = createInteractiveCommand(adapter, opts);
   const { pid } = await holder.start(key, {
-    ...shellRun(command),
-    cwd: opts.cwd ?? process.cwd(),
+    ...program,
+    cwd: heldCwd(opts),
     env: heldLaunchEnv(opts),
   });
   try {
-    return recordHeldAgent(adapter, opts, key, pid);
+    return recordHeld(recording, adapter, opts, key, pid);
   } catch (error: unknown) {
     // An agent orch cannot record is one nothing could reach or close.
     holder.kill(key);

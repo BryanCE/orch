@@ -15,6 +15,7 @@ import { isWorktreeProviderId, WORKTREE_PROVIDER_IDS, type WorktreeProviderId } 
 import { resolveSpawnNames } from "./names.ts";
 import { contextReference, readPromptFile } from "../prompt-file.ts";
 import { usageError, type CommandAt } from "../../cli/usage.ts";
+import type { Invocation } from "../../cli/spec.ts";
 import { taskWithReferences } from "../../worker-prompt.ts";
 
 
@@ -68,12 +69,18 @@ export function resolveWorktreeIntent(at: CommandAt, flags: WorktreeFlags, setti
   return { provider: provider ?? settings.worktrees.provider };
 }
 
+/** The `--form` an invocation names, null when it names none. */
+export function formFlag(invocation: Invocation): FormId | null {
+  const form = invocation.flags.value("--form") ?? null;
+  if (form !== null && !isFormId(form)) throw usageError(invocation, `--form takes one of ${FORM_IDS.join(", ")}`);
+  return form;
+}
+
 export function parseSpawnFlags(args: string[]): SpawnFlags {
   const invocation = parseCommand("spawn", args);
   const { flags, positional } = invocation;
   const tasksFile = flags.value("--tasks");
-  const form = flags.value("--form") ?? null;
-  if (form !== null && !isFormId(form)) throw usageError(invocation, `--form takes one of ${FORM_IDS.join(", ")}`);
+  const form = formFlag(invocation);
   return {
     ...agentFlags(flags),
     at: invocation,

@@ -1,5 +1,6 @@
 import { getBackend } from "../../../backends/registry.ts";
 import { nextTilePlacement, readGroupLayout } from "../../../backends/tiling.ts";
+import { hostIdentity } from "../../../hosts/identity.ts";
 import { errorMessage, orchEntrypoint } from "../../../util.ts";
 import { assertNewSpaceGranted, assertTabCapacity, liveFleet } from "./admission.ts";
 import { findGroupInSpace, resolveSpawnPlacement, type SpawnNotes } from "./placement.ts";
@@ -12,10 +13,10 @@ import type { AgentEnvironment } from "../../../types/store.ts";
 import type { SpawnSettings } from "./plan.ts";
 
 /**
- * Where the panes showing a far spawn's agents open in the caller's plexer.
+ * Where the panes showing a spawn's agents open in the caller's plexer.
  *
- * An agent on another host runs in a PTY that host's orchd holds; here it gets
- * a place running `orch attach <agent>`. The plan is made before anything
+ * An agent whose backend places nothing, on another host or held here, runs in a process
+ * orchd holds; the caller's plexer gets a place running `orch attach <agent>`. The plan is made before anything
  * launches, so a full tab refuses the spawn instead of stranding agents that
  * already started there with nowhere to show them.
  */
@@ -56,10 +57,17 @@ function viewerRoles(environment: AgentEnvironment): ViewerRoles | null {
   return { backend, role, groupHome, groupLayout, labeling };
 }
 
-/** Plan the panes for this far spawn, or null when nothing here can show them. Refuses
- *  the spawn when the tab cannot take them, by the cap the placed path enforces. */
+/** The host a spawn's agents run on: the linked host it names, else this one. */
+export function viewerHost(settings: Pick<SpawnSettings, "host">): string {
+  return settings.host?.name ?? hostIdentity().name;
+}
+
+/** Plan the panes for this spawn, or null when its agents sit in panes of their own or
+ *  nothing here can show them. Refuses the spawn when the tab cannot take them, by the
+ *  cap the placed path enforces. */
 export function planViewers(request: ViewerPlanRequest): ViewerPlan | null {
   const { services, settings, environment, actor } = request;
+  if (settings.agents.some((agent) => agent.backend.placement !== null || !agent.backend.offers.some((stdio) => stdio !== "none"))) return null;
   const roles = viewerRoles(environment);
   if (roles === null) return null;
   const { backend, groupLayout } = roles;
@@ -74,7 +82,7 @@ export function planViewers(request: ViewerPlanRequest): ViewerPlan | null {
   // name, followed by `@<host>`.
   const first = settings.agents[0]?.name;
   const base = settings.tab ?? first ?? null;
-  const tabLabel = base === null || settings.host === null ? null : viewerLabel(base, settings.host.name);
+  const tabLabel = base === null ? null : viewerLabel(base, viewerHost(settings));
   const named = settings.tab === null || settings.tab === undefined ? undefined : findGroupInSpace(backend, placement.workspace, settings.tab);
   const existing = named ?? (tabLabel === null ? undefined : findGroupInSpace(backend, placement.workspace, tabLabel));
   let tab: ViewerPlan["tab"];

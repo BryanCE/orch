@@ -1,9 +1,9 @@
-import { probeAcpAgent } from "../../../acp/session.ts";
-import { binaryOnPath, binaryPath, definedEnv, errorMessage, packageManifest } from "../../../util.ts";
+import { binaryOnPath, binaryPath, errorMessage } from "../../../util.ts";
+import { probeBinding } from "../acp-probe.ts";
 import { bindingPrerequisites } from "../../../shared/prerequisites.ts";
 import type { AgentAdapter, AcpRole } from "../../../types/adapter.ts";
 import type { BinaryStatus, CheckResult } from "../../../types/doctor.ts";
-import type { PipesProcess, PipesProvider } from "../../../types/pipes.ts";
+import type { PipesProvider } from "../../../types/pipes.ts";
 
 /** How doctor starts an ACP binding to ask who it is. */
 export interface BindingProbe {
@@ -30,28 +30,16 @@ function bindingLine(command: string, found: string | null, answer: BindingAnswe
   };
 }
 
-/** Starts the binding on pipes, asks it to initialize, and kills it. Never rejects. */
-async function probeBinding(acp: AcpRole, probe: BindingProbe): Promise<BindingAnswer> {
-  let child: PipesProcess | null = null;
-  let timer: ReturnType<typeof setTimeout> | undefined;
+/** Asks the binding who it is. Never rejects. */
+async function answerOf(acp: AcpRole, probe: BindingProbe): Promise<BindingAnswer> {
   try {
-    child = probe.pipes.spawn({ argv: acp.argv({}), cwd: process.cwd(), env: definedEnv({ ...process.env, ...acp.env({}) }) });
-    const started = child;
-    const timedOut = new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), probe.timeoutMs); });
-    const answer = await Promise.race([
-      probeAcpAgent({ input: started.input, output: started.output }, packageManifest()),
-      timedOut,
-    ]);
-    if (answer === null) return { answering: false, text: `not answering: no ACP initialize reply within ${probe.timeoutMs} ms` };
+    const answer = await probeBinding(probe.pipes, acp, probe.timeoutMs);
     return {
       answering: true,
       text: `answers as ${answer.name ?? "an unnamed agent"} ${answer.version ?? "with no version"} on ACP protocol ${answer.protocolVersion}`,
     };
   } catch (error: unknown) {
     return { answering: false, text: `not answering: ${errorMessage(error)}` };
-  } finally {
-    clearTimeout(timer);
-    child?.kill();
   }
 }
 
@@ -66,7 +54,7 @@ export async function checkBindingAnswers(adapters: readonly AgentAdapter[], pro
     const found = binaryPath(command);
     const acp = adapters.find((adapter) => adapter.acp?.argv({})[0] === command)?.acp;
     if (!found || !acp) return bindingLine(command, found, null);
-    return bindingLine(command, found, await probeBinding(acp, probe));
+    return bindingLine(command, found, await answerOf(acp, probe));
   }));
 }
 

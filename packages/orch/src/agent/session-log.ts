@@ -1,4 +1,4 @@
-import { appendFileSync, mkdirSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { isRecord, isUnknownArray } from "../util.ts";
 import type { SessionViewEntry, SessionViewToolCall } from "../types/adapter.ts";
@@ -17,10 +17,48 @@ function isSessionViewEntry(value: unknown): value is SessionViewEntry {
     && (value.timestamp === undefined || typeof value.timestamp === "string");
 }
 
+function ensureParentDirectory(path: string): void {
+  mkdirSync(dirname(path), { recursive: true });
+}
+
+/** Creates an agent's session log, empty, when it does not exist. */
+export function openSessionLog(path: string): void {
+  ensureParentDirectory(path);
+  appendFileSync(path, "", "utf8");
+}
+
+/** The suffix of the sibling name a session log is set aside under. */
+export const SET_ASIDE_SUFFIX = ".aside";
+
+/** A session log set aside while a new one is written. */
+export interface SetAsideLog {
+  /** Deletes the log that was set aside. */
+  keep(): void;
+  /** Puts the log that was set aside back over the new one. */
+  restore(): void;
+}
+
+/** Sets an agent's session log aside under a sibling name and creates the log empty. */
+export function setAsideSessionLog(path: string): SetAsideLog {
+  const aside = `${path}${SET_ASIDE_SUFFIX}`;
+  ensureParentDirectory(path);
+  const held = existsSync(path);
+  if (held) renameSync(path, aside);
+  writeFileSync(path, "", "utf8");
+  return {
+    keep() {
+      rmSync(aside, { force: true });
+    },
+    restore() {
+      if (held) renameSync(aside, path);
+    },
+  };
+}
+
 /** Append normalized session entries as JSONL, creating their parent directory. */
 export function appendSessionEntries(path: string, entries: readonly SessionViewEntry[]): void {
   if (entries.length === 0) return;
-  mkdirSync(dirname(path), { recursive: true });
+  ensureParentDirectory(path);
   appendFileSync(path, entries.map((entry) => `${JSON.stringify(entry)}\n`).join(""), "utf8");
 }
 

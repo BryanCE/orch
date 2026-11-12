@@ -58,7 +58,7 @@ describe("adapter and runtime hardening", () => {
     try {
       // The caller mints the identity BEFORE launch (one key per agent); the
       // backend never generates a fallback key of its own.
-      expect(() => backend.spawn(adapter, { orchDir: directory })).toThrow(/caller-minted presence key/);
+      expect(() => backend.spawn(adapter, { form: "oneshot", orchDir: directory })).toThrow(/caller-minted presence key/);
       expect(hereAgentIfAny(directory, "any-key")).toBeNull();
     } finally {
       if (previous === undefined) delete process.env.ORCH_DIR;

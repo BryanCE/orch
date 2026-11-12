@@ -1,12 +1,14 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { attachCommand, openViewers, planViewers } from "../src/daemon/server/spawn/viewers.ts";
+import { attachCommand, openViewers, planViewers, viewerHost } from "../src/daemon/server/spawn/viewers.ts";
 import { parseSpawnFlags, resolveSpawnSettings } from "../src/commands/spawn/flags.ts";
+import { heldBackend } from "../src/backends/registry.ts";
+import { hostIdentity } from "../src/hosts/identity.ts";
 import { errorMessage, orchEntrypoint } from "../src/util.ts";
 import { FakePanedBackend, fakePane, withRegisteredBackend } from "./helpers/backend.ts";
 import { testServices } from "./helpers/services.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { agentViewFixture } from "./helpers/views.ts";
-import type { BackendGroup, BackendGroupLayout, CommandPlacementRequest, CommandPlacementRole, CreateGroupRequest, CreatedGroup, GroupHomeRole, GroupLayoutRole, LabelRole, Placement } from "../src/types/backend.ts";
+import type { Backend, BackendGroup, BackendGroupLayout, CommandPlacementRequest, CommandPlacementRole, CreateGroupRequest, CreatedGroup, GroupHomeRole, GroupLayoutRole, LabelRole, Placement } from "../src/types/backend.ts";
 import type { CreatedAgent } from "../src/types/command.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import type { Services } from "../src/types/services.ts";
@@ -190,5 +192,41 @@ describe("no plexer here, no pane", () => {
     const svc = services();
     const environment = agentViewFixture("caller0001", { environment: { plexer: "headless", handle: null } }).environment;
     expect(planViewers({ services: svc, settings: farSpawn(svc, ["one"]), environment, actor: null })).toBeNull();
+  });
+});
+
+/** `orch spawn <names> --prompt go` planned onto `backend`, here. */
+function localSpawn(services: Services, names: readonly string[], backend: Backend) {
+  const settings = services.settings.current();
+  return planSpawn(resolveSpawnSettings(parseSpawnFlags([...names, "--prompt", "go"]), settings).params, settings, backend);
+}
+
+describe("an agent held here shows in a pane of the caller's plexer", () => {
+  test("a caller in a plexer gets one pane requested, running orch attach for the agent", () => {
+    const svc = services();
+    const backend = new ViewerBackend();
+    withRegisteredBackend(backend, () => {
+      const plan = planViewers({ services: svc, settings: localSpawn(svc, ["one"], heldBackend), environment: IN_PLEXER, actor: null });
+      expect(plan).not.toBeNull();
+      const panes = openViewers(plan!, { orchDir: svc.orchDir, logger: svc.logger, cwd: "/here", notes: [] }, viewerHost(localSpawn(svc, ["one"], heldBackend)), [started("agent00001", "one")]);
+      expect(backend.ran.map((request) => request.command)).toEqual([attachCommand("agent00001")]);
+      expect(backend.labels).toEqual([{ handle: "%1", label: `one@${hostIdentity().name}` }]);
+      expect([...panes]).toEqual([["agent00001", "%1"]]);
+    });
+  });
+
+  test("a caller in no plexer gets none", () => {
+    const svc = services();
+    const environment = agentViewFixture("caller0001", { environment: { plexer: null, handle: null } }).environment;
+    expect(planViewers({ services: svc, settings: localSpawn(svc, ["one"], heldBackend), environment, actor: null })).toBeNull();
+  });
+
+  test("an agent placed in a pane gets none", () => {
+    const svc = services();
+    const backend = new ViewerBackend();
+    withRegisteredBackend(backend, () => {
+      expect(planViewers({ services: svc, settings: localSpawn(svc, ["one"], backend), environment: IN_PLEXER, actor: null })).toBeNull();
+      expect(backend.ran).toEqual([]);
+    });
   });
 });

@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { openAcpLink, type AcpLink, type AcpLinkEvents } from "../../acp/link.ts";
 import { attachLink, detachLink, type AgentLink } from "../../control/agent-links.ts";
-import { appendSessionEntries } from "../../agent/session-log.ts";
-import { heldKeyOf, heldLaunchEnv, logPathOf, recordHeldAgent } from "../../backends/registry.ts";
+import { appendSessionEntries, openSessionLog, setAsideSessionLog, type SetAsideLog } from "../../agent/session-log.ts";
+import { heldCwd, heldKeyOf, heldLaunchEnv, logPathOf, recordHeld, type HeldRecording } from "../../backends/registry.ts";
 import type { LaunchedAgent } from "../../backends/registration.ts";
 import { dropQuestion, recordQuestion } from "../../store/question-rows.ts";
 import { renderViewEntry } from "../../shared/render-view-entry.ts";
@@ -16,30 +16,35 @@ import type { AgentAdapter } from "../../types/adapter.ts";
 import type { BackendSpawnOpts } from "../../types/backend.ts";
 import type { NotifyEvent } from "../../types/notify.ts";
 
-/** Start one agent in the `acp` form on pipes orchd holds, and return where it runs. */
-export async function startAcpAgent(state: DaemonState, adapter: AgentAdapter, opts: BackendSpawnOpts): Promise<LaunchedAgent> {
+/** Start one agent in the `acp` form on pipes orchd holds, and return where it runs. `sessionId`
+ *  null opens a new session; otherwise it opens that one, by load when the binding offers it, else
+ *  by resume. A load replays the whole conversation, so the session log is set aside and written
+ *  anew; a load that fails puts it back. `recording` says whether the agent is new or exists. */
+export async function startAcpAgent(state: DaemonState, adapter: AgentAdapter, opts: BackendSpawnOpts, sessionId: string | null, recording: HeldRecording): Promise<LaunchedAgent> {
   const acp = adapter.acp;
   if (acp === null) throw new Error(`harness ${String(adapter.id)} has no acp form`);
   const key = heldKeyOf(adapter, opts);
   const directory = state.directory;
   const logger = state.services.logger.forAgent(key);
-  const cwd = opts.cwd ?? process.cwd();
+  const cwd = heldCwd(opts);
   const child = state.pipes.spawn({ argv: acp.argv(opts), cwd, env: heldLaunchEnv(opts, acp.env(opts)) });
   holdPipes(key, child);
+  const { cols, rows } = state.services.settings.current().pty;
   let launched: LaunchedAgent;
+  let screen: ReturnType<DaemonState["held"]["openScreen"]>;
   try {
-    launched = recordHeldAgent(adapter, opts, key, child.pid);
+    launched = recordHeld(recording, adapter, opts, key, child.pid);
+    screen = state.held.openScreen(key, { cols, rows });
   } catch (error: unknown) {
     releasePipes(key);
     throw error;
   }
-  const { cols, rows } = state.services.settings.current().pty;
-  const screen = state.held.openScreen(key, { cols, rows });
   const logPath = logPathOf(directory, key);
   const publish = (event: NotifyEvent): void => { publishFromOrchd(state, event); };
   let dispatchId: string | null = null;
   let link: AgentLink | null = null;
   let ended = false;
+  const setAside: { current: SetAsideLog | null } = { current: null };
   child.onStderr((text) => { logger.warn("acp.stderr", { text }); });
   // One exit step that throws is logged, and the steps after it still run.
   const exitStep = (step: string, run: () => void): void => {
@@ -91,19 +96,25 @@ export async function startAcpAgent(state: DaemonState, adapter: AgentAdapter, o
       logger.error("acp.error", { message: error.message });
       acceptStatusReport(directory, key, { lastError: error.message }, publish);
     },
+    onLoad() {
+      setAside.current = setAsideSessionLog(logPath);
+    },
   };
   let opened: AcpLink;
   try {
-    opened = await openAcpLink({ input: child.input, output: child.output }, { kind: "new", cwd }, packageManifest(), events);
+    opened = await openAcpLink({ input: child.input, output: child.output }, sessionId === null ? { kind: "new", cwd } : { kind: "existing", cwd, sessionId }, packageManifest(), events);
   } catch (error: unknown) {
     releasePipes(key);
     screen.close();
+    setAside.current?.restore();
     throw error;
   }
+  setAside.current?.keep();
   link = opened.link;
   attachLink(directory, key, link);
   // The process may have ended while its session opened: then nothing stays attached to it.
   if (ended) detachLink(directory, key, link);
+  openSessionLog(logPath);
   acceptStatusReport(directory, key, { state: "idle", sessionId: opened.session.sessionId, sessionPath: logPath }, publish);
   return launched;
 }

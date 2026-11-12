@@ -3,7 +3,7 @@ import { selfIdentityOf, spaceOfAgent } from "../../../identity/self.ts";
 import { callerKindOf } from "../../../policy/caller.ts";
 import { holdsLease } from "../../../store/lease-rows.ts";
 import { randomUUID } from "node:crypto";
-import { FORM_STDIO } from "../../../types/form.ts";
+import { FORM_STDIO, type FormId } from "../../../types/form.ts";
 import { selectSpawnForm } from "../spawn/plan.ts";
 import { hostedHere } from "../../../local-process.ts";
 import { placeHere } from "../../../process-place.ts";
@@ -73,11 +73,15 @@ export async function spawnHeadless(state: DaemonState, params: ParamsOf<"spawn-
     if (peer !== undefined) throw new Error(`cannot spawn ${key}: a host's orchd asks only for a spawn here, never on a third host`);
     return spawnOnHost(state, params.host, { ...params, model });
   }
-  const selected = selectSpawnForm(params.form, state.services.settings.current().defaults.forms, adapter, peer === undefined ? headlessBackend : heldBackend, heldBackend);
+  // A local spawn's plan resolved its form already; only a linked host's orchd resolves it here.
+  let form: FormId;
+  if (peer !== undefined) form = selectSpawnForm(params.form, state.services.settings.current().defaults.forms, adapter, heldBackend, heldBackend).form;
+  else if (params.form === null) throw new Error(`cannot spawn ${key}: no form resolved by the local plan`);
+  else form = params.form;
   const prompt = params.prompt;
-  if (FORM_STDIO[selected.form] === "none" && prompt === null) throw new Error(`cannot spawn ${key}: a headless agent needs its prompt at launch`);
+  if (FORM_STDIO[form] === "none" && prompt === null) throw new Error(`cannot spawn ${key}: a headless agent needs its prompt at launch`);
   const opts: BackendSpawnOpts = {
-    form: selected.form,
+    form,
     key,
     name: params.name,
     worktree: params.worktree,
@@ -95,19 +99,18 @@ export async function spawnHeadless(state: DaemonState, params: ParamsOf<"spawn-
   };
   if (peer !== undefined) assertHostAdmits(directory, state.services.settings.current(), 1);
   // A form that needs a process orchd holds runs in a held launch; a headless form runs detached.
-  if (FORM_STDIO[selected.form] !== "none") {
+  if (FORM_STDIO[form] !== "none") {
     return spawnHeldLaunch(state, adapter, { ...opts, key, firstPrompt: prompt, spawner: peer === undefined ? params.spawner : null, ...(peer === undefined ? {} : { origin: { askedBy: peer, spawner: params.spawner } }) });
   }
   const handle = headlessBackend.spawn(adapter, { ...opts, spawner: params.spawner });
   const running = headlessBackend.process.running(handle);
-  return { form: selected.form, key, backend: headlessBackend.id, handle: JSON.stringify(handle), process: hostedHere(running.pid, running.startToken) };
+  return { form, key, backend: headlessBackend.id, handle: JSON.stringify(handle), process: hostedHere(running.pid, running.startToken) };
 }
 
 /** Start an agent in a form orchd holds: a PTY for `terminal`, pipes for `pipes`. */
 export async function spawnHeldLaunch(state: DaemonState, adapter: AgentAdapter, opts: BackendSpawnOpts & { readonly key: string; readonly firstPrompt: string | null }): Promise<ResultOf<"spawn-headless">> {
   const form = opts.form;
-  if (form === undefined) throw new Error("held launch requires a resolved form");
-  const launched = FORM_STDIO[form] === "pipes" ? await startAcpAgent(state, adapter, opts) : await startHeldAgent(state.held, adapter, opts);
+  const launched = FORM_STDIO[form] === "pipes" ? await startAcpAgent(state, adapter, opts, null, "new-agent") : await startHeldAgent(state.held, adapter, opts, "new-agent");
   // A spawn with no work idles until its first dispatch.
   if (opts.firstPrompt !== null) {
     insertOutboxMessage(state.directory, { id: randomUUID(), target: opts.key, payload: { action: "dispatch", text: opts.firstPrompt } });

@@ -36,8 +36,8 @@ list is part of this job.
 
 1. `orch spawn a --harness codex --form acp --prompt "<task>"` prints `Spawned a`. `orch status`
    shows `a` with form `acp`, `working`, then `done`. `orch result a` prints the final text.
-2. Inside a plexer the same spawn opens a pane that shows the transcript as it streams.
-   Closing the pane leaves the agent running.
+2. Inside a plexer the same spawn opens no pane: an `acp` agent is headless. `orch attach a`
+   shows the transcript as it streams, and detaching leaves the agent running.
 3. `orch dispatch a "<task>"` starts a new turn. `orch steer a "<text>"` during a turn lands
    as the next prompt when the turn ends. `orch abort a` moves it to `aborted` within a second.
 4. A permission request shows in `orch questions` with numbered options. `orch answer a 2`

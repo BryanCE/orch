@@ -8,6 +8,7 @@ import {
   type LoadSessionResponse,
   type NewSessionResponse,
   type PermissionOptionKind,
+  type SessionConfigOption,
   type SessionNotification,
   type SessionUpdate,
   type StopReason,
@@ -58,14 +59,37 @@ export interface AcpClientInfo {
 
 /** One conversation on a live ACP connection. */
 export interface AcpSession {
+  /** The conversation's id now. `renew` replaces it. */
   readonly sessionId: string;
   readonly offer: AcpOffer;
   prompt(text: string): Promise<StopReason>;
   cancel(): Promise<void>;
   setMode(modeId: string): Promise<void>;
+  /** Selects one of the values the agent's model option offers; any other value throws. */
   setModel(value: string): Promise<void>;
+  /** Selects a thinking level the agent's thought-level option offers. An agent with no such
+   *  option for the current model takes none and keeps its own; a level it does not offer throws. */
+  setThinking(level: string): Promise<void>;
+  /** Starts a fresh conversation on the same connection, carrying over every selected option,
+   *  model first. Closes the old one when the agent offers close. Answers the new session id. */
+  renew(): Promise<string>;
   close(): Promise<void>;
   readonly ended: Promise<void>;
+}
+
+/** The ACP category of the option that selects a thinking level. */
+const THOUGHT_LEVEL = "thought_level";
+
+/** Every value a select option offers, across its groups. A non-select option offers none. */
+function selectValues(option: SessionConfigOption): readonly string[] {
+  if (option.type !== "select") return [];
+  const entries: readonly ({ readonly value: string } | { readonly options: readonly { readonly value: string }[] })[] = option.options;
+  return entries.flatMap((entry) => "options" in entry ? entry.options.map((choice) => choice.value) : [entry.value]);
+}
+
+/** The value a select option has selected now, or null for any other option. */
+function selectedValue(option: SessionConfigOption): string | null {
+  return option.type === "select" ? option.currentValue : null;
 }
 
 function optionKind(kind: PermissionOptionKind): QuestionOption["kind"] {
@@ -203,20 +227,32 @@ export async function openAcpSession(
       );
     }
     if (sessionId === null) throw new Error("Agent did not return a session id");
-    const id = sessionId;
+    let id = sessionId;
     for (const notification of earlyUpdates) {
       if (notification.sessionId === id) handlers.onUpdate(notification.update);
     }
     earlyUpdates = [];
+    let options: readonly SessionConfigOption[] = response.configOptions ?? [];
     const offer: AcpOffer = {
       load,
       resume,
       close,
-      modelOption: response.configOptions?.find((option) => option.category === "model")?.id ?? null,
+      modelOption: options.find((option) => option.category === "model")?.id ?? null,
     };
+    /** Select `value` on the option `configId`, after checking the agent offers it. */
+    const select = async (option: SessionConfigOption, value: string, what: string): Promise<void> => {
+      const offered = selectValues(option);
+      if (!offered.includes(value)) throw new Error(`Agent offers no ${what} ${value}; it offers ${offered.join(", ")}`);
+      if (selectedValue(option) === value) return;
+      const changed = await connection.agent.request(methods.agent.session.setConfigOption, { sessionId: id, configId: option.id, value });
+      options = changed.configOptions;
+    };
+    const optionOf = (category: string): SessionConfigOption | undefined => options.find((option) => option.category === category);
     let prompting = false;
     return {
-      sessionId: id,
+      get sessionId() {
+        return id;
+      },
       offer,
       ended,
       prompt(text) {
@@ -244,10 +280,33 @@ export async function openAcpSession(
         await connection.agent.request(methods.agent.session.setMode, { sessionId: id, modeId });
       },
       async setModel(value) {
-        if (offer.modelOption === null) throw new Error("Agent does not offer a model config option");
-        await connection.agent.request(methods.agent.session.setConfigOption, {
-          sessionId: id, configId: offer.modelOption, value,
+        const option = optionOf("model");
+        if (option === undefined) throw new Error("Agent does not offer a model config option");
+        await select(option, value, "model");
+      },
+      async setThinking(level) {
+        const option = optionOf(THOUGHT_LEVEL);
+        if (option !== undefined) await select(option, level, "thinking level");
+      },
+      async renew() {
+        if (prompting) throw new Error("An ACP prompt is running; cancel it before starting a new conversation");
+        const kept = options.flatMap((option) => {
+          const value = selectedValue(option);
+          return value === null ? [] : [{ category: option.category ?? null, id: option.id, value }];
         });
+        const previous = id;
+        cancelAsks();
+        const created: NewSessionResponse = await connection.agent.request(methods.agent.session.new, params);
+        id = created.sessionId;
+        sessionId = created.sessionId;
+        options = created.configOptions ?? [];
+        // The model goes first: which thinking levels an agent offers can depend on it.
+        for (const carried of [...kept].sort((a, b) => Number(b.category === "model") - Number(a.category === "model"))) {
+          const option = options.find((candidate) => candidate.id === carried.id);
+          if (option !== undefined && selectValues(option).includes(carried.value)) await select(option, carried.value, carried.id);
+        }
+        if (offer.close) await connection.agent.request(methods.agent.session.close, { sessionId: previous });
+        return id;
       },
       async close() {
         cancelAsks();

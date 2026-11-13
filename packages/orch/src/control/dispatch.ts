@@ -200,14 +200,20 @@ function resolveBackendHandle(orchDir: OrchDir, agent: HereAgent): { backend: Ba
 
 /**
  * Apply a session-lifecycle verb through the mechanism the target actually has.
- * A console-backed agent is sent the text its adapter declares for the verb. An
+ * A link that starts a fresh conversation takes `reset` itself. Otherwise a
+ * console-backed agent is sent the text its adapter declares for the verb. An
  * agent with no console has neither a console to type into nor a session to
  * carry over — it runs the prompt it launched on and exits — so the verb is
- * refused. The branch is on the backend's declared keystroke capability, never
- * its id.
+ * refused. The branch is on the link's and the backend's declared capabilities,
+ * never an id.
  */
-function deliverLifecycle(orchDir: OrchDir, agent: HereAgent, adapter: AgentAdapter, verb: LifecycleVerb): ControlBoundaryOutcome {
+async function deliverLifecycle(orchDir: OrchDir, agent: HereAgent, adapter: AgentAdapter, verb: LifecycleVerb): Promise<ControlBoundaryOutcome> {
   const target = agent.id;
+  const reset = verb === "reset" ? attachedLink(agent)?.reset ?? null : null;
+  if (reset !== null) {
+    await reset();
+    return { outcome: "invoke", ack: "none" };
+  }
   if (adapter.lifecycleControl === null) {
     return { outcome: "answer", reason: "no-environment-role", text: `this environment does not provide ${verb}` };
   }

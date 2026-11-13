@@ -9,6 +9,8 @@ export interface AgentLink {
   push(delivery: BridgeDelivery): void;
   /** Aborts the agent's current turn, null when the link cannot. */
   readonly abort: (() => void) | null;
+  /** Starts a fresh conversation in place of the current one, null when the link cannot. */
+  readonly reset: (() => Promise<void>) | null;
   /** End the link. Whoever owns it attaches again. */
   close(): void;
 }

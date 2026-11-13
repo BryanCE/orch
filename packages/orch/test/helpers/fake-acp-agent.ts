@@ -59,6 +59,9 @@ export function fakeAcpAgent(script: FakeAcpScript) {
   const permissions: { toolCallId: string; response: RequestPermissionResponse }[] = [];
   const turns = [...script.turns];
   let cancelTurn: (() => void) | null = null;
+  // Each session starts on the script's options; setting one changes what the agent reports.
+  let options: SessionConfigOption[] = structuredClone(script.configOptions);
+  let sessions = 0;
   const record = (method: string, params: unknown) => received.push({ method, params });
   const app = agent();
   app.onRequest(methods.agent.initialize, ({ params }) => {
@@ -67,7 +70,10 @@ export function fakeAcpAgent(script: FakeAcpScript) {
   });
   app.onRequest(methods.agent.session.new, ({ params }) => {
     record(methods.agent.session.new, params);
-    return { sessionId: script.sessionId, configOptions: script.configOptions };
+    sessions += 1;
+    options = structuredClone(script.configOptions);
+    // The first session is the script's id; each fresh one after it is numbered.
+    return { sessionId: sessions === 1 ? script.sessionId : `${script.sessionId}-${sessions}`, configOptions: options };
   });
   app.onRequest(methods.agent.session.load, async ({ params, client }) => {
     record(methods.agent.session.load, params);
@@ -113,7 +119,8 @@ export function fakeAcpAgent(script: FakeAcpScript) {
   });
   app.onRequest(methods.agent.session.setConfigOption, ({ params }) => {
     record(methods.agent.session.setConfigOption, params);
-    return { configOptions: script.configOptions };
+    options = options.map((option) => option.id === params.configId && option.type === "select" && typeof params.value === "string" ? { ...option, currentValue: params.value } : option);
+    return { configOptions: options };
   });
   app.onRequest(methods.agent.session.close, ({ params }) => {
     record(methods.agent.session.close, params);

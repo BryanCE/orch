@@ -81,7 +81,7 @@ function captureBridge(key: string, onPush?: (delivery: BridgeDelivery) => void)
   const deliveries: BridgeDelivery[] = [];
   const link: AgentLink = {
     takes: resolveTargetAdapter(requiredOrchDir(), placeHere(requiredOrchDir(), key).id)?.bridge?.takes ?? [],
-    abort: null,
+    abort: null, reset: null,
     push(delivery): void {
       deliveries.push(delivery);
       onPush?.(delivery);
@@ -134,7 +134,7 @@ describe("deliverControl abort", () => {
         if (scenario.attached) {
           const link: AgentLink = {
             takes: [],
-            abort: scenario.canAbort ? () => { aborted++; } : null,
+            abort: scenario.canAbort ? () => { aborted++; } : null, reset: null,
             push: (delivery) => { deliveries.push(delivery); },
             close: () => undefined,
           };
@@ -183,7 +183,7 @@ describe("deliverControl bridge dispatch", () => {
     const key = target();
     presence(directory, key, "claude");
     const deliveries: BridgeDelivery[] = [];
-    const link: AgentLink = { takes: ["steer"], abort: null, push: (delivery) => { deliveries.push(delivery); }, close: () => undefined };
+    const link: AgentLink = { takes: ["steer"], abort: null, reset: null, push: (delivery) => { deliveries.push(delivery); }, close: () => undefined };
     attachLink(key, link);
     links.push({ key, link });
 

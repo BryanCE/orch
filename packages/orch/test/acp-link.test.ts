@@ -52,6 +52,7 @@ function recorder() {
     onAskDropped: (id) => record(`dropped:${id}`),
     onApplied: (id) => record(`applied:${id}`),
     onError: (error) => record(`error:${error.message}`),
+    onReset: (sessionId) => record(`reset:${sessionId}`),
   };
   return { log, events, seen };
 }

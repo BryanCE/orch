@@ -2,7 +2,7 @@
 // launch, places it in that plexer (or launches headless, or on a linked host), makes each
 // agent's worktree, and launches every agent. The CLI waits for them to come up and reports.
 import { heldBackend } from "../../../backends/registry.ts";
-import { FORM_STDIO } from "../../../types/form.ts";
+import { FORM_SESSION_OWNER, FORM_STDIO, type FormId } from "../../../types/form.ts";
 import { compactionEnv } from "../../../policy/workers.ts";
 import { withLaunchPoints } from "../../../policy/compaction.ts";
 import { workerPolicyFrom, workerTools } from "../../../policy/workers.ts";
@@ -21,7 +21,7 @@ import { localAgentPlan, planSpawn, plexerRequest, selectBackend, selectSpawnFor
 import { admitSpawn, assertNewSpaceGranted, assertSpaceCapacity, assertSpawnCapacity, assertSpawnPolicy, assertTabCapacity, claimSpawnNames, liveFleet, type CallerSelf } from "./admission.ts";
 import { discardUnusedWorkspace, findGroupInSpace, growFleetIntoGroup, openFleetHome, prepareWorkspace, resolveSpawnPlacement, spawnBackend, spawnEnv, spawnOneIntoTab, type SpawnNotes } from "./placement.ts";
 import { freeTabLabel, liveTabLabels } from "./tab-label.ts";
-import { openViewers, planViewers, viewerHost } from "./viewers.ts";
+import { needsViewer, openViewers, planViewers, viewerHost } from "./viewers.ts";
 import type { AgentAdapter } from "../../../types/adapter.ts";
 import type { Backend, BackendGroup, CreatedHome, GroupHomeRole, GroupLayoutRole, TileFirstSplit } from "../../../types/backend.ts";
 import type { CreatedAgent, PreparedAgent, SpawnPlacement, TabSpawnSpec } from "../../../types/command.ts";
@@ -52,9 +52,11 @@ function callerEnvironment(self: CallerSelf): AgentEnvironment {
   return environment;
 }
 
-/** What the CLI needs to know of a harness after a launch. */
-function harnessTraits(adapter: AgentAdapter): HarnessTraits {
-  const startup = adapter.bridge ? "bridge" : adapter.hooks?.reports.includes("start") ? "start" : null;
+/** What the CLI needs to know of a harness after a launch in `form`. An agent whose session
+ *  orchd holds is up when that session's link attaches, whatever its harness reports. */
+export function harnessTraits(adapter: AgentAdapter, form: FormId | null): HarnessTraits {
+  const linked = adapter.bridge !== null || (form !== null && FORM_SESSION_OWNER[form] === "orchd");
+  const startup = linked ? "bridge" : adapter.hooks?.reports.includes("start") ? "start" : null;
   return { id: adapter.id, startup, takesModel: takesModel(adapter) };
 }
 
@@ -73,7 +75,12 @@ function spawned(settings: SpawnSettings, agent: CreatedAgent): SpawnedAgent {
 
 /** The spawn's answer: the agents that started and what the CLI needs to watch them come up. */
 function spawnedResult(settings: SpawnSettings, created: readonly CreatedAgent[], fields: { headless: boolean; tab: string | null; panes: ReadonlyMap<string, string>; notes: SpawnNotes }): SpawnResult {
-  const harnesses = [...new Set(created.map((agent) => planFor(settings, agent.name).adapter))].map((id) => harnessTraits(resolveAdapterOrDie(id)));
+  // One form per harness in a spawn: `--form` names one for every agent, else each harness's default.
+  const forms = new Map(created.map((agent) => {
+    const plan = planFor(settings, agent.name);
+    return [plan.adapter, plan.form ?? plan.requestedForm] as const;
+  }));
+  const harnesses = [...forms].map(([id, form]) => harnessTraits(resolveAdapterOrDie(id), form));
   return {
     outcome: "spawned",
     backend: settings.backend,
@@ -154,7 +161,7 @@ async function executeHeadlessSpawn(state: DaemonState, params: ParamsOf<"spawn"
   }
   const panes = viewers === null
     ? new Map<string, string>()
-    : openViewers(viewers, { orchDir: state.directory, logger: services.logger, cwd: environment.cwd, notes }, viewerHost(settings), created);
+    : openViewers(viewers, { orchDir: state.directory, logger: services.logger, cwd: environment.cwd, notes }, viewerHost(settings), created.filter((agent) => needsViewer(planFor(settings, agent.name))));
   return spawnedResult(settings, created, { headless: true, tab: null, panes, notes });
 }
 
@@ -423,7 +430,7 @@ export function tileAgent(state: DaemonState, params: ParamsOf<"tile">): ResultO
     outcome: "tiled",
     tab: layout.group,
     agent: { ...created, harness: agent.harness, model, thinking: agent.thinking },
-    harness: harnessTraits(adapter),
+    harness: harnessTraits(adapter, spec.form),
     layout: tabLayout(backend, backend.groupLayout, tab.id),
   };
 }

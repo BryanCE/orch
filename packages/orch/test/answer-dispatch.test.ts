@@ -46,7 +46,7 @@ function target(): string {
 
 function attach(directory: OrchDir, key: string): BridgeDelivery[] {
   const deliveries: BridgeDelivery[] = [];
-  const link: AgentLink = { takes: ["dispatch", "steer", "answer", "model"], abort: null, push: (delivery): void => { deliveries.push(delivery); acknowledgeDelivery(delivery.id); }, close: () => undefined };
+  const link: AgentLink = { takes: ["dispatch", "steer", "answer", "model"], abort: null, reset: null, push: (delivery): void => { deliveries.push(delivery); acknowledgeDelivery(delivery.id); }, close: () => undefined };
   attachLink(directory, key, link);
   links.push({ directory, key, link });
   return deliveries;

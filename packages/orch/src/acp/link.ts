@@ -23,6 +23,8 @@ export interface AcpLinkEvents {
   onError(error: Error): void;
   /** Called once, before a session load replays the whole conversation through `onEntries`. */
   onLoad?(): void;
+  /** A fresh conversation replaced the old one; `sessionId` names it. */
+  onReset(sessionId: string): void;
 }
 
 /** A control link and the session it drives. */
@@ -144,6 +146,12 @@ export async function openAcpLink(
           return exhaustive;
         }
       }
+    },
+    async reset() {
+      if (running) throw new Error("a turn is running; abort it before starting a new conversation");
+      prompts.length = 0;
+      dropAsks();
+      events.onReset(await session.renew());
     },
     abort() {
       const cancelling = session.cancel();

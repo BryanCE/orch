@@ -57,8 +57,11 @@ A linked host runs the same steps. Its chosen backend is `held`, as it is today.
 ### Viewers
 
 An agent gets a viewer pane in the spawner's plexer when the spawner is in one, its backend has
-no placement role, and its backend offers a stdio other than `none`. A far agent and a local
-`held` agent get one. A `headless` agent offers `none`, so it gets none.
+no placement role, its backend offers a stdio other than `none`, and its form runs on a
+terminal. A far `tui` agent and a local `held` `tui` agent get one. A `headless` agent offers
+`none`, so it gets none. An `acp` agent is headless too: nothing opens a pane for it, and
+`orch attach` shows it on demand. orch's own TUI, separate from the pi seat, is where a fleet
+is watched; it is not built in this job.
 
 Every held agent has a screen. For a `tui` form the harness draws it through the PTY. For an
 `acp` form orchd draws the transcript onto the same kind of screen. `orch attach`, the viewer
@@ -174,7 +177,7 @@ the old log back. A resume keeps the log.
 | pi in a tmux pane | tmux | tui | bridge | its own pane |
 | an agent on a linked host today | held | tui | bridge or keys | a viewer pane |
 | a headless run today | headless | oneshot | none | its log |
-| codex over ACP | held | acp | the ACP link | a viewer pane |
+| codex over ACP | held | acp | the ACP link | `orch attach`, `orch tail` |
 
 ## Where the ACP code goes
 

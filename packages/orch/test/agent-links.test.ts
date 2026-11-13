@@ -25,7 +25,7 @@ const held: { key: string; link: AgentLink }[] = [];
 /** A link that records every delivery pushed down it. */
 function recordingLink(): AgentLink & { readonly pushed: BridgeDelivery[] } {
   const pushed: BridgeDelivery[] = [];
-  return { pushed, takes: [], abort: null, push: (delivery) => { pushed.push(delivery); }, close: () => undefined };
+  return { pushed, takes: [], abort: null, reset: null, push: (delivery) => { pushed.push(delivery); }, close: () => undefined };
 }
 
 /** Attach and remember the link, so afterEach can detach exactly what this test held. */

@@ -127,7 +127,7 @@ export function attachFakeBridge(far: FarOrchd, key: string): BridgeDelivery[] {
   };
   const link: AgentLink = {
     takes: ["dispatch", "steer", "answer", "model"],
-    abort: null,
+    abort: null, reset: null,
     push: (delivery) => {
       deliveries.push(delivery);
       setTimeout(() => { void report(delivery); }, 0);

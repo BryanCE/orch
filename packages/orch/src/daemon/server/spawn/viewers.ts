@@ -10,7 +10,8 @@ import type { CreatedAgent } from "../../../types/command.ts";
 import type { Logger, OrchDir } from "../../../types/core.ts";
 import type { DaemonClient } from "../../../types/services.ts";
 import type { AgentEnvironment } from "../../../types/store.ts";
-import type { SpawnSettings } from "./plan.ts";
+import { FORM_STDIO } from "../../../types/form.ts";
+import type { SpawnAgentPlan, SpawnSettings } from "./plan.ts";
 
 /**
  * Where the panes showing a spawn's agents open in the caller's plexer.
@@ -62,12 +63,22 @@ export function viewerHost(settings: Pick<SpawnSettings, "host">): string {
   return settings.host?.name ?? hostIdentity().name;
 }
 
-/** Plan the panes for this spawn, or null when its agents sit in panes of their own or
- *  nothing here can show them. Refuses the spawn when the tab cannot take them, by the
- *  cap the placed path enforces. */
+/** Whether an agent gets a pane: only a form that runs on a terminal has a screen to show. An
+ *  `acp` agent's session is orchd's, and `orch attach`, `orch tail` and `orch peek` show it on
+ *  demand. An agent bound for a linked host that asked for no form runs that host's default. */
+export function needsViewer(plan: SpawnAgentPlan): boolean {
+  const form = plan.form ?? plan.requestedForm;
+  return form === null || FORM_STDIO[form] === "terminal";
+}
+
+/** Plan the panes for this spawn, or null when its agents sit in panes of their own, none of
+ *  them has a screen, or nothing here can show them. Refuses the spawn when the tab cannot
+ *  take them, by the cap the placed path enforces. */
 export function planViewers(request: ViewerPlanRequest): ViewerPlan | null {
   const { services, settings, environment, actor } = request;
   if (settings.agents.some((agent) => agent.backend.placement !== null || !agent.backend.offers.some((stdio) => stdio !== "none"))) return null;
+  const shown = settings.agents.filter(needsViewer);
+  if (shown.length === 0) return null;
   const roles = viewerRoles(environment);
   if (roles === null) return null;
   const { backend, groupLayout } = roles;
@@ -76,11 +87,11 @@ export function planViewers(request: ViewerPlanRequest): ViewerPlan | null {
     callerPlexer: backend.id, callerHandle: environment.handle,
     grantNewHome: () => assertNewSpaceGranted(services.orchDir, actor, settings, backend),
   });
-  const requested = settings.agents.length;
+  const requested = shown.length;
   // A tab the spawn names that is already open is filled as it is. A new tab names the host
   // its agents run on, as each pane does: the tab the spawn names, or else the first agent's
   // name, followed by `@<host>`.
-  const first = settings.agents[0]?.name;
+  const first = shown[0]?.name;
   const base = settings.tab ?? first ?? null;
   const tabLabel = base === null ? null : viewerLabel(base, viewerHost(settings));
   const named = settings.tab === null || settings.tab === undefined ? undefined : findGroupInSpace(backend, placement.workspace, settings.tab);

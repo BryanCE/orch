@@ -99,10 +99,17 @@ export async function startAcpAgent(state: DaemonState, adapter: AgentAdapter, o
     onLoad() {
       setAside.current = setAsideSessionLog(logPath);
     },
+    onReset(newSessionId) {
+      acceptStatusReport(directory, key, { state: "idle", sessionId: newSessionId, lastText: null, lastError: null, finishedAt: null, blockedMessage: null }, publish);
+    },
   };
   let opened: AcpLink;
   try {
     opened = await openAcpLink({ input: child.input, output: child.output }, sessionId === null ? { kind: "new", cwd } : { kind: "existing", cwd, sessionId }, packageManifest(), events);
+    // The binding starts on its own default; the launch's model and thinking level replace it,
+    // and a value the binding does not offer refuses the launch by name.
+    if (opts.model !== undefined) await opened.session.setModel(opts.model);
+    if (opts.thinking !== undefined) await opened.session.setThinking(opts.thinking);
   } catch (error: unknown) {
     releasePipes(key);
     screen.close();

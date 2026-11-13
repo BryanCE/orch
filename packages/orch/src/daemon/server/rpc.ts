@@ -103,6 +103,7 @@ function attachRequest(
     link = {
       takes: adapter?.bridge?.takes ?? [],
       abort: null,
+      reset: null,
       push: (delivery: BridgeDelivery) => lineResponse(socket, { kind: "delivery", delivery }),
       close: () => socket.destroy(),
     };

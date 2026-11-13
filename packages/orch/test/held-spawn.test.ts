@@ -31,7 +31,7 @@ afterEach(() => {
 /** What a bridge does when it dials orchd: hold a link for its key and take what is pushed. */
 function attachFakeBridge(directory: OrchDir, key: string): BridgeDelivery[] {
   const deliveries: BridgeDelivery[] = [];
-  const link: AgentLink = { takes: ["dispatch", "steer", "answer", "model"], abort: null, push: (delivery): void => { deliveries.push(delivery); }, close: () => undefined };
+  const link: AgentLink = { takes: ["dispatch", "steer", "answer", "model"], abort: null, reset: null, push: (delivery): void => { deliveries.push(delivery); }, close: () => undefined };
   attachLink(directory, key, link);
   links.push({ directory, key, link });
   return deliveries;

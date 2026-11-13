@@ -87,7 +87,8 @@ describe("one key per pane spawn (12.1)", () => {
     seedSpace(dir, "wsA");
     const { backend, envKey } = fakePaneBackend("%5");
 
-    const agent = spawnOneIntoTab(await spawningServices(dir), { form: "tui",
+    const agent = await spawnOneIntoTab(await spawningServices(dir), { form: "tui",
+      prepareTerminal: () => Promise.resolve(null),
       backend,
       adapter: piAdapter,
       adapterId: "pi",
@@ -126,6 +127,7 @@ describe("one key per pane spawn (12.1)", () => {
     seedSpace(dir, "wsC");
     const services = await spawningServices(dir);
     const spawnAudit = () => spawnOneIntoTab(services, { form: "tui",
+      prepareTerminal: () => Promise.resolve(null),
       backend: fakePaneBackend("%9").backend,
       adapter: piAdapter,
       adapterId: "pi",
@@ -141,12 +143,12 @@ describe("one key per pane spawn (12.1)", () => {
 
     // The fake pane reports the runner's own pid, so the first agent is alive
     // until it ENDS; ending frees the name. Under name-as-identity this collided forever.
-    const first = spawnAudit();
+    const first = await spawnAudit();
     let collision: string | null = null;
-    try { spawnAudit(); } catch (error: unknown) { collision = errorMessage(error); }
+    try { await spawnAudit(); } catch (error: unknown) { collision = errorMessage(error); }
     expect(collision).toMatch(/already live/);
     endAgent(dir, first.key, Date.now(), null);
-    const second = spawnAudit();
+    const second = await spawnAudit();
 
     expect(second.key).not.toBe(first.key);
     expect(agentById(dir, second.key)?.name).toBe("audit-1");
@@ -157,7 +159,8 @@ describe("one key per pane spawn (12.1)", () => {
     seedSpace(dir, "wsB");
     const { backend } = fakePaneBackend("%7");
 
-    const agent = spawnOneIntoTab(await spawningServices(dir), { form: "tui",
+    const agent = await spawnOneIntoTab(await spawningServices(dir), { form: "tui",
+      prepareTerminal: () => Promise.resolve(null),
       backend,
       adapter: piAdapter,
       adapterId: "pi",

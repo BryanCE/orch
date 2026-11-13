@@ -4,6 +4,7 @@ import { bindingPrerequisites } from "../../../shared/prerequisites.ts";
 import type { AgentAdapter, AcpRole } from "../../../types/adapter.ts";
 import type { BinaryStatus, CheckResult } from "../../../types/doctor.ts";
 import type { PipesProvider } from "../../../types/pipes.ts";
+import type { SessionOpenContext } from "../../../types/held-session.ts";
 
 /** How doctor starts an ACP binding to ask who it is. */
 export interface BindingProbe {
@@ -54,6 +55,20 @@ export async function checkBindingAnswers(adapters: readonly AgentAdapter[], pro
     const found = binaryPath(command);
     if (!found) return bindingLine(command, found, null);
     return bindingLine(command, found, await answerOf(acp, probe));
+  }));
+}
+
+/** Each enabled harness that runs a server orchd drives: start it, ask who it is, close it. */
+export async function checkServerAnswers(adapters: readonly AgentAdapter[], context: SessionOpenContext): Promise<CheckResult[]> {
+  return Promise.all(adapters.flatMap((adapter) => {
+    const driver = adapter.server;
+    if (driver === null) return [];
+    const id = `server-${adapter.id}`;
+    const label = `${adapter.id} server`;
+    return [driver.probe(context).then(
+      (identity): CheckResult => ({ id, label, status: "ok", detail: `${identity.name} ${identity.version} serves its API to orchd` }),
+      (error: unknown): CheckResult => ({ id, label, status: "fail", detail: `orchd could not start ${adapter.id}'s server: ${errorMessage(error)}` }),
+    )];
   }));
 }
 

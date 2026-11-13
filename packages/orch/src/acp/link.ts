@@ -1,4 +1,5 @@
-import type { AgentLink } from "../control/agent-links.ts";
+import { closedLinkError, type AgentLink } from "../control/agent-links.ts";
+import { applyLinkModel } from "../control/link-model.ts";
 import type { BridgeDelivery } from "../shared/bridge-message.ts";
 import type { SessionViewEntry } from "../types/adapter.ts";
 import type { SessionLinkEvents, TurnOutcome } from "../types/held-session.ts";
@@ -99,11 +100,8 @@ export async function openAcpLink(
       ? ["dispatch", "steer", "answer"]
       : ["dispatch", "steer", "answer", "model"],
     push(delivery: BridgeDelivery) {
-      if (closed) {
-        reportError(new Error(`ACP link is closed: ${delivery.message.action} ${delivery.id} was not sent`));
-        return;
-      }
-      const message = delivery.message;
+      if (closed) return reportError(closedLinkError("ACP", delivery));
+      const { message } = delivery;
       switch (message.action) {
         case "dispatch":
         case "steer":
@@ -123,7 +121,11 @@ export async function openAcpLink(
           return;
         }
         case "model":
-          void session.setModel(message.model).then(() => events.onApplied(delivery.id), reportError);
+          applyLinkModel(delivery, message.model, async (bare, thinking) => {
+            await session.setModel(bare);
+            // A level the binding does not offer is skipped; the outcome then reports no level.
+            return thinking !== undefined && await session.setThinking(thinking) ? { model: bare, thinking } : { model: bare };
+          }, events);
           return;
         default: {
           const exhaustive: never = message;

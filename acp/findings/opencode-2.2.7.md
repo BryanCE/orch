@@ -14,7 +14,27 @@ plugin types come from `@opencode/plugin@2.2.7` on npm. Nothing here was run aga
 - One shared background server per user (`opencode serve --service`). The TUI, `run`, `models`
   and `session` are its clients. `--standalone` gives a command a private server.
   Plugins run in the server, so a TUI that attaches to the shared service never sees the
-  launch env orch sets. An orch TUI launch passes `--standalone`.
+  launch env orch sets. An orch TUI launch attaches to orchd's own server with `--server`, and the
+  agent's variables reach its tools through the session's environment.
+
+## Checked live against a model, 2026-11-12
+
+- `opencode serve --stdio --hostname=127.0.0.1 --port=0` prints `{"url":"http://127.0.0.1:N"}`
+  on one line and exits when its stdin closes. It reads `OPENCODE_PASSWORD` (then
+  `OPENCODE_SERVER_PASSWORD`) and drops both from its own environment.
+- `POST /api/session` takes an `id` of the client's choosing (`ses_…`).
+- `PUT /api/session/{id}/environment {"variables": {...}}` answers 204, and a shell tool run in
+  that session sees the variables.
+- The event stream sends a `: heartbeat` comment every 15 s. Frames carry no SSE `id:` line.
+- Tool events carry `id` and `name` (`session.tool.input.started`); inbox events carry `inboxID`;
+  the prompt answer's `data.id` is that inbox id.
+- `GET /api/session/{id}/message?order=desc&limit=N` lists user, assistant and `idle` records;
+  an `idle` record's `outcome` is `succeeded`, `failed` or `interrupted`. `GET
+  /api/session/active` answers `{"data": {}}` with no session running.
+- The TUI with `--server <url> --session <id>` shows that session and emits `session.viewed`.
+  Its `/new` opens no session until the first prompt, so it cannot be how orch resets a TUI.
+  `/exit` quits it.
+- The free default model answers `provider.free-limit` as a `session.execution.failed` error.
 
 ## Launch flags
 

@@ -1,5 +1,6 @@
 // The launch decisions only an adapter can make: the command a harness launches under, and
 // whether orch's model policy admits a model on it, checked against orchd's own catalogue.
+import { linkTakes } from "../../../control/agent-links.ts";
 import { resolveAdapter } from "../../../adapters/registry.ts";
 import { admitModel } from "../../../policy/model.ts";
 import { workerPolicyFrom, workerTools } from "../../../policy/workers.ts";
@@ -91,5 +92,7 @@ export function admitModelFor(state: DaemonState, params: ParamsOf<"admit-model"
   const model = params.agent === null
     ? admitLaunchModel(current, params.harness, models, params.model)
     : admitAgentModel(current, params.harness, models, params.model, params.agent);
-  return { model, takesModel: takesModel(resolveAdapterOrDie(params.harness)) };
+  // A running agent driven through a link orchd holds takes a new model when its link does.
+  const linked = params.agent !== null && linkTakes(state.directory, params.agent, "model");
+  return { model, takesModel: takesModel(resolveAdapterOrDie(params.harness)) || linked };
 }

@@ -21,13 +21,16 @@ function everywhere(command: string): InstallCommands {
   return { linux: command, darwin: command, windows: command };
 }
 
+/** opencode installs one binary that is its terminal program, its server and its ACP binding. */
+export const OPENCODE_PREREQUISITE: Prerequisite = { install: { ...posix("curl -fsSL https://opencode.ai/v2/install | bash"), windows: "npm i -g @opencode/cli" }, docsUrl: "https://opencode.ai/docs/", signIn: "opencode auth login" };
+
 export const PREREQUISITES: Record<string, Prerequisite> = {
   // bun is never probed on its own — it surfaces only as pi's declared dependency.
   pi: { install: everywhere("bun add -g @earendil-works/pi-coding-agent"), needs: ["bun"], signIn: "pi auth" },
   omp: { install: everywhere("bun add -g @oh-my-pi/pi-coding-agent"), needs: ["bun"], signIn: "omp setup" },
   claude: { install: { ...posix("curl -fsSL https://claude.ai/install.sh | bash"), windows: "irm https://claude.ai/install.ps1 | iex" }, signIn: "claude auth" },
   codex: { docsUrl: "https://github.com/openai/codex", signIn: "codex login" },
-  opencode: { install: { ...posix("curl -fsSL https://opencode.ai/v2/install | bash"), windows: "npm i -g @opencode/cli" }, docsUrl: "https://opencode.ai/docs/", signIn: "opencode auth login" },
+  opencode: OPENCODE_PREREQUISITE,
   bun: { install: { ...posix("curl -fsSL https://bun.sh/install | bash"), windows: "irm bun.sh/install.ps1 | iex" } },
   tmux: { docsUrl: "https://github.com/tmux/tmux/wiki/Installing" },
   herdr: {

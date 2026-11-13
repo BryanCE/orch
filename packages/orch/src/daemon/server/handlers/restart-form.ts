@@ -1,7 +1,6 @@
 // Restart in a held form: an agent whose process orchd holds is relaunched on its recorded session,
 // in its own form or in another. The agent keeps its id, its lease and its backend; only the
 // process, the channel and, on a switch, the open `agent_forms` row change.
-import { attachedLink } from "../../../control/agent-links.ts";
 import { getBackend, startHeldAgent, type HeldProgram } from "../../../backends/registry.ts";
 import { agentView } from "../../../store/agent-view.ts";
 import { selectAgentStatus } from "../../../store/status-rows.ts";
@@ -10,21 +9,22 @@ import { setForm } from "../../../store/interval-rows.ts";
 import { whileSwappingProcess } from "../../../presence/store.ts";
 import { isThinkingLevel } from "../../../policy/thinking.ts";
 import { FORM_STDIO, offersForm, type FormId } from "../../../types/form.ts";
-import { sessionDriver, startSessionAgent } from "../session-agents.ts";
-import { heldPipes, releasePipes } from "../held-pipes.ts";
+import { endSessionAgent, sessionDriver, startAttachedTerminal, startSessionAgent, terminalAttach } from "../session-agents.ts";
 import { reclaim } from "./lifecycle.ts";
 import type { AgentAdapter, ResumeRole } from "../../../types/adapter.ts";
-import type { HeldSessionDriver } from "../../../types/held-session.ts";
+import type { HeldSessionDriver, TerminalAttachRole } from "../../../types/held-session.ts";
 import type { BackendSpawnOpts } from "../../../types/backend.ts";
 import type { AgentView } from "../../../types/store.ts";
 import type { HeldTerminal } from "../../../types/pty.ts";
 import type { HereAgent } from "../../../types/agent-place.ts";
 import type { DaemonState } from "../state.ts";
 
-/** What a form needs from its harness: a session driver on pipes, or a resume argv for a terminal. */
+/** What a form needs from its harness: a session driver on pipes; for a terminal, the session
+ *  attach its terminal program joins, or else a resume argv. */
 type FormRole =
   | { readonly stdio: "pipes"; readonly driver: HeldSessionDriver }
-  | { readonly stdio: "terminal"; readonly role: ResumeRole };
+  | { readonly stdio: "terminal"; readonly attach: TerminalAttachRole }
+  | { readonly stdio: "terminal"; readonly attach: null; readonly role: ResumeRole };
 
 /** What a restart in a held form leaves to its caller. */
 export interface FormRestart {
@@ -39,8 +39,11 @@ function formRole(adapter: AgentAdapter, form: FormId): FormRole | null {
       const driver = sessionDriver(adapter, form);
       return driver === null ? null : { stdio: "pipes", driver };
     }
-    case "terminal":
-      return adapter.resume === null ? null : { stdio: "terminal", role: adapter.resume };
+    case "terminal": {
+      const attach = terminalAttach(adapter);
+      if (attach !== null) return { stdio: "terminal", attach };
+      return adapter.resume === null ? null : { stdio: "terminal", attach: null, role: adapter.resume };
+    }
     case "none":
       return null;
     default: {
@@ -76,12 +79,7 @@ async function requireReopen(state: DaemonState, view: AgentView, adapter: Agent
 /** End the agent's process and its channel, and wait until orchd holds nothing under its key. */
 async function endHeldProcess(state: DaemonState, agent: HereAgent): Promise<void> {
   const key = agent.id;
-  attachedLink(agent)?.close();
-  const pipes = heldPipes(key);
-  if (pipes !== null) {
-    releasePipes(key);
-    await pipes.exited;
-  }
+  await endSessionAgent(key);
   const terminal: HeldTerminal = { kind: "agent", agent };
   if (state.held.has(terminal)) {
     await new Promise<void>((resolve) => {
@@ -154,6 +152,11 @@ export async function switchForm(state: DaemonState, agent: HereAgent, adapter: 
       await swapProcess(state, agent, form, () => startSessionAgent(state, adapter, opts, sessionId, "existing-agent"));
       return { awaitBridge: false };
     case "terminal": {
+      if (target.attach !== null) {
+        const attach = target.attach;
+        await swapProcess(state, agent, form, () => startAttachedTerminal(state, adapter, attach, opts, sessionId, "existing-agent"));
+        return { awaitBridge: false };
+      }
       const [file, ...args] = target.role.argv(opts, sessionId);
       if (file === undefined) throw new Error(`harness ${adapter.id} gave an empty resume command`);
       const program: HeldProgram = { file, args };

@@ -7,6 +7,7 @@ import {
   chunk,
   defaultFakeScript,
   fakeAcpAgent,
+  modelSelector,
   permission,
   turn,
   type FakeAcpScript,
@@ -51,6 +52,7 @@ function recorder() {
     onAsksSettled: () => record("settled"),
     onAskDropped: (id) => record(`dropped:${id}`),
     onApplied: (id) => record(`applied:${id}`),
+    onOutcome: (outcome) => record(`outcome:${JSON.stringify(outcome)}`),
     onError: (error) => record(`error:${error.message}`),
     onReset: (sessionId) => record(`reset:${sessionId}`),
   };
@@ -140,6 +142,16 @@ describe("ACP link", () => {
     await rec.seen("ended:aborted:");
     expect(rec.log).toContain("dropped:p1");
     expect(fake.received.some((item) => item.method === methods.agent.session.cancel)).toBe(true);
+  });
+
+  test("a model push reports the applied model outcome", async () => {
+    const fake = setup({ configOptions: [modelSelector(["first", "next"])] });
+    const rec = recorder();
+    const { link } = await open(fake, rec.events);
+    link.push(delivery("m1", { action: "model", model: "next" }));
+    const outcome = { id: "m1", command: "model", requested: { model: "next" }, applied: { model: "next" } };
+    await rec.seen(`outcome:${JSON.stringify(outcome)}`);
+    expect(rec.log).toEqual(["applied:m1", `outcome:${JSON.stringify(outcome)}`]);
   });
 
   test("a model push on an agent with no model option is an error, applies nothing, and takes no model", async () => {

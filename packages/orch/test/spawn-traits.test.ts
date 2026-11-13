@@ -14,6 +14,10 @@ describe("a spawn's start-up signal follows the form", () => {
     expect(harnessTraits(opencodeAdapter, "server").startup).toBe("bridge");
   });
 
+  test("an opencode tui agent is up when its session link attaches", () => {
+    expect(harnessTraits(opencodeAdapter, "tui").startup).toBe("bridge");
+  });
+
   test("a codex tui agent has no start-up signal", () => {
     expect(harnessTraits(codexAdapter, "tui").startup).toBeNull();
   });

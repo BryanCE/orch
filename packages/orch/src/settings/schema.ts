@@ -108,7 +108,8 @@ export const SETTINGS_DEFAULTS = {
   gated_commands: ["ssh", "ssh.exe", "scp", "sftp", "rsync"],
   settings_file: { typo_max_edits: 2 },
   logging: { level: "info", slow_tool_ms: 1_000, stall_ms: 500, stall_poll_ms: 1_000 },
-  timeouts: { dispatch_ack_ms: 10_000, wait_ms: 300_000, adapter_command_ms: 60_000, notify_ms: 3_000, spawn_attach_ms: 60_000, spawn_attach_poll_ms: 500, lock_wait_ms: 180_000, lock_poll_ms: 1_000, reset_ready_ms: 75_000, reset_poll_ms: 250, daemon_probe_ms: 10_000, acp_probe_ms: 5_000, server_ready_ms: 30_000, abort_gap_ms: 500, machine_ms: 600_000 },
+  timeouts: { dispatch_ack_ms: 10_000, wait_ms: 300_000, adapter_command_ms: 60_000, notify_ms: 3_000, spawn_attach_ms: 60_000, spawn_attach_poll_ms: 500, lock_wait_ms: 180_000, lock_poll_ms: 1_000, reset_ready_ms: 75_000, reset_poll_ms: 250, daemon_probe_ms: 10_000, acp_probe_ms: 5_000, server_ready_ms: 30_000, session_close_ms: 2_000, abort_gap_ms: 500, machine_ms: 600_000 },
+  servers: { idle_ms: 30_000, silence_ms: 45_000, reconnect_ms: 1_000, backfill_messages: 50 },
   // opencode runs natively: orchd starts its own server and drives it over the server API.
   defaults: { worktree: false, thinking: "medium", thinking_by_harness: {}, forms: { opencode: "server" } },
   daemon: { tcp_port: 3716, outbox_drain_ms: 1_000, work_tick_ms: 5_000, liveness_poll_ms: 5_000, bridge_reconnect_ms: 1_000, outbox_max_attempts: 120, report_timeout_ms: 500, subscriber_queue_bytes: 8_388_608 },
@@ -267,8 +268,15 @@ export const SETTINGS_FILE_SCHEMA = z.strictObject({
     daemon_probe_ms: PositiveInt.optional(),
     acp_probe_ms: PositiveInt.optional(),
     server_ready_ms: PositiveInt.optional(),
+    session_close_ms: PositiveInt.optional(),
     abort_gap_ms: PositiveInt.optional(),
     machine_ms: PositiveInt.optional(),
+  }).optional(),
+  servers: z.strictObject({
+    idle_ms: PositiveInt.optional(),
+    silence_ms: PositiveInt.optional(),
+    reconnect_ms: PositiveInt.optional(),
+    backfill_messages: PositiveInt.optional(),
   }).optional(),
   notify: z.array(NotifyEntrySchema).optional(),
   notification: z.strictObject({

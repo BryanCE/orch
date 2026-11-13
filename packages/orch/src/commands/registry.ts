@@ -2,6 +2,8 @@
 /** Every orch command, declared once. The parser reads the flags; `orch help` and every usage line read all of it. */
 
 import { DURATION_FORMS } from "../cli/duration.ts";
+import { ADAPTER_IDS } from "../types/adapter.ts";
+import { FORM_IDS } from "../types/form.ts";
 import { parseInvocation } from "../cli/parse.ts";
 import type { CommandSpec, FlagSpec, Invocation } from "../cli/spec.ts";
 
@@ -15,7 +17,7 @@ const DRIVE: readonly FlagSpec[] = [STEAL_LEASE, REACH_SPACE];
 const RAW: FlagSpec = { name: "--raw", arity: "none", help: "Send the exact prompt, with no worker header." };
 const MODEL: FlagSpec = { name: "--model", arity: "one", placeholder: "<model[:thinking]>", help: "Pin the model. A short name expands to the one listed, allowed model that contains it." };
 const THINKING: FlagSpec = { name: "--thinking", arity: "one", placeholder: "<level>", help: "Thinking effort: off, minimal, low, medium, high, xhigh, max." };
-const HARNESS: FlagSpec = { name: "--harness", arity: "one", placeholder: "<harness>", help: "Harness id: pi, omp, claude, codex." };
+const HARNESS: FlagSpec = { name: "--harness", arity: "one", placeholder: "<harness>", help: `Harness id: ${ADAPTER_IDS.join(", ")}.` };
 const PLEXER: FlagSpec = { name: "--plexer", arity: "one", placeholder: "<plexer>", help: "Plexer id: herdr, tmux, orca, headless." };
 const DIR: FlagSpec = { name: "--dir", arity: "one", placeholder: "<path>", help: "Directory the agent starts in. Default: the spawner's own." };
 const CMD: FlagSpec = { name: "--cmd", arity: "one", placeholder: "<command>", help: "Harness command to launch. Default: the harness's own." };
@@ -200,8 +202,8 @@ const AGENTS: readonly CommandSpec[] = [
       { ...MODEL, arity: "many", help: "The model. One, or one per name." },
       DIR, CMD, THINKING,
       { name: "--host", arity: "one", placeholder: "<host>", help: "Run the agents on this host from settings.hosts, in --dir there; inside a plexer a pane here shows each one." },
-      { ...HARNESS, arity: "many", help: "Harness id: pi, omp, claude, codex. One, or one per name." },
-      { name: "--form", arity: "one", placeholder: "<tui|oneshot|acp|server>", help: "Form for every name: tui, oneshot, acp, server." },
+      { ...HARNESS, arity: "many", help: `Harness id: ${ADAPTER_IDS.join(", ")}. One, or one per name.` },
+      { name: "--form", arity: "one", placeholder: `<${FORM_IDS.join("|")}>`, help: `Form for every name: ${FORM_IDS.join(", ")}.` },
       PLEXER,
       { ...SPACE, help: "The orch space the agents join." },
       { name: "--prompt", arity: "many", placeholder: "<text>", help: "The task text. One, or one per name." },
@@ -227,7 +229,7 @@ const AGENTS: readonly CommandSpec[] = [
       { ...CMD, help: "The command to relaunch with. Default: the recorded harness command." },
       { ...HARNESS, help: "Relaunch on this harness. Default: the recorded one." },
       { ...MODEL, help: "Model for the relaunch. Required when --harness changes the harness." },
-      { name: "--form", arity: "one", placeholder: "<tui|acp>", help: "Relaunch in this form, resuming the recorded session. Default: the agent's current form." },
+      { name: "--form", arity: "one", placeholder: "<tui|acp|server>", help: "Relaunch in this form, resuming the recorded session. Default: the agent's current form." },
       STEAL,
     ],
   },

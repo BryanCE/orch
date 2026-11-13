@@ -21,6 +21,14 @@ describe("adapter role composition", () => {
     expect(adapter.resume.argv(opts, sessionId)).toEqual([...adapter.interactiveArgv(opts), flag, sessionId]);
   });
 
+  test("opencode shares ACP sessions and exits its terminal on restart", () => {
+    expect(opencodeAdapter.acp.argv({})).toEqual(["opencode", "acp"]);
+    expect(opencodeAdapter.acp.sharesSessions).toBe(true);
+    expect(opencodeAdapter.lifecycleControl.lifecycleCmd("restart")).toEqual({ text: "/exit" });
+    expect(opencodeAdapter.lifecycleControl.lifecycleCmd("reset")).toBeUndefined();
+    expect(opencodeAdapter.lifecycleControl.lifecycleCmd("reload")).toBeUndefined();
+  });
+
   test("fake adapters have no resume role by default", () => {
     expect(fakeAdapter().resume).toBeNull();
   });
@@ -42,7 +50,7 @@ describe("adapter role composition", () => {
     expect(roles.get("pi")).toEqual({ thinking: true, workerLaunch: true, modelControl: true, lifecycleControl: true, sessionView: true, workspaceTrust: true, shim: true, defaultModel: true, models: true, modelWarm: true, compaction: true });
     expect(roles.get("omp")).toEqual({ thinking: false, workerLaunch: true, modelControl: true, lifecycleControl: true, sessionView: true, workspaceTrust: false, shim: true, defaultModel: true, models: true, modelWarm: true, compaction: false });
     expect(roles.get("claude")).toEqual({ thinking: true, workerLaunch: false, modelControl: false, lifecycleControl: true, sessionView: true, workspaceTrust: false, shim: true, defaultModel: false, models: true, modelWarm: true, compaction: true });
-    expect(roles.get("opencode")).toEqual({ thinking: false, workerLaunch: false, modelControl: false, lifecycleControl: false, sessionView: false, workspaceTrust: false, shim: false, defaultModel: false, models: true, modelWarm: true, compaction: false });
+    expect(roles.get("opencode")).toEqual({ thinking: false, workerLaunch: false, modelControl: false, lifecycleControl: true, sessionView: false, workspaceTrust: false, shim: false, defaultModel: false, models: true, modelWarm: true, compaction: false });
     expect(roles.get("codex")).toEqual({ thinking: false, workerLaunch: false, modelControl: false, lifecycleControl: false, sessionView: true, workspaceTrust: false, shim: true, defaultModel: false, models: true, modelWarm: false, compaction: true });
   });
 

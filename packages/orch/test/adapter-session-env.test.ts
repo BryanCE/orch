@@ -34,10 +34,11 @@ describe("adapter-owned session environment", () => {
     expect(callerSession()?.harnessId ?? "cli").toBe("cli");
   });
 
-  test("keeps harness env literals inside adapter modules", () => {
-    const forbidden = /PI_CODING_AGENT|CLAUDECODE|CLAUDE_PID|CODEX_PID/;
+  test("keeps harness env literals inside adapter modules and the one session-env table", () => {
+    const forbidden = /PI_CODING_AGENT|CLAUDECODE|CLAUDE_PID|CODEX_PID|OPENCODE_SESSION_ID/;
     const offenders = sourceFiles(join(import.meta.dir, "..", "src"))
       .filter((path) => !path.includes("src/adapters/"))
+      .filter((path) => !path.endsWith("src/shared/session-env.ts"))
       .filter((path) => forbidden.test(readFileSync(path, "utf8")));
     expect(offenders).toEqual([]);
   });

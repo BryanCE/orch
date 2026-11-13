@@ -45,13 +45,37 @@ binding's argv, its environment, and whether the binding shares sessions with th
 
 The `server` form is the harness's own server, which orchd starts and drives over that server's
 API. It is the nullable `server` role on the adapter: a `HeldSessionDriver`
-(`src/types/held-session.ts`). opencode has one (`src/adapters/opencode-server.ts`): a private
-`opencode serve` per agent on a loopback port, HTTP plus its event stream, the way t3code drives
-opencode. `defaults.forms` makes `server` opencode's default.
+(`src/types/held-session.ts`). opencode has one (`src/adapters/opencode-driver.ts`), the way
+t3code drives opencode: one `opencode serve --stdio` per orchd on a loopback port, shared by every
+opencode agent, each agent one session on it (`src/adapters/opencode-server.ts`). The owner lends
+the server to every agent, closes it `servers.idle_ms` after the last one is gone, and starts a
+fresh one on the next borrow after it exits. In stdio mode the server ends when its stdin closes,
+so it never outlives orchd and needs no ledger. One event stream per server is routed to sessions
+by session id; a stream silent for `servers.silence_ms` is reconnected, and each session catches
+up from its latest messages, the active sessions and its open permission requests
+(`src/adapters/opencode-session.ts`). Each session gets the agent's own variables through
+opencode's session environment, since the process is shared. `defaults.forms` makes `server`
+opencode's default.
 
-Both forms whose session orchd holds run through one starter, `startSessionAgent` in
-`src/daemon/server/session-agents.ts`. It owns the process, the screen, the log and presence for
-every driver; the driver owns only its wire. `DRIVERS` there maps each form to the role it runs on.
+A driver either starts the agent's own process (ACP) or lends a shared one (opencode). A shared
+process is recorded as each agent's process, so the agents end when it does; a close ends only the
+agent's session and never signals the process (`sharesProcess` in
+`src/daemon/server/session-agents.ts`, read by the close in `handlers/drive.ts`).
+
+A driver may also attach the harness's terminal program to a session it holds: the
+`TerminalAttachRole` on the driver. opencode's `tui` form uses it: orchd opens the session on the
+shared server, and the pane runs `opencode --server <url> --session <id> <dir>`, with the server's
+password in the pane's environment from the spawn on. orchd drives the session through the same
+link as the server form, so a tui agent has the same presence and controls: dispatch, steer,
+answers, model, abort and results. A reset opens a fresh session and relaunches the terminal
+program on it, the way `orch restart` relaunches a pane; a session that never took a prompt is
+already fresh and is kept. `opencode acp` is opencode's `acp` form.
+
+Every form whose session orchd holds runs through one starter, `startSessionAgent` in
+`src/daemon/server/session-agents.ts`. It owns the screen, the log, the registry of held sessions
+and presence for every driver; the driver owns only its wire. `DRIVERS` there maps each form to
+the role it runs on. A link that takes `model` reports the outcome a `deliverModel` waits for,
+through the same recorder as a bridge's `control-outcome`.
 
 ### Choosing form and backend at spawn
 
@@ -189,7 +213,9 @@ the old log back. A resume keeps the log.
 | an agent on a linked host today | held | tui | bridge or keys | a viewer pane |
 | a headless run today | headless | oneshot | none | its log |
 | codex over ACP | held | acp | the ACP link | `orch attach`, `orch tail` |
-| opencode on its own server | held | server | the opencode link | `orch attach`, `orch tail` |
+| opencode on orchd's shared server | held | server | the opencode link | `orch attach`, `orch tail` |
+| opencode's TUI in a herdr pane | herdr | tui | the opencode link | its own pane |
+| opencode over ACP | held | acp | the ACP link | `orch attach`, `orch tail` |
 
 ## Where the ACP code goes
 

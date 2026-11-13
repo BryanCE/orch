@@ -15,6 +15,11 @@ export interface AgentLink {
   close(): void;
 }
 
+/** The error a closed link reports for a delivery it can no longer send. */
+export function closedLinkError(link: string, delivery: BridgeDelivery): Error {
+  return new Error(`${link} link is closed: ${delivery.message.action} ${delivery.id} was not sent`);
+}
+
 /** No link is held for the key: the row stays open and the drain retries. */
 export class LinkDetachedError extends Error {
   constructor(key: string) {
@@ -35,10 +40,20 @@ export function attachLink(orchDir: OrchDir, key: string, link: AgentLink): void
   links.set(normalizeControlTarget(orchDir, key), link);
 }
 
-/** Remove the link only if it is still the one held, so a stale close never drops a newer attach. */
+/** Remove the link only if it is still the one held, so a stale close never drops a newer attach.
+ *  A key that no longer resolves, because the agent's rows are gone, is found by the link itself. */
 export function detachLink(orchDir: OrchDir, key: string, link: AgentLink): void {
-  const canonical = normalizeControlTarget(orchDir, key);
-  if (links.get(canonical) === link) links.delete(canonical);
+  let canonical: string | null;
+  try {
+    canonical = normalizeControlTarget(orchDir, key);
+  } catch {
+    canonical = null;
+  }
+  if (canonical !== null && links.get(canonical) === link) {
+    links.delete(canonical);
+    return;
+  }
+  for (const [held, value] of links) if (value === link) links.delete(held);
 }
 
 /** Whether a bridge holds a link for this canonical key. A key no bridge holds,
@@ -67,6 +82,18 @@ export function dropLinks(): number {
   links.clear();
   for (const link of held) link.close();
   return held.length;
+}
+
+/** Whether the link held for a target takes `action`. A target that names no agent, or one no
+ *  link is held for, takes nothing. */
+export function linkTakes(orchDir: OrchDir, target: string, action: BridgeAction): boolean {
+  let key: string;
+  try {
+    key = normalizeControlTarget(orchDir, target);
+  } catch {
+    return false;
+  }
+  return links.get(key)?.takes.includes(action) === true;
 }
 
 export function attachedBridgeKeys(): readonly string[] {

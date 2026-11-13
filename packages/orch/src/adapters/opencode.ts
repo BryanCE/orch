@@ -1,8 +1,9 @@
 import { buildHeadlessArgv, type AgentState } from "../shared/harness.ts";
 import { HARNESS_SESSION_ENV } from "../shared/session-env.ts";
+import { OPENCODE_PREREQUISITE } from "../shared/prerequisites.ts";
 import { isRecord, textValue } from "../util.ts";
-import { opencodeServerDriver } from "./opencode-server.ts";
-import type { AdapterCommand, AgentAdapter, HarnessModel, ModelCatalogue, ResultExtractionInput, SpawnOpts, StateDetectionInput, SteerRequest } from "../types/adapter.ts";
+import { opencodeServerDriver } from "./opencode-driver.ts";
+import type { AdapterCommand, AgentAdapter, HarnessModel, LifecycleVerb, ModelCatalogue, ResultExtractionInput, SpawnOpts, StateDetectionInput, SteerRequest } from "../types/adapter.ts";
 
 /** opencode lists its models one `provider/model` per line. */
 const MODELS_ARGV = ["models"] as const;
@@ -37,7 +38,7 @@ class OpencodeAdapter implements AgentAdapter {
   readonly thinking = null;
   readonly workerLaunch = null;
   readonly modelControl = null;
-  readonly lifecycleControl = null;
+  readonly lifecycleControl = { lifecycleCmd: (verb: LifecycleVerb): { text: string } | undefined => verb === "restart" ? { text: "/exit" } : undefined };
   readonly sessionView = null;
   readonly workspaceTrust = null;
   readonly shim = null;
@@ -48,7 +49,14 @@ class OpencodeAdapter implements AgentAdapter {
   readonly compaction = null;
   readonly bridge = null;
   readonly hooks = null;
-  readonly acp = null;
+  /** `opencode acp` speaks ACP on its stdio and keeps its sessions in opencode's own store, which
+   *  the terminal program reads too. */
+  readonly acp = {
+    argv: (_opts: SpawnOpts): readonly string[] => ["opencode", "acp"],
+    env: (_opts: SpawnOpts): Readonly<Record<string, string>> => ({}),
+    sharesSessions: true,
+    install: OPENCODE_PREREQUISITE,
+  };
   readonly server = opencodeServerDriver;
   readonly resume = {
     argv: (opts: SpawnOpts, sessionId: string): readonly string[] => [...this.interactiveArgv(opts), "--session", sessionId],

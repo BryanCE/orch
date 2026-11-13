@@ -6,7 +6,7 @@ import { errorMessage } from "../../../util.ts";
 import { getBackend } from "../../../backends/registry.ts";
 import { resolveAdapter } from "../../../adapters/registry.ts";
 import { OPERATOR_HARNESS_ID } from "../../../identity/operator.ts";
-import { binaryStatus, checkBins, checkBindingAnswers } from "./bins.ts";
+import { binaryStatus, checkBins, checkBindingAnswers, checkServerAnswers } from "./bins.ts";
 import { describeBackendEnvironments, checkBackendVersions } from "./backends.ts";
 import { checkDeadAgents, checkMalformedPresenceRecords, checkUnscopedTasks } from "./presence.ts";
 import { checkDeclaredVsReality } from "./declared-vs-reality.ts";
@@ -114,6 +114,7 @@ export async function runDoctor(services: DoctorContext): Promise<CheckResult[]>
   const bindingChecks = settings
     ? await checkBindingAnswers(enabledAdapters.map((id) => resolveAdapter(id)), { pipes: services.pipes, timeoutMs: settings.timeouts.acp_probe_ms })
     : [];
+  const serverChecks = settings ? await checkServerAnswers(enabledAdapters.map((id) => resolveAdapter(id)), { pipes: services.pipes, settings, logger }) : [];
   let livePairs: CheckResult[];
   try {
     livePairs = settings ? await checkLiveFleetPairs(orchDir, settings, logger) : [];
@@ -126,6 +127,7 @@ export async function runDoctor(services: DoctorContext): Promise<CheckResult[]>
     isolated("bins", "Required binaries", () => checkBins(bins, enabledAdapters)),
     ...providerChecks,
     ...bindingChecks.map((check) => Promise.resolve(check)),
+    ...serverChecks.map((check) => Promise.resolve(check)),
     ...livePairs.map((pair) => Promise.resolve(pair)),
     isolated("backend-environments", "Backend environments", () => describeBackendEnvironments(enabledBackends, configuredBackend)),
     isolated("backend-versions", "Backend versions", checkBackendVersions),

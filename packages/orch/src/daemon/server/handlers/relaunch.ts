@@ -1,25 +1,24 @@
 // Reload and restart: the harness relaunched in place, where the agent runs. This orchd does it
 // for its own agents through their plexer and records the relaunch; an agent on a linked host is
 // that host's orchd's to reload or restart, with its own settings and code.
-import { retryingAsync } from "../../../retry.ts";
-import { errorMessage, sleep } from "../../../util.ts";
+import { errorMessage, shellLine } from "../../../util.ts";
 import { refreshStaleShims } from "../doctor/runner.ts";
 import { resolveTargetRoute } from "../../../control/dispatch.ts";
-import { foregroundOf } from "../../../backends/shell-ready.ts";
-import { atShellPrompt } from "../../../shared/shell-prompt.ts";
 import { getAdapter } from "../../../adapters/registry.ts";
 import { agentView } from "../../../store/agent-view.ts";
 import { selectAgentStatus } from "../../../store/status-rows.ts";
-import { agentLocation, recordProcess, setHandle } from "../../../store/interval-rows.ts";
+import { agentLocation } from "../../../store/interval-rows.ts";
 import { hereIsLive } from "../../../process-place.ts";
-import { whileSwappingProcess } from "../../../presence/store.ts";
 import { resolveTuningOrDie } from "../../../shared/tuning.ts";
 import { adapterCommand, admitLaunchModel, resolveAdapterOrDie } from "../spawn/models.ts";
 import { applyVerb, reclaim } from "./lifecycle.ts";
 import { restartPipes, switchForm } from "./restart-form.ts";
 import { governWrite } from "./write.ts";
+import { clearPrompt, inputPane, pollReady, quitToShell, relaunchPlace, relaunchTerminal } from "../terminal-relaunch.ts";
+import { endSessionAgent, prepareTerminal, terminalAttach } from "../session-agents.ts";
+import { isThinkingLevel } from "../../../policy/thinking.ts";
 import { atAgentHost, driveOnHost } from "./host.ts";
-import type { AgentInputRole, Backend, BackendHandle, RelaunchRole } from "../../../types/backend.ts";
+import type { BackendHandle, BackendSpawnOpts, RelaunchRole } from "../../../types/backend.ts";
 import type { AgentAdapter, LifecycleVerb } from "../../../types/adapter.ts";
 import type { AgentFlags } from "../../../types/command.ts";
 import { FORM_STDIO } from "../../../types/form.ts";
@@ -31,25 +30,6 @@ type RestartRequest = Extract<LifecycleRequest, { verb: "restart" }>;
 
 /** The harness and tuning a restart moves an agent onto. */
 type Relaunch = NonNullable<LifecycleOutcome["relaunched"]>;
-
-/** The pane an agent sits in, when its environment takes typed input. */
-interface InputPane {
-  readonly backend: Backend;
-  readonly input: AgentInputRole;
-  readonly handle: BackendHandle;
-}
-
-function inputPane(state: DaemonState, agent: HereAgent): InputPane | null {
-  const route = resolveTargetRoute(state.directory, agent);
-  const input = route?.backend.agentInput ?? null;
-  return route === undefined || input === null ? null : { backend: route.backend, input, handle: route.handle };
-}
-
-/** Poll until `probe` holds, for as long as a reset waits on an agent. */
-function pollReady(state: DaemonState, label: string, probe: () => boolean): Promise<boolean> {
-  const { reset_ready_ms: readyMs, reset_poll_ms: pollMs } = state.services.settings.current().timeouts;
-  return retryingAsync(label, probe, { attempts: Math.ceil(readyMs / pollMs), delayMs: pollMs, backoff: 1 }, { retryOnResult: (held) => !held });
-}
 
 function readySeconds(state: DaemonState): number {
   return Math.round(state.services.settings.current().timeouts.reset_ready_ms / 1000);
@@ -66,12 +46,6 @@ function bridgeLive(state: DaemonState, agent: HereAgent, wasUpdatedAt: number |
 /** A lifecycle outcome with the form the agent runs in now. */
 function outcomeOf(state: DaemonState, agent: HereAgent, fields: Omit<LifecycleOutcome, "form">): LifecycleOutcome {
   return { ...fields, form: agentView(state.directory, agent.id)?.form ?? null };
-}
-
-/** Clear whatever is typed at the agent's prompt before typing a command of orch's. */
-async function clearPrompt(state: DaemonState, pane: InputPane): Promise<void> {
-  pane.input.sendKeys(pane.handle, ["Escape"]);
-  await sleep(state.services.settings.current().timeouts.abort_gap_ms);
 }
 
 /** Apply a lifecycle verb through the agent's one lifecycle mechanism, and answer once its
@@ -152,16 +126,46 @@ async function relaunchInPlace(state: DaemonState, agent: HereAgent, recorded: A
   const wasUpdatedAt = selectAgentStatus(state.directory, key)?.updatedAt;
   reclaim(state.directory, { target: key, relaunch });
   try {
-    await whileSwappingProcess(state.directory, key, async () => {
-      const launched = await place.role.relaunch(place.handle, command);
-      const now = Date.now();
-      recordProcess(state.directory, agent, now, launched.process);
-      setHandle(state.directory, agent, now, String(launched.handle));
-    });
+    await relaunchPlace(state, agent, place, command);
   } catch (error: unknown) {
     return outcomeOf(state, agent, { ok: false, reason: `relaunch failed: ${errorMessage(error)}`, command, relaunched: relaunch, bridge: false });
   }
   return awaitRelaunchedBridge(state, agent, wasUpdatedAt, command, relaunch);
+}
+
+/** Restart a terminal agent whose terminal program attaches to its session on a server orchd
+ *  holds: orchd lets the session go, relaunches the terminal program on the recorded session, or a
+ *  fresh one when none is recorded, and drives it again. Null for any other agent, and for a
+ *  restart onto another harness or command, which relaunches the plain way. */
+async function restartAttached(state: DaemonState, agent: HereAgent, recorded: AgentAdapter, request: RestartRequest): Promise<LifecycleOutcome | null> {
+  const key = agent.id;
+  const role = terminalAttach(recorded);
+  const view = agentView(state.directory, key);
+  const form = view?.form ?? null;
+  if (role === null || form === null || FORM_STDIO[form] !== "terminal" || request.cmd !== null || (request.harness !== null && request.harness !== recorded.id)) return null;
+  const { text: quitText } = recordedHarness(state, key, "restart");
+  const { relaunch } = planRelaunch(state, key, recorded, request);
+  const sessionId = selectAgentStatus(state.directory, key)?.sessionId ?? null;
+  await endSessionAgent(key);
+  const opts: BackendSpawnOpts = {
+    form,
+    key,
+    orchDir: state.directory,
+    ...(view?.environment.cwd === undefined ? {} : { cwd: view.environment.cwd }),
+    ...(relaunch.model === null ? {} : { model: relaunch.model }),
+    ...(isThinkingLevel(relaunch.thinking) ? { thinking: relaunch.thinking } : {}),
+  };
+  const prepared = await prepareTerminal(state, recorded, role, opts, sessionId);
+  const command = shellLine(prepared.program);
+  reclaim(state.directory, { target: key, relaunch });
+  try {
+    await relaunchTerminal(state, agent, quitText, command);
+  } catch (error: unknown) {
+    prepared.abandon();
+    return outcomeOf(state, agent, { ok: false, reason: `relaunch failed: ${errorMessage(error)}`, command, relaunched: relaunch, bridge: false });
+  }
+  await prepared.adopt();
+  return outcomeOf(state, agent, { ok: true, reason: null, command, relaunched: relaunch, bridge: true });
 }
 
 /** Restart an agent whose process orchd holds in a form: in `request.form` when that is another
@@ -191,6 +195,8 @@ async function restartHere(state: DaemonState, agent: HereAgent, request: Restar
   const recorded = recordedAdapter(state, key, "restart");
   const inForm = await restartInForm(state, agent, recorded, request);
   if (inForm !== null) return inForm;
+  const attached = await restartAttached(state, agent, recorded, request);
+  if (attached !== null) return attached;
   if (request.harness !== null) await refreshStaleShims(state.directory, state.services.logger, [resolveAdapterOrDie(request.harness).id], state.services.settings.current());
   const route = resolveTargetRoute(state.directory, agent);
   const relaunching = route?.backend.relaunching ?? null;
@@ -206,10 +212,7 @@ async function restartHere(state: DaemonState, agent: HereAgent, request: Restar
   }
   const { adapter, relaunch, command } = planRelaunch(state, key, recorded, request);
   preTrust(state, agent, adapter, command);
-  await clearPrompt(state, pane);
-  pane.input.submit(pane.handle, quitText);
-  const atPrompt = (): boolean => atShellPrompt(foregroundOf(pane.backend, pane.handle));
-  if (!await pollReady(state, "await shell prompt", atPrompt)) {
+  if (!await quitToShell(state, pane, quitText)) {
     state.services.logger.warn("lifecycle.restart-exit-timeout", { command: quitText }, { agentId: key });
     return outcomeOf(state, agent, { ok: false, reason: `agent did not exit after ${quitText} - skipping relaunch`, command, relaunched: null, bridge: false });
   }

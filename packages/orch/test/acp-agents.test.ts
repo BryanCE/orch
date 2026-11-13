@@ -9,7 +9,7 @@ import { rpcCall } from "../src/daemon/client/rpc.ts";
 import { spawnHeldLaunch } from "../src/daemon/server/handlers/lifecycle.ts";
 import { answerHere, outboxDeps } from "../src/daemon/server/handlers/write.ts";
 import { rpcHandlers } from "../src/daemon/server/handlers/table.ts";
-import { dropHeldPipes, heldPipes } from "../src/daemon/server/held-pipes.ts";
+import { endSessionAgents, holdsSession } from "../src/daemon/server/session-agents.ts";
 import { drainOutbox } from "../src/daemon/server/outbox.ts";
 import { startRpcServer } from "../src/daemon/server/rpc.ts";
 import type { DaemonState } from "../src/daemon/server/state.ts";
@@ -42,7 +42,7 @@ afterEach(async () => {
     if (link !== null) detachLink(directory, key, link);
   }
   for (const state of states.splice(0)) state.held.killAll();
-  dropHeldPipes();
+  await endSessionAgents();
   for (const server of servers.splice(0)) await server.close();
   while (dirs.length) removeTempDir(dirs.pop()!);
 });
@@ -221,13 +221,13 @@ describe("an agent orchd holds in the acp form", () => {
     const harness = setup();
     await launch(harness, key, null);
     expect(attachedLink(placeHere(harness.orchDir, key))).not.toBeNull();
-    expect(heldPipes(key)).not.toBeNull();
+    expect(holdsSession(key)).toBe(true);
 
     const far = harness.spawned[0];
     if (far === undefined) throw new Error("the agent process was never spawned");
     far.exit(0);
     await until(() => attachedLink(placeHere(harness.orchDir, key)) === null);
-    expect(heldPipes(key)).toBeNull();
+    expect(holdsSession(key)).toBe(false);
   });
 
   test("the row is removed before the process exits: no rejection escapes and no pipes stay held", async () => {
@@ -242,7 +242,7 @@ describe("an agent orchd holds in the acp form", () => {
       const far = harness.spawned[0];
       if (far === undefined) throw new Error("the agent process was never spawned");
       far.exit(0);
-      await until(() => heldPipes(key) === null);
+      await until(() => !holdsSession(key));
       await new Promise((resolve) => setTimeout(resolve, 0));
       expect(rejections).toEqual([]);
     } finally {

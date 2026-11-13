@@ -161,8 +161,8 @@ function deliverAnswer(orchDir: OrchDir, agent: HereAgent, adapter: AgentAdapter
  * surfaces as an error instead of a false "accepted".
  */
 async function deliverModel(orchDir: OrchDir, settings: OrchSettings, catalogue: ModelCatalogue, agent: HereAgent, adapter: AgentAdapter, requested: string, id: string, timeoutMs: number): Promise<ControlBoundaryOutcome> {
-  if (!takesModel(adapter)) {
-    return { outcome: "answer", reason: "no-environment-role", text: `cannot set the model on ${agent.id}: adapter ${adapter.id} has no running-session model control` };
+  if (!takesModel(adapter) && !takesLinkAction(agent, adapter, "model")) {
+    return { outcome: "answer", reason: "no-environment-role", text: `cannot set the model on ${agent.id}: adapter ${adapter.id} has no running-session model control and no link that takes one` };
   }
   // The daemon admits every caller's spec itself, so a short name from any RPC
   // client expands here exactly as it does at the CLI.

@@ -6,6 +6,7 @@ import { setLinkedProcessProbe } from "../../process-place.ts";
 import { bootCodeHash, socketAnswers } from "./state.ts";
 import { PtyHold } from "./held.ts";
 import { endHeldAgents } from "./held-ending.ts";
+import { endSessionAgent, endSessionAgents } from "./session-agents.ts";
 import { bindHeldPtys } from "../../backends/registry.ts";
 import { nodePtyProvider } from "../../pty/node-pty.ts";
 import { nodePipes } from "../../pty/node-pipes.ts";
@@ -60,6 +61,7 @@ async function shutDown(state: DaemonState, reason: string): Promise<void> {
   state.hosts.closeAll();
   // Stopping ends every agent whose PTY this orchd holds; `orch daemon stop` asked first.
   endHeldAgents(state, `stopped (${reason})`);
+  await endSessionAgents();
   state.held.killAll();
   state.workController.abort();
   await state.workLoop;
@@ -224,6 +226,11 @@ export async function startDaemon(): Promise<DaemonState> {
           return exhaustive;
         }
       }
+    }
+    // An agent whose process is gone lets go of the session orchd held for it, and of the server
+    // that session borrowed.
+    if (event.type === "transition" && event.newState === "exited") {
+      void endSessionAgent(event.key).catch((error: unknown) => { state.services.logger.warn("held-session.end-failed", { message: errorMessage(error) }, { agentId: event.key }); });
     }
     publishFromOrchd(state, event);
     state.wake.wake();

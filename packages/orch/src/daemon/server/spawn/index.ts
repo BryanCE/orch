@@ -2,6 +2,7 @@
 // launch, places it in that plexer (or launches headless, or on a linked host), makes each
 // agent's worktree, and launches every agent. The CLI waits for them to come up and reports.
 import { heldBackend } from "../../../backends/registry.ts";
+import { terminalAttach, terminalPreparer } from "../session-agents.ts";
 import { FORM_SESSION_OWNER, FORM_STDIO, type FormId } from "../../../types/form.ts";
 import { compactionEnv } from "../../../policy/workers.ts";
 import { withLaunchPoints } from "../../../policy/compaction.ts";
@@ -53,9 +54,10 @@ function callerEnvironment(self: CallerSelf): AgentEnvironment {
 }
 
 /** What the CLI needs to know of a harness after a launch in `form`. An agent whose session
- *  orchd holds is up when that session's link attaches, whatever its harness reports. */
+ *  orchd holds, including one whose terminal program attaches to it, is up when that session's
+ *  link attaches. */
 export function harnessTraits(adapter: AgentAdapter, form: FormId | null): HarnessTraits {
-  const linked = adapter.bridge !== null || (form !== null && FORM_SESSION_OWNER[form] === "orchd");
+  const linked = adapter.bridge !== null || (form !== null && (FORM_SESSION_OWNER[form] === "orchd" || (FORM_STDIO[form] === "terminal" && terminalAttach(adapter) !== null)));
   const startup = linked ? "bridge" : adapter.hooks?.reports.includes("start") ? "start" : null;
   return { id: adapter.id, startup, takesModel: takesModel(adapter) };
 }
@@ -174,7 +176,7 @@ function prepareAgents(state: DaemonState, settings: SpawnSettings, names: reado
       const adapter = resolveAdapterOrDie(plan.adapter);
       const { cwd, worktree } = prepareWorkspace(settings.cwd, settings.worktree, name, adapter, plan.cmd);
       const key = mintAgentId();
-      const env = spawnEnv(state.directory, key, adapter, plan.model, settings.workers);
+      const env = spawnEnv(state.directory, key, adapter, plan.form, plan.model, settings.workers);
       prepared.push({ name, cwd, key, env, worktree, handle: undefined });
     }
   } catch (error: unknown) {
@@ -232,7 +234,7 @@ interface LaunchContext {
 
 /** Launch an agent into every place that opened. A launch failure costs that agent; the caller
  *  rules on what an empty result means. */
-function launchPrepared(state: DaemonState, prepared: readonly PreparedAgent[], context: LaunchContext, notes: SpawnNotes): { created: CreatedAgent[]; failures: string[] } {
+async function launchPrepared(state: DaemonState, prepared: readonly PreparedAgent[], context: LaunchContext, notes: SpawnNotes): Promise<{ created: CreatedAgent[]; failures: string[] }> {
   const { settings, backend, space, workspace, groupId, self } = context;
   const created: CreatedAgent[] = [];
   const failures: string[] = [];
@@ -240,7 +242,8 @@ function launchPrepared(state: DaemonState, prepared: readonly PreparedAgent[], 
     if (item.handle === undefined) continue;
     const plan = localAgentPlan(planFor(settings, item.name));
     try {
-      created.push(spawnOneIntoTab(state.services, {
+      created.push(await spawnOneIntoTab(state.services, {
+        prepareTerminal: terminalPreparer(state),
         backend, adapter: resolveAdapterOrDie(plan.adapter), adapterId: plan.adapter, name: item.name, cwd: item.cwd, space, workspace, group: groupId,
         form: plan.form, model: plan.model, thinking: plan.thinking, preferredModels: plan.preferredModels,
         tools: settings.tools, workers: settings.workers, cmd: settings.commandFlag ? plan.cmd : undefined,
@@ -298,14 +301,14 @@ function seatFleet(state: DaemonState, seat: { backend: Backend; groupHome: Grou
 }
 
 /** Open a tab under `label`, seat the fleet in it, and launch every agent that got a place. */
-function spawnIntoNewTab(state: DaemonState, context: { self: CallerSelf; settings: SpawnSettings; backend: Backend; groupHome: GroupHomeRole; placement: SpawnPlacement }, label: string, names: readonly string[], notes: SpawnNotes): SpawnResult {
+async function spawnIntoNewTab(state: DaemonState, context: { self: CallerSelf; settings: SpawnSettings; backend: Backend; groupHome: GroupHomeRole; placement: SpawnPlacement }, label: string, names: readonly string[], notes: SpawnNotes): Promise<SpawnResult> {
   const { self, settings, backend, groupHome, placement } = context;
   const logger = state.services.logger;
   assertTabCapacity(settings, label, 0, names.length);
   const prepared = prepareAgents(state, settings, names);
   const { group, workspace } = seatFleet(state, { backend, groupHome, placement, self }, settings, label, prepared);
   const placeFailures = placeRemainingAgents(state, backend, prepared, { groupId: group.id, workspace, firstSplit: settings.tiling.first_split }, notes);
-  const { created, failures } = launchPrepared(state, prepared, { settings, backend, space: placement.space, workspace, groupId: group.id, self }, notes);
+  const { created, failures } = await launchPrepared(state, prepared, { settings, backend, space: placement.space, workspace, groupId: group.id, self }, notes);
   const launched = new Set(created.map((agent) => agent.key));
   for (const item of prepared) if (!launched.has(item.key)) discardUnusedWorkspace(logger, settings.worktree, item.worktree);
   if (created.length === 0) {
@@ -361,11 +364,11 @@ async function spawnPartition(state: DaemonState, params: ParamsOf<"spawn">, sel
   const existing = settings.tab !== null && placement.homeToOpen === null ? findGroupInSpace(backend, placement.workspace, settings.tab) : undefined;
   if (existing) {
     assertTabCapacity(settings, existing.label ?? existing.id, readGroupLayout(groupLayout, existing.id).placements.length, names.length);
-    const created = growFleetIntoGroup(services, settings, { space, workspace: placement.workspace, group: existing.id }, backend, names, self, groupLayout, notes);
+    const created = await growFleetIntoGroup(services, settings, { space, workspace: placement.workspace, group: existing.id }, backend, names, self, groupLayout, notes, terminalPreparer(state));
     return spawnedResult(settings, created, { headless: false, tab: existing.label ?? existing.id, panes: new Map(), notes });
   }
   const label = settings.tab ?? freeTabLabel(liveTabLabels(backend, views, presence));
-  return spawnIntoNewTab(state, { self, settings, backend, groupHome: backend.groupHome, placement }, label, names, notes);
+  return await spawnIntoNewTab(state, { self, settings, backend, groupHome: backend.groupHome, placement }, label, names, notes);
 }
 
 /** The tab's tiling as it reads now: each place, the name the plexer shows for it, and its size. */
@@ -380,7 +383,7 @@ function tabLayout(backend: Backend, role: GroupLayoutRole, group: string): Extr
 
 /** `tile`: add one agent to an open tab, at the spot the planner picks against the tab's live
  *  geometry. Growing a fleet is tiling one agent at a time, so `spawn` places by the same planner. */
-export function tileAgent(state: DaemonState, params: ParamsOf<"tile">): ResultOf<"tile"> {
+export async function tileAgent(state: DaemonState, params: ParamsOf<"tile">): Promise<ResultOf<"tile">> {
   const services = state.services;
   const settingsFile: OrchSettings = services.settings.current();
   const backend = selectBackend(params.plexer, settingsFile);
@@ -403,6 +406,7 @@ export function tileAgent(state: DaemonState, params: ParamsOf<"tile">): ResultO
   const launchCommand = params.cmd ?? adapterCommand(agent.harness, settingsFile, { model, thinking: agent.thinking, preferredModels });
   const { cwd, worktree } = prepareWorkspace(params.cwd, intent, agent.name, adapter, launchCommand);
   const spec: TabSpawnSpec = {
+    prepareTerminal: terminalPreparer(state),
     backend, adapter, adapterId: agent.harness, name: agent.name, cwd, worktree, space,
     form: selectSpawnForm(null, settingsFile.defaults.forms, adapter, backend, heldBackend).form,
     workspace: tab.workspace ?? undefined,
@@ -421,7 +425,7 @@ export function tileAgent(state: DaemonState, params: ParamsOf<"tile">): ResultO
   };
   let created: CreatedAgent;
   try {
-    created = spawnOneIntoTab(services, spec);
+    created = await spawnOneIntoTab(services, spec);
   } catch (error: unknown) {
     discardUnusedWorkspace(services.logger, intent, worktree);
     throw new SpawnRefusalError(`tile failed: ${errorMessage(error)}`);

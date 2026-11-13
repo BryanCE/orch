@@ -376,7 +376,7 @@ export class HerdrBackend implements Backend<HerdrHandle> {
     this.cli.startAgent(["agent", "start", name, "--kind", adapter.id, "--pane", handle], args);
   }
 
-  /** The arguments herdr appends to its own canonical executable.
+  /** A given program's arguments are used when the spawn names one; otherwise the adapter supplies them.
    *
    *  herdr's `agent start` builds `argv = [interactive_agent_executable(kind),
    *  ...args]` (its `src/app/agents.rs`), so orch supplies the ARGUMENTS and
@@ -388,7 +388,7 @@ export class HerdrBackend implements Backend<HerdrHandle> {
    *  herdr rejects any argument containing a control character, so an adapter
    *  that produced one is refused here with a message naming the argument. */
   private launchArgs(adapter: AgentAdapter, opts: BackendSpawnOpts): string[] {
-    const argv = adapter.interactiveArgv(opts);
+    const argv = opts.program ?? adapter.interactiveArgv(opts);
     if (argv.length === 0) throw new Error(`adapter ${String(adapter.id)} returned an empty interactive argv`);
     const args = argv.slice(1);
     const control = args.find((arg) => /[\u0000-\u001f\u007f]/.test(arg));

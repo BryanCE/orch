@@ -12,10 +12,13 @@ import { compactionEnv } from "../../../policy/workers.ts";
 import { registerSpawnedAgent } from "../../../store/spawn-registration.ts";
 import type { AgentAdapter } from "../../../types/adapter.ts";
 import type { WorkerPolicy } from "../../../types/policy.ts";
-import type { Backend, BackendGroup, BackendHandle, CreatedHome, GroupLayoutRole, TileFirstSplit } from "../../../types/backend.ts";
+import type { Backend, BackendGroup, BackendHandle, BackendSpawnOpts, CreatedHome, GroupLayoutRole, TileFirstSplit } from "../../../types/backend.ts";
 import type { Logger, OrchDir } from "../../../types/core.ts";
 import type { DaemonClient } from "../../../types/services.ts";
 import { listedHomeHandle, openHome } from "../home.ts";
+import { terminalClientEnv } from "../session-agents.ts";
+import type { FormId } from "../../../types/form.ts";
+import type { TerminalPreparer } from "../../../types/held-session.ts";
 import type { CreatedAgent, OpenFleetHomeRequest, SpawnPlacement, SpawnPlacementRequest, TabSpawnSpec } from "../../../types/command.ts";
 import { liveFleet, type CallerSelf } from "./admission.ts";
 import { resolveAdapterOrDie } from "./models.ts";
@@ -111,8 +114,8 @@ export function openFleetHome(request: OpenFleetHomeRequest): CreatedHome {
 // (warn-and-continue vs die); this throws on backend failure.
 /** The env one agent launches into: its credential, the orch dir, and its harness's
  *  compaction point for its model when one is set. */
-export function spawnEnv(orchDir: OrchDir, key: string, adapter: AgentAdapter, model: string | undefined, workers: WorkerPolicy | undefined): Record<string, string> {
-  return { [LAUNCH_ENV]: key, ORCH_DIR: orchDir, ...compactionEnv(adapter, model, workers) };
+export function spawnEnv(orchDir: OrchDir, key: string, adapter: AgentAdapter, form: FormId | null, model: string | undefined, workers: WorkerPolicy | undefined): Record<string, string> {
+  return { [LAUNCH_ENV]: key, ORCH_DIR: orchDir, ...compactionEnv(adapter, model, workers), ...terminalClientEnv(adapter, form) };
 }
 
 function resolveSpawnPlace(spec: TabSpawnSpec, env: Readonly<Record<string, string>>): BackendHandle | undefined {
@@ -126,14 +129,18 @@ function resolveSpawnPlace(spec: TabSpawnSpec, env: Readonly<Record<string, stri
   return place;
 }
 
-function launchSpawnBackend(orchDir: OrchDir, spec: TabSpawnSpec, key: string, env: Readonly<Record<string, string>>, place: BackendHandle | undefined, thinking: NonNullable<TabSpawnSpec["thinking"]>): BackendHandle {
+function spawnOptsOf(orchDir: OrchDir, spec: TabSpawnSpec, key: string, env: Readonly<Record<string, string>>, thinking: NonNullable<TabSpawnSpec["thinking"]>): BackendSpawnOpts {
+  return {
+    form: spec.form, key, env, cwd: spec.cwd, name: spec.name, workspace: spec.workspace, group: spec.group,
+    orchDir, model: spec.model, thinking, preferredModels: spec.preferredModels,
+    tools: spec.tools, workers: spec.workers, cmd: spec.cmd,
+  };
+}
+
+function launchSpawnBackend(spec: TabSpawnSpec, opts: BackendSpawnOpts, place: BackendHandle | undefined): BackendHandle {
   let handle: BackendHandle;
   try {
-    handle = spec.backend.spawn(spec.adapter, {
-      form: spec.form, key, env, cwd: spec.cwd, name: spec.name, workspace: spec.workspace, group: spec.group,
-      intoHandle: place, orchDir, model: spec.model, thinking, preferredModels: spec.preferredModels,
-      tools: spec.tools, workers: spec.workers, cmd: spec.cmd,
-    });
+    handle = spec.backend.spawn(spec.adapter, { ...opts, intoHandle: place });
   } catch (error: unknown) {
     if ((spec.placement !== undefined || spec.intoHandle !== undefined) && spec.backend.placement) {
       if (place !== undefined) {
@@ -163,25 +170,35 @@ function registerSpawnedTabAgent(services: DaemonClient, spec: TabSpawnSpec, key
   return { key, handle: String(handle), name: spec.name, cwd: spec.cwd, branch: spec.worktree?.branch ?? null };
 }
 
-export function spawnOneIntoTab(services: DaemonClient, spec: TabSpawnSpec): CreatedAgent {
+export async function spawnOneIntoTab(services: DaemonClient, spec: TabSpawnSpec): Promise<CreatedAgent> {
   const orchDir = services.orchDir;
   const { views, presence } = liveFleet(orchDir);
   assertNameFree(views, presence, spec.name, spec.space);
   const key = spec.key ?? mintAgentId();
-  const env = spec.env ?? spawnEnv(orchDir, key, spec.adapter, spec.model, spec.workers);
+  const env = spec.env ?? spawnEnv(orchDir, key, spec.adapter, spec.form, spec.model, spec.workers);
   const thinking = spec.thinking;
   if (thinking === undefined) throw new Error(`spawn requires a resolved thinking level for ${spec.name}`);
-  const place = resolveSpawnPlace(spec, env);
-  const handle = launchSpawnBackend(orchDir, spec, key, env, place, thinking);
-  return registerSpawnedTabAgent(services, spec, key, handle, thinking);
+  const terminal = await spec.prepareTerminal(spec.adapter, spawnOptsOf(orchDir, spec, key, env, thinking));
+  let handle: BackendHandle;
+  try {
+    const launchEnv = terminal === null ? env : { ...env, ...terminal.env };
+    const place = resolveSpawnPlace(spec, launchEnv);
+    handle = launchSpawnBackend(spec, { ...spawnOptsOf(orchDir, spec, key, launchEnv, thinking), ...(terminal === null ? {} : { program: terminal.program }) }, place);
+  } catch (error: unknown) {
+    terminal?.abandon();
+    throw error;
+  }
+  const created = registerSpawnedTabAgent(services, spec, key, handle, thinking);
+  await terminal?.adopt();
+  return created;
 }
 
 /** Add one agent to a group at the spot the planner picks for it against the
  *  group's live geometry. This is the whole of `orch tile`, and growing a fleet
  *  is tiling one agent at a time — the balance only holds while every agent is
  *  placed by the same planner reading the same layout. */
-function tileAgentIntoGroup(services: DaemonClient, spec: Omit<TabSpawnSpec, "placement">, firstSplit: TileFirstSplit, role: GroupLayoutRole): CreatedAgent {
-  return spawnOneIntoTab(services, { ...spec, placement: nextTilePlacement(role, spec.group, firstSplit) });
+async function tileAgentIntoGroup(services: DaemonClient, spec: Omit<TabSpawnSpec, "placement">, firstSplit: TileFirstSplit, role: GroupLayoutRole): Promise<CreatedAgent> {
+  return await spawnOneIntoTab(services, { ...spec, placement: nextTilePlacement(role, spec.group, firstSplit) });
 }
 
 /** Where one agent works: its own worktree when the launch asked for one. */
@@ -205,12 +222,13 @@ export function discardUnusedWorkspace(logger: Logger, intent: WorktreeIntent | 
 }
 
 /** Tile one of this launch's named agents, in its own worktree when asked. */
-function placeAgent(services: DaemonClient, settings: SpawnSettings, plan: LocalSpawnAgentPlan, space: string | null, workspace: string | undefined, group: string, backend: Backend, self: CallerSelf, role: GroupLayoutRole): CreatedAgent {
+async function placeAgent(services: DaemonClient, settings: SpawnSettings, plan: LocalSpawnAgentPlan, space: string | null, workspace: string | undefined, group: string, backend: Backend, self: CallerSelf, role: GroupLayoutRole, prepareTerminal: TerminalPreparer): Promise<CreatedAgent> {
   const name = plan.name;
   const adapter = resolveAdapterOrDie(plan.adapter);
   const { cwd, worktree } = prepareWorkspace(settings.cwd, settings.worktree, name, adapter, plan.cmd);
   try {
-    return tileAgentIntoGroup(services, {
+    return await tileAgentIntoGroup(services, {
+    prepareTerminal,
     backend,
     adapter,
     adapterId: plan.adapter,
@@ -238,7 +256,7 @@ function placeAgent(services: DaemonClient, settings: SpawnSettings, plan: Local
 
 /** Fill a group with named agents. An agent that fails to come up is named and the
  *  rest still launch — a fleet short one worker beats no fleet. */
-export function growFleetIntoGroup(services: DaemonClient, settings: SpawnSettings, place: { space: string | null; workspace: string | undefined; group: string }, backend: Backend, names: readonly string[], self: CallerSelf, role: GroupLayoutRole, notes: SpawnNotes): CreatedAgent[] {
+export async function growFleetIntoGroup(services: DaemonClient, settings: SpawnSettings, place: { space: string | null; workspace: string | undefined; group: string }, backend: Backend, names: readonly string[], self: CallerSelf, role: GroupLayoutRole, notes: SpawnNotes, prepareTerminal: TerminalPreparer): Promise<CreatedAgent[]> {
   const { space, workspace, group } = place;
   const logger = services.logger;
   const created: CreatedAgent[] = [];
@@ -249,7 +267,7 @@ export function growFleetIntoGroup(services: DaemonClient, settings: SpawnSettin
       continue;
     }
     try {
-      created.push(placeAgent(services, settings, localAgentPlan(plan), space, workspace, group, backend, self, role));
+      created.push(await placeAgent(services, settings, localAgentPlan(plan), space, workspace, group, backend, self, role, prepareTerminal));
     } catch (error: unknown) {
       const message = errorMessage(error);
       logger.warn("spawn.place-failed", { backend: backend.id, name, error: message });

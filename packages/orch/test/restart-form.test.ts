@@ -8,7 +8,7 @@ import { spawnHeldLaunch } from "../src/daemon/server/handlers/lifecycle.ts";
 import { applyLifecycle } from "../src/daemon/server/handlers/relaunch.ts";
 import { allAdapters } from "../src/adapters/registry.ts";
 import { restartPipes, switchForm } from "../src/daemon/server/handlers/restart-form.ts";
-import { dropHeldPipes, heldPipes } from "../src/daemon/server/held-pipes.ts";
+import { endSessionAgents, holdsSession } from "../src/daemon/server/session-agents.ts";
 import type { DaemonState } from "../src/daemon/server/state.ts";
 import { acceptStatusReport } from "../src/daemon/server/status-report.ts";
 import { hostIdentity } from "../src/hosts/identity.ts";
@@ -34,13 +34,13 @@ const dirs: OrchDir[] = [];
 const states: DaemonState[] = [];
 const attached: { readonly directory: OrchDir; readonly key: string }[] = [];
 
-afterEach(() => {
+afterEach(async () => {
   for (const { directory, key } of attached.splice(0)) {
     const link = attachedLink(placeHere(directory, key));
     if (link !== null) detachLink(directory, key, link);
   }
   for (const state of states.splice(0)) state.held.killAll();
-  dropHeldPipes();
+  await endSessionAgents();
   while (dirs.length) removeTempDir(dirs.pop()!);
 });
 
@@ -122,14 +122,14 @@ describe("restart in another form", () => {
     seedOrch(harness.orchDir, spawner);
     const key = await launch(harness, "acp", null, spawner);
     const first = harness.agents[0];
-    expect(heldPipes(key)).not.toBeNull();
+    expect(holdsSession(key)).toBe(true);
     const holderBefore = holderOf(harness.orchDir, key);
     expect(holderBefore).not.toBeNull();
 
     await switchForm(harness.state, placeHere(harness.orchDir, key), ADAPTER, "tui");
 
     await until(() => methodsOf(first!).includes(methods.agent.session.close));
-    expect(heldPipes(key)).toBeNull();
+    expect(holdsSession(key)).toBe(false);
     expect(harness.spawned[0]?.killed).toBe(true);
     expect(harness.ptys.spawned).toHaveLength(1);
     const request = harness.ptys.last().request;
@@ -154,7 +154,7 @@ describe("restart in another form", () => {
     expect(reopened.received.find((request) => request.method === methods.agent.session.load)?.params).toMatchObject({ sessionId: "test-session" });
     expect(parseSessionLog(readFileSync(logPath, "utf8"))).toEqual([{ role: "assistant", text: "onetwo" }]);
     expect(formOf(harness, key)).toBe("acp");
-    expect(heldPipes(key)).not.toBeNull();
+    expect(holdsSession(key)).toBe(true);
   });
 
   test("a binding that offers resume and not load receives session/resume", async () => {
@@ -189,7 +189,7 @@ describe("restart in another form is refused before anything is ended", () => {
     const reason = await refusal(switchForm(harness.state, placeHere(harness.orchDir, key), adapterOf({ resume: null }), "tui"));
 
     expect(reason).toBe("harness pi has no tui form");
-    expect(heldPipes(key)).not.toBeNull();
+    expect(holdsSession(key)).toBe(true);
     expect(formOf(harness, key)).toBe("acp");
   });
 
@@ -243,7 +243,7 @@ describe("restart in another form is refused before anything is ended", () => {
     expect(harness.ptys.last().killed).toBe(false);
     expect(harness.spawned).toHaveLength(1);
     expect(harness.spawned[0]?.killed).toBe(true);
-    expect(heldPipes(key)).toBeNull();
+    expect(holdsSession(key)).toBe(false);
     expect(formOf(harness, key)).toBe("tui");
   });
 
@@ -258,7 +258,7 @@ describe("restart in another form is refused before anything is ended", () => {
     expect(harness.spawned).toHaveLength(2);
     expect(harness.spawned[0]?.killed).toBe(false);
     expect(harness.spawned[1]?.killed).toBe(true);
-    expect(heldPipes(key)).not.toBeNull();
+    expect(holdsSession(key)).toBe(true);
     expect(formOf(harness, key)).toBe("acp");
   });
 });

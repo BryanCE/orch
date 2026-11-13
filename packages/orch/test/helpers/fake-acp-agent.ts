@@ -23,8 +23,9 @@ export function acpProgram(agent: ReturnType<typeof fakeAcpAgent>) {
       const child = provider.spawn(request);
       const far = spawned.at(-1);
       if (far === undefined) throw new Error("no pipes process was spawned");
-      void far.fromOrchd.pipeTo(agent.streams.input);
-      void agent.streams.output.pipeTo(far.toOrchd);
+      // Each pipe ends with an error when either side closes the connection; that is its end.
+      void far.fromOrchd.pipeTo(agent.streams.input).catch(() => undefined);
+      void agent.streams.output.pipeTo(far.toOrchd).catch(() => undefined);
       return child;
     },
   };

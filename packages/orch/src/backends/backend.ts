@@ -1,5 +1,6 @@
 import type { BackendSpawnOpts, HomeSubject } from "../types/backend.ts";
 import type { AgentAdapter } from "../types/adapter.ts";
+import { shellQuote } from "../util.ts";
 
 /**
  * The label a home is opened with (E8). An orch that opens a home of its own
@@ -20,7 +21,7 @@ export function homeLabel(subject: HomeSubject, requested?: string | null): stri
 }
 
 export function createInteractiveCommand(adapter: AgentAdapter, opts: BackendSpawnOpts): string {
-  const command = opts.cmd ?? adapter.workerLaunch?.restrictedInteractiveCmd(opts) ?? adapter.interactiveCmd(opts);
+  const command = opts.cmd ?? (opts.program === undefined ? undefined : opts.program.map(shellQuote).join(" ")) ?? adapter.workerLaunch?.restrictedInteractiveCmd(opts) ?? adapter.interactiveCmd(opts);
   if (!command.trim()) throw new Error(`adapter ${String(adapter.id)} returned an empty interactive command`);
   return command;
 }

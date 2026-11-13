@@ -1,3 +1,4 @@
+import { FORM_IDS } from "../types/form.ts";
 import { schemaNode, jsonSchemaNode, type JsonSchemaNode } from "./schema-tree.ts";
 import { clearSettingsValue, writeSettingsDefault, writeSettingsValue } from "./write.ts";
 import { NOTIFY_DEFAULT_ON, NOTIFY_IDS, NOTIFY_SINK_FIELD, NotifyEntrySchema } from "./schema.ts";
@@ -171,7 +172,7 @@ const HELP: Readonly<Record<string, string>> = {
   "defaults.adapter": "Harness used when none is specified.",
   "defaults.backend": "Backend used when none is specified.",
   "defaults.models": "Default model for each harness.",
-  "defaults.forms": "Default form for each harness: tui, oneshot, acp, server.",
+  "defaults.forms": `Default form for each harness: ${FORM_IDS.join(", ")}.`,
   "defaults.thinking": "Default thinking effort for launches.",
   "defaults.thinking_by_harness": "Per-harness thinking effort overrides.",
   "defaults.worktree": "Whether launches use worktrees by default.",
@@ -221,6 +222,11 @@ const HELP: Readonly<Record<string, string>> = {
   "timeouts.daemon_probe_ms": "How long a command waits for a busy orchd to answer before it gives up and does nothing, in milliseconds.",
   "timeouts.acp_probe_ms": "How long doctor, or a restart that reopens a session on the binding, waits for an ACP binding to answer initialize before it counts the binding as not answering, in milliseconds.",
   "timeouts.server_ready_ms": "How long orchd waits for a harness started in the server form to say its server is listening before the launch fails, in milliseconds.",
+  "timeouts.session_close_ms": "How long orchd waits for a session it holds to finish closing before it ends the session's process, in milliseconds.",
+  "servers.idle_ms": "How long orchd keeps a harness server it shares between agents running after the last agent on it is gone, in milliseconds.",
+  "servers.silence_ms": "How long a harness server's event stream may stay silent, heartbeats included, before orchd drops it and reconnects, in milliseconds.",
+  "servers.reconnect_ms": "How long orchd waits between attempts to reconnect a harness server's event stream, in milliseconds.",
+  "servers.backfill_messages": "How many of a session's latest messages orchd reads to catch up after its server's event stream comes back.",
   "timeouts.abort_gap_ms": "Pause between the two Escape keys abort sends an agent's pane, in milliseconds.",
   "timeouts.machine_ms": "How long doctor and setup wait on orchd to check, install and integrate on this machine, in milliseconds.",
   notify: "Where agent state changes are delivered. enter picks the sinks - sound (a ding on this machine), desktop, herdr, webhook (a URL), command (any command line you want) - space turns one on, e sets what it carries, w picks which states it fires on.",

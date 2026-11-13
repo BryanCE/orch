@@ -167,7 +167,13 @@ export function heldCwd(opts: BackendSpawnOpts): string {
 
 /** The environment a held process starts with: orchd's own, plus the agent's launch variables. */
 export function heldLaunchEnv(opts: BackendSpawnOpts, extra: Readonly<Record<string, string>> = {}): Record<string, string> {
-  return definedEnv({ ...process.env, ...agentLaunchEnv(opts, HELD_ENVIRONMENT_STAMP), ...extra });
+  return definedEnv({ ...process.env, ...heldAgentEnv(opts), ...extra });
+}
+
+/** The agent's own launch variables in a process orchd holds: its credential, the orch dir and
+ *  the project, without orchd's own environment. */
+export function heldAgentEnv(opts: BackendSpawnOpts): Record<string, string> {
+  return agentLaunchEnv(opts, HELD_ENVIRONMENT_STAMP);
 }
 
 function launchedHere(pid: number): LaunchedAgent {

@@ -10,7 +10,7 @@ import { placeHere } from "../../../process-place.ts";
 import { admitModel } from "../../../policy/model.ts";
 import { resolveAdapter } from "../../../adapters/registry.ts";
 import { headlessBackend, heldBackend, startHeldAgent } from "../../../backends/registry.ts";
-import { startSessionAgent } from "../session-agents.ts";
+import { startAttachedTerminal, startSessionAgent, terminalAttach } from "../session-agents.ts";
 import { insertOutboxMessage } from "../../../store/outbox-rows.ts";
 import type { AgentAdapter } from "../../../types/adapter.ts";
 import type { BackendSpawnOpts } from "../../../types/backend.ts";
@@ -107,11 +107,17 @@ export async function spawnHeadless(state: DaemonState, params: ParamsOf<"spawn-
   return { form, key, backend: headlessBackend.id, handle: JSON.stringify(handle), process: hostedHere(running.pid, running.startToken) };
 }
 
-/** Start an agent in a form orchd holds: a PTY for a harness that owns its session, the form's
- *  session driver on pipes for one whose session is orchd's. */
+/** Start an agent in a form orchd holds: the form's session driver on pipes for one whose session
+ *  is orchd's; a PTY for a terminal form, its terminal program attached to a session orchd holds
+ *  when the harness's terminal program is a client of a server orchd drives. */
 export async function spawnHeldLaunch(state: DaemonState, adapter: AgentAdapter, opts: BackendSpawnOpts & { readonly key: string; readonly firstPrompt: string | null }): Promise<ResultOf<"spawn-headless">> {
   const form = opts.form;
-  const launched = FORM_SESSION_OWNER[form] === "orchd" ? await startSessionAgent(state, adapter, opts, null, "new-agent") : await startHeldAgent(state.held, adapter, opts, "new-agent");
+  const attach = terminalAttach(adapter);
+  const launched = FORM_SESSION_OWNER[form] === "orchd"
+    ? await startSessionAgent(state, adapter, opts, null, "new-agent")
+    : FORM_STDIO[form] === "terminal" && attach !== null
+      ? await startAttachedTerminal(state, adapter, attach, opts, null, "new-agent")
+      : await startHeldAgent(state.held, adapter, opts, "new-agent");
   // A spawn with no work idles until its first dispatch.
   if (opts.firstPrompt !== null) {
     insertOutboxMessage(state.directory, { id: randomUUID(), target: opts.key, payload: { action: "dispatch", text: opts.firstPrompt } });

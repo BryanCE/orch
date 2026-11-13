@@ -62,7 +62,8 @@ const settings = (preferred: string[]): OrchSettings => ({
   workers: { inherit_extensions: false, exclude_extensions: {}, builtin_tools: true, allow_tools: [], verify_commands: [], compact_at_tokens: {} },
   queue: { max_retries: 1, dispatch_concurrency: 4 },
   daemon: { tcp_port: 3716, outbox_drain_ms: 1000, work_tick_ms: 5_000, liveness_poll_ms: 5_000, report_timeout_ms: 500, bridge_reconnect_ms: 1000, outbox_max_attempts: 120, subscriber_queue_bytes: 8_388_608 },
-  timeouts: { dispatch_ack_ms: 10_000, wait_ms: 300_000, adapter_command_ms: 60_000, notify_ms: 3_000, spawn_attach_ms: 60_000, spawn_attach_poll_ms: 500, lock_wait_ms: 180_000, lock_poll_ms: 1_000, reset_ready_ms: 75_000, reset_poll_ms: 250, daemon_probe_ms: 10_000, acp_probe_ms: 5_000, server_ready_ms: 30_000, abort_gap_ms: 500, machine_ms: 600_000 },
+  timeouts: { dispatch_ack_ms: 10_000, wait_ms: 300_000, adapter_command_ms: 60_000, notify_ms: 3_000, spawn_attach_ms: 60_000, spawn_attach_poll_ms: 500, lock_wait_ms: 180_000, lock_poll_ms: 1_000, reset_ready_ms: 75_000, reset_poll_ms: 250, daemon_probe_ms: 10_000, acp_probe_ms: 5_000, server_ready_ms: 30_000, session_close_ms: 2_000, abort_gap_ms: 500, machine_ms: 600_000 },
+  servers: { idle_ms: 30_000, silence_ms: 45_000, reconnect_ms: 1_000, backfill_messages: 50 },
   notify: [],
   hosts: {},
   links: SETTINGS_DEFAULTS.links,
@@ -108,7 +109,8 @@ describe("the preferred quicklist reaches every launch route", () => {
     seedSpace(directory, "wsA");
     const { backend, seen } = capturingPaneBackend();
 
-    spawnOneIntoTab(await spawningServices(directory), { form: "tui",
+    await spawnOneIntoTab(await spawningServices(directory), { form: "tui",
+      prepareTerminal: () => Promise.resolve(null),
       backend,
       adapter: piAdapter,
       adapterId: "pi",
@@ -133,7 +135,8 @@ describe("the preferred quicklist reaches every launch route", () => {
 
     const agents = [["quick-a", "openai/gpt-5.6", "medium"], ["quick-b", "anthropic/claude-sonnet-4.5", "high"]] satisfies readonly (readonly [string, string, ThinkingLevel])[];
     for (const [name, model, thinking] of agents) {
-      spawnOneIntoTab(services, { form: "tui",
+      await spawnOneIntoTab(services, { form: "tui",
+        prepareTerminal: () => Promise.resolve(null),
         backend,
         adapter: piAdapter,
         adapterId: "pi",
@@ -159,7 +162,8 @@ describe("the preferred quicklist reaches every launch route", () => {
     seedSpace(directory, "wsA");
     const { backend, seen } = capturingPaneBackend();
 
-    spawnOneIntoTab(await spawningServices(directory), { form: "tui",
+    await spawnOneIntoTab(await spawningServices(directory), { form: "tui",
+      prepareTerminal: () => Promise.resolve(null),
       backend,
       adapter: piAdapter,
       adapterId: "pi",

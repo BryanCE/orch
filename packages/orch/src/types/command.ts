@@ -4,6 +4,7 @@ import type { CallerKind, ThinkingLevel, WorkerPolicy } from "./policy.ts";
 import type { GrantAction } from "./store.ts";
 import type { LogLevel, TokenTotals, WorkerHeaderContext } from "./core.ts";
 import type { DaemonClient } from "./services.ts";
+import type { TerminalPreparer } from "./held-session.ts";
 import type { AgentWorktree } from "./worktree.ts";
 import type { HostIdentity, HostOffline } from "./host.ts";
 import type { ResultOf } from "../daemon/client/protocol.ts";
@@ -138,6 +139,8 @@ export interface CreatedAgent {
 }
 
 export interface TabSpawnSpec {
+  /** Opens the agent's session first when its harness's terminal program attaches to a server orchd holds. */
+  prepareTerminal: TerminalPreparer;
   form: import("./form.ts").FormId;
   backend: Backend;
   adapter: AgentAdapter;

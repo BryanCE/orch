@@ -37,9 +37,7 @@ import { publishFromOrchd } from "../events.ts";
 import { acceptPromptReport, acceptResultReport, acceptStatusReport } from "../status-report.ts";
 import { heldAgentHost } from "../status-events.ts";
 import { endHeldAgents } from "../held-ending.ts";
-import { insertControlOutcome } from "../../../store/control-outcome-rows.ts";
-import { appendOutcome } from "../../../presence/history.ts";
-import { settleControlOutcome } from "../../../control/outcome.ts";
+import { recordControlOutcome } from "../control-outcomes.ts";
 import { ackOutboxRow } from "../outbox.ts";
 import type { ControlOutcomeReport } from "../../../types/agent.ts";
 import type { RpcHandlers, RpcRequestContext } from "../../../types/daemon.ts";
@@ -230,16 +228,7 @@ export function rpcHandlers(state: DaemonState): RpcHandlers {
         ...(params.applied === undefined ? {} : { applied: params.applied }),
         ...(params.error === undefined ? {} : { error: params.error }),
       };
-      insertControlOutcome(directory, {
-        id: report.id,
-        agentId: report.key,
-        command: report.command,
-        requested: report.requested,
-        settledAt: Date.now(),
-        ...(params.error === undefined ? {} : { error: params.error }),
-      });
-      appendOutcome(report.key, directory, { ts: Date.now(), ...report });
-      settleControlOutcome(report);
+      recordControlOutcome(directory, report);
       return { ok: true };
     },
     reload: () => {

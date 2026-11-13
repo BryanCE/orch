@@ -311,6 +311,10 @@ export interface BackendSpawnOpts {
   readonly workers?: WorkerPolicy;
   /** Verbatim launch command overriding the adapter's own; `orch spawn --cmd`. */
   readonly cmd?: string;
+  /** The program the agent's terminal runs in place of the harness's own command: the harness's
+   *  terminal program attached to a session orchd opened for the agent. Its first element is the
+   *  harness's own executable. */
+  readonly program?: readonly string[];
   /** Display name given to the spawned agent, when the backend supports naming. */
   readonly name?: string;
   /** Backend workspace to spawn into; defaults to the caller's workspace. */

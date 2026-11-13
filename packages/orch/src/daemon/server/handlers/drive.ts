@@ -14,6 +14,8 @@ import { applyModel, clearHere, closeAgent } from "./lifecycle.ts";
 import { lifecycleHere } from "./relaunch.ts";
 import { reapForPeer, renameHere } from "./lease.ts";
 import { paneHere } from "./pane.ts";
+import { endSessionAgent, sharesProcess } from "../session-agents.ts";
+import { errorMessage } from "../../../util.ts";
 import { waitHere } from "./wait.ts";
 import type { DaemonState } from "../state.ts";
 import type { ParamsOf, PeerDriveResult, ResultOf } from "../../client/protocol.ts";
@@ -45,9 +47,21 @@ export function abortAnywhere(state: DaemonState, params: ParamsOf<"abort">): Pr
 function closeHere(state: DaemonState, agent: HereAgent, actor: string | null): SignalOutcome {
   const wire = closeTargetOfAgent(state.directory, agent, (address, backendId) => state.services.logger.warn("close.unknown-backend", { backend: backendId, handle: address }));
   if (wire === null) return "gone";
+  const record = { key: agent.id, ...(actor === null ? {} : { actor }) };
+  const endSession = (): void => {
+    void endSessionAgent(agent.id).catch((error: unknown) => { state.services.logger.warn("held-session.end-failed", { message: errorMessage(error) }, { agentId: agent.id }); });
+  };
+  // An agent that is one session on a process other agents share ends with its session: the
+  // process is not its own to signal.
+  if (sharesProcess(agent.id)) {
+    endSession();
+    closeAgent(state, record);
+    return "signalled";
+  }
   const attempt = attemptClose(closeTargetOf(wire));
   if (attempt.failure !== null) throw new Error(attempt.failure);
-  closeAgent(state, { key: agent.id, ...(actor === null ? {} : { actor }) });
+  endSession();
+  closeAgent(state, record);
   return attempt.signalled || attempt.closedByBackend ? "signalled" : "gone";
 }
 

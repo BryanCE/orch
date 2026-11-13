@@ -6,7 +6,7 @@ import { rpcCall } from "../src/daemon/client/rpc.ts";
 import { abortAnywhere } from "../src/daemon/server/handlers/drive.ts";
 import { spawnHeadless } from "../src/daemon/server/handlers/lifecycle.ts";
 import { answer, dispatch } from "../src/daemon/server/handlers/write.ts";
-import { dropHeldPipes } from "../src/daemon/server/held-pipes.ts";
+import { endSessionAgents } from "../src/daemon/server/session-agents.ts";
 import type { DaemonState } from "../src/daemon/server/state.ts";
 import { hostIdentity } from "../src/hosts/identity.ts";
 import { mintAgentId } from "../src/shared/agent-id.ts";
@@ -64,7 +64,7 @@ async function acpThere(id: string, turns: FakeAcpScript["turns"]) {
 afterEach(async () => {
   for (const near of nears.splice(0)) await near.close();
   while (fars.length) await fars.pop()!.close();
-  dropHeldPipes();
+  await endSessionAgents();
   closeAllStores();
   if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
   else process.env.CODEX_HOME = previousCodexHome;

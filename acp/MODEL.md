@@ -28,6 +28,7 @@ the two. Nothing else decides which backend can run which form.
 | `tui` | a terminal | the harness, through its bridge or hooks | the harness |
 | `oneshot` | nothing | the harness, through its notify shim or exit code | the harness |
 | `acp` | pipes | orchd, from the ACP session | orchd |
+| `server` | pipes | orchd, from the harness server's event stream | orchd |
 
 | Backend | Offers | Has panes |
 |---|---|---|
@@ -41,6 +42,16 @@ a log.
 Every adapter has a `tui` and a `oneshot` form today, as `interactiveCmd` and `headlessCmd`.
 The `acp` form is a nullable role on the adapter, like `bridge` and `hooks`. It carries the
 binding's argv, its environment, and whether the binding shares sessions with the TUI.
+
+The `server` form is the harness's own server, which orchd starts and drives over that server's
+API. It is the nullable `server` role on the adapter: a `HeldSessionDriver`
+(`src/types/held-session.ts`). opencode has one (`src/adapters/opencode-server.ts`): a private
+`opencode serve` per agent on a loopback port, HTTP plus its event stream, the way t3code drives
+opencode. `defaults.forms` makes `server` opencode's default.
+
+Both forms whose session orchd holds run through one starter, `startSessionAgent` in
+`src/daemon/server/session-agents.ts`. It owns the process, the screen, the log and presence for
+every driver; the driver owns only its wire. `DRIVERS` there maps each form to the role it runs on.
 
 ### Choosing form and backend at spawn
 
@@ -103,7 +114,7 @@ The ACP link calls the same server functions the report RPCs call. No new ingest
 | the process exits | state `exited` | the liveness tick |
 
 One session owner per form. `FORM_SESSION_OWNER` in `src/types/form.ts` says who holds a
-form's session: the harness for `tui` and `oneshot`, orchd for `acp`. The owner writes the
+form's session: the harness for `tui` and `oneshot`, orchd for `acp` and `server`. The owner writes the
 transcript and reports the agent's state. orchd ignores a `report-status` or `report-result`
 from the harness of an agent whose form's owner is `orchd`.
 
@@ -178,6 +189,7 @@ the old log back. A resume keeps the log.
 | an agent on a linked host today | held | tui | bridge or keys | a viewer pane |
 | a headless run today | headless | oneshot | none | its log |
 | codex over ACP | held | acp | the ACP link | `orch attach`, `orch tail` |
+| opencode on its own server | held | server | the opencode link | `orch attach`, `orch tail` |
 
 ## Where the ACP code goes
 

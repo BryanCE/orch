@@ -231,6 +231,7 @@ class ClaudeAdapter implements AgentAdapter {
   /** SessionStart reports the session before any prompt; UserPromptSubmit reports each prompt Claude takes. */
   readonly hooks: HookReportRole = { reports: ["start", "prompt"] };
   readonly acp = null;
+  readonly server = null;
   readonly resume = {
     argv: (opts: SpawnOpts, sessionId: string): readonly string[] => [...this.interactiveArgv(opts), "--resume", sessionId],
   };

@@ -27,6 +27,7 @@ export const PREREQUISITES: Record<string, Prerequisite> = {
   omp: { install: everywhere("bun add -g @oh-my-pi/pi-coding-agent"), needs: ["bun"], signIn: "omp setup" },
   claude: { install: { ...posix("curl -fsSL https://claude.ai/install.sh | bash"), windows: "irm https://claude.ai/install.ps1 | iex" }, signIn: "claude auth" },
   codex: { docsUrl: "https://github.com/openai/codex", signIn: "codex login" },
+  opencode: { install: { ...posix("curl -fsSL https://opencode.ai/v2/install | bash"), windows: "npm i -g @opencode/cli" }, docsUrl: "https://opencode.ai/docs/", signIn: "opencode auth login" },
   bun: { install: { ...posix("curl -fsSL https://bun.sh/install | bash"), windows: "irm bun.sh/install.ps1 | iex" } },
   tmux: { docsUrl: "https://github.com/tmux/tmux/wiki/Installing" },
   herdr: {

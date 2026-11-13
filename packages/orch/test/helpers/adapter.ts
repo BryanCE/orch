@@ -20,6 +20,7 @@ export function fakeAdapter(overrides: Partial<AgentAdapter> = {}): AgentAdapter
     bridge: null,
     hooks: null,
     acp: null,
+    server: null,
     resume: null,
     commandGate: false,
     interactiveCmd,

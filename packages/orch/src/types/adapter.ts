@@ -5,9 +5,10 @@ import type { CheckResult } from "./doctor.ts";
 import type { OrchSettings } from "./settings.ts";
 import type { BridgeAction } from "../shared/bridge-message.ts";
 import type { HostOs } from "./host.ts";
+import type { HeldSessionDriver } from "./held-session.ts";
 
 /** The closed adapter-id set, importable without pulling any provider code. */
-export const ADAPTER_IDS = ["pi", "omp", "claude", "codex"] as const;
+export const ADAPTER_IDS = ["pi", "omp", "claude", "codex", "opencode"] as const;
 
 /** Agent CLIs supported by orch. */
 export type AdapterId = (typeof ADAPTER_IDS)[number];
@@ -316,6 +317,8 @@ export interface AgentAdapter {
   readonly bridge: BridgeRole | null;
   readonly hooks: HookReportRole | null;
   readonly acp: AcpRole | null;
+  /** The harness runs its own server, which orchd starts and drives over its API in the `server` form. */
+  readonly server: HeldSessionDriver | null;
   readonly resume: ResumeRole | null;
   /** True when this harness's integration rewrites a locked or gated shell command through `orch lock` before it runs. */
   readonly commandGate: boolean;

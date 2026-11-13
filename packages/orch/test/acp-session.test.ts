@@ -7,9 +7,9 @@ import {
 import {
   openAcpSession,
   probeAcpAgent,
-  type AcpPermissionAsk,
   type AcpSessionHandlers,
 } from "../src/acp/session.ts";
+import type { SessionAsk } from "../src/types/held-session.ts";
 import {
   chunk,
   defaultFakeScript,
@@ -84,7 +84,7 @@ describe("ACP session", () => {
     const second = deferred<string | null>();
     const both = deferred<void>();
     const answeredSecond = deferred<void>();
-    const asks: AcpPermissionAsk[] = [];
+    const asks: SessionAsk[] = [];
     const fake = setup({ turns: [turn({ permissions: [permission("one"), permission("two")] })] });
     const session = await openAcpSession(fake.streams, { kind: "new", cwd }, {
       ...handlers(),

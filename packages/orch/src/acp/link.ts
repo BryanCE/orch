@@ -1,31 +1,15 @@
 import type { AgentLink } from "../control/agent-links.ts";
 import type { BridgeDelivery } from "../shared/bridge-message.ts";
 import type { SessionViewEntry } from "../types/adapter.ts";
-import { acpEntryBuilder, outcomeOf, type AcpOutcome } from "./entries.ts";
+import type { SessionLinkEvents, TurnOutcome } from "../types/held-session.ts";
+import { acpEntryBuilder, outcomeOf } from "./entries.ts";
 import {
   openAcpSession,
   type AcpClientInfo,
   type AcpOpen,
-  type AcpPermissionAsk,
   type AcpSession,
   type AcpStreams,
 } from "./session.ts";
-
-/** Receives transcript, turn, permission and delivery events from a session. */
-export interface AcpLinkEvents {
-  onTurnStarted(deliveryId: string): void;
-  onEntries(entries: readonly SessionViewEntry[]): void;
-  onTurnEnded(outcome: AcpOutcome, text: string): void;
-  onAsk(ask: AcpPermissionAsk): string;
-  onAsksSettled(): void;
-  onAskDropped(questionId: string): void;
-  onApplied(deliveryId: string): void;
-  onError(error: Error): void;
-  /** Called once, before a session load replays the whole conversation through `onEntries`. */
-  onLoad?(): void;
-  /** A fresh conversation replaced the old one; `sessionId` names it. */
-  onReset(sessionId: string): void;
-}
 
 /** A control link and the session it drives. */
 export interface AcpLink {
@@ -38,7 +22,7 @@ export async function openAcpLink(
   streams: AcpStreams,
   open: AcpOpen,
   info: AcpClientInfo,
-  events: AcpLinkEvents,
+  events: SessionLinkEvents,
 ): Promise<AcpLink> {
   const builder = acpEntryBuilder();
   const asks = new Map<string, (optionId: string | null) => void>();
@@ -97,7 +81,7 @@ export async function openAcpLink(
     continuingMessage = false;
     events.onApplied(prompt.id);
     events.onTurnStarted(prompt.id);
-    let outcome: AcpOutcome;
+    let outcome: TurnOutcome;
     try {
       outcome = outcomeOf(await session.prompt(prompt.text));
     } catch (error) {

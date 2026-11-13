@@ -1,12 +1,13 @@
 import { randomUUID } from "node:crypto";
-import { openAcpLink, type AcpLink, type AcpLinkEvents } from "../../acp/link.ts";
 import { attachLink, detachLink, type AgentLink } from "../../control/agent-links.ts";
 import { appendSessionEntries, openSessionLog, setAsideSessionLog, type SetAsideLog } from "../../agent/session-log.ts";
 import { heldCwd, heldKeyOf, heldLaunchEnv, logPathOf, recordHeld, type HeldRecording } from "../../backends/registry.ts";
 import type { LaunchedAgent } from "../../backends/registration.ts";
 import { dropQuestion, recordQuestion } from "../../store/question-rows.ts";
 import { renderViewEntry } from "../../shared/render-view-entry.ts";
-import { errorMessage, packageManifest } from "../../util.ts";
+import { errorMessage } from "../../util.ts";
+import { FORM_SESSION_OWNER, type FormId } from "../../types/form.ts";
+import { acpDriver } from "./acp-driver.ts";
 import { holdPipes, releasePipes } from "./held-pipes.ts";
 import { acceptResultReport, acceptStatusReport } from "./status-report.ts";
 import { ackOutboxRow } from "./outbox.ts";
@@ -14,20 +15,41 @@ import { publishFromOrchd } from "./events.ts";
 import type { DaemonState } from "./state.ts";
 import type { AgentAdapter } from "../../types/adapter.ts";
 import type { BackendSpawnOpts } from "../../types/backend.ts";
+import type { HeldSession, HeldSessionDriver, SessionLinkEvents } from "../../types/held-session.ts";
 import type { NotifyEvent } from "../../types/notify.ts";
 
-/** Start one agent in the `acp` form on pipes orchd holds, and return where it runs. `sessionId`
- *  null opens a new session; otherwise it opens that one, by load when the binding offers it, else
- *  by resume. A load replays the whole conversation, so the session log is set aside and written
- *  anew; a load that fails puts it back. `recording` says whether the agent is new or exists. */
-export async function startAcpAgent(state: DaemonState, adapter: AgentAdapter, opts: BackendSpawnOpts, sessionId: string | null, recording: HeldRecording): Promise<LaunchedAgent> {
-  const acp = adapter.acp;
-  if (acp === null) throw new Error(`harness ${String(adapter.id)} has no acp form`);
+/** The driver each form whose session orchd holds runs on, from the role the harness declares. */
+const DRIVERS: Readonly<Record<FormId, (adapter: AgentAdapter) => HeldSessionDriver | null>> = {
+  tui: () => null,
+  oneshot: () => null,
+  acp: (adapter) => adapter.acp === null ? null : acpDriver(adapter.acp),
+  server: (adapter) => adapter.server,
+};
+
+/** The driver a harness runs on in `form`, or null when the form's session is not orchd's or the
+ *  harness declares no role for it. */
+export function sessionDriver(adapter: AgentAdapter, form: FormId): HeldSessionDriver | null {
+  return FORM_SESSION_OWNER[form] === "orchd" ? DRIVERS[form](adapter) : null;
+}
+
+/** The driver a harness runs on in `form`; throws when it has none. */
+export function requireSessionDriver(adapter: AgentAdapter, form: FormId): HeldSessionDriver {
+  const driver = sessionDriver(adapter, form);
+  if (driver === null) throw new Error(`harness ${String(adapter.id)} has no ${form} form`);
+  return driver;
+}
+
+/** Start one agent in a form whose session orchd holds, on pipes orchd keeps, and return where it
+ *  runs. `sessionId` null opens a new session; otherwise it opens that one. A load that replays the
+ *  whole conversation sets the session log aside and writes it anew; a load that fails puts it
+ *  back. `recording` says whether the agent is new or exists. */
+export async function startSessionAgent(state: DaemonState, adapter: AgentAdapter, opts: BackendSpawnOpts, sessionId: string | null, recording: HeldRecording): Promise<LaunchedAgent> {
+  const launch = requireSessionDriver(adapter, opts.form).launch(opts);
   const key = heldKeyOf(adapter, opts);
   const directory = state.directory;
   const logger = state.services.logger.forAgent(key);
   const cwd = heldCwd(opts);
-  const child = state.pipes.spawn({ argv: acp.argv(opts), cwd, env: heldLaunchEnv(opts, acp.env(opts)) });
+  const child = state.pipes.spawn({ argv: launch.argv, cwd, env: heldLaunchEnv(opts, launch.env) });
   holdPipes(key, child);
   const { cols, rows } = state.services.settings.current().pty;
   let launched: LaunchedAgent;
@@ -45,13 +67,13 @@ export async function startAcpAgent(state: DaemonState, adapter: AgentAdapter, o
   let link: AgentLink | null = null;
   let ended = false;
   const setAside: { current: SetAsideLog | null } = { current: null };
-  child.onStderr((text) => { logger.warn("acp.stderr", { text }); });
+  child.onStderr((text) => { logger.warn("held-session.stderr", { text }); });
   // One exit step that throws is logged, and the steps after it still run.
   const exitStep = (step: string, run: () => void): void => {
     try {
       run();
     } catch (error: unknown) {
-      logger.warn("acp.exit", { step, message: errorMessage(error) });
+      logger.warn("held-session.exit", { step, message: errorMessage(error) });
     }
   };
   void child.exited.then(() => {
@@ -60,7 +82,7 @@ export async function startAcpAgent(state: DaemonState, adapter: AgentAdapter, o
     exitStep("screen", () => { screen.close(); });
     exitStep("pipes", () => { releasePipes(key); });
   });
-  const events: AcpLinkEvents = {
+  const events: SessionLinkEvents = {
     onTurnStarted(deliveryId) {
       dispatchId = deliveryId;
       acceptStatusReport(directory, key, { state: "working", dispatchId: deliveryId }, publish);
@@ -93,7 +115,7 @@ export async function startAcpAgent(state: DaemonState, adapter: AgentAdapter, o
       ackOutboxRow(state, deliveryId);
     },
     onError(error) {
-      logger.error("acp.error", { message: error.message });
+      logger.error("held-session.error", { message: error.message });
       acceptStatusReport(directory, key, { lastError: error.message }, publish);
     },
     onLoad() {
@@ -103,14 +125,9 @@ export async function startAcpAgent(state: DaemonState, adapter: AgentAdapter, o
       acceptStatusReport(directory, key, { state: "idle", sessionId: newSessionId, lastText: null, lastError: null, finishedAt: null, blockedMessage: null }, publish);
     },
   };
-  let opened: AcpLink;
+  let opened: HeldSession;
   try {
-    opened = await openAcpLink({ input: child.input, output: child.output }, sessionId === null ? { kind: "new", cwd } : { kind: "existing", cwd, sessionId }, packageManifest(), events);
-    // The binding starts on its own default; the launch's model and thinking level replace it.
-    // A model the binding does not offer refuses the launch by name.
-    if (opts.model !== undefined) await opened.session.setModel(opts.model);
-    // A level the binding does not offer is skipped, as t3code does: the binding keeps its own.
-    if (opts.thinking !== undefined && !await opened.session.setThinking(opts.thinking)) logger.warn("acp.thinking-not-offered", { thinking: opts.thinking });
+    opened = await launch.open(child, sessionId === null ? { kind: "new", cwd } : { kind: "existing", cwd, sessionId }, events, { logger, settings: state.services.settings.current() });
   } catch (error: unknown) {
     releasePipes(key);
     screen.close();
@@ -123,6 +140,6 @@ export async function startAcpAgent(state: DaemonState, adapter: AgentAdapter, o
   // The process may have ended while its session opened: then nothing stays attached to it.
   if (ended) detachLink(directory, key, link);
   openSessionLog(logPath);
-  acceptStatusReport(directory, key, { state: "idle", sessionId: opened.session.sessionId, sessionPath: logPath }, publish);
+  acceptStatusReport(directory, key, { state: "idle", sessionId: opened.sessionId, sessionPath: logPath }, publish);
   return launched;
 }

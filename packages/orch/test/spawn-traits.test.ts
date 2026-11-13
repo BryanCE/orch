@@ -1,12 +1,17 @@
 import { describe, expect, test } from "bun:test";
 import { claudeAdapter } from "../src/adapters/claude.ts";
 import { codexAdapter } from "../src/adapters/codex.ts";
+import { opencodeAdapter } from "../src/adapters/opencode.ts";
 import { piAdapter } from "../src/adapters/pi.ts";
 import { harnessTraits } from "../src/daemon/server/spawn/index.ts";
 
 describe("a spawn's start-up signal follows the form", () => {
   test("an acp agent is up when its session link attaches", () => {
     expect(harnessTraits(codexAdapter, "acp").startup).toBe("bridge");
+  });
+
+  test("an opencode server agent is up when its session link attaches", () => {
+    expect(harnessTraits(opencodeAdapter, "server").startup).toBe("bridge");
   });
 
   test("a codex tui agent has no start-up signal", () => {

@@ -201,7 +201,7 @@ const AGENTS: readonly CommandSpec[] = [
       DIR, CMD, THINKING,
       { name: "--host", arity: "one", placeholder: "<host>", help: "Run the agents on this host from settings.hosts, in --dir there; inside a plexer a pane here shows each one." },
       { ...HARNESS, arity: "many", help: "Harness id: pi, omp, claude, codex. One, or one per name." },
-      { name: "--form", arity: "one", placeholder: "<tui|oneshot|acp>", help: "Form for every name: tui, oneshot, acp." },
+      { name: "--form", arity: "one", placeholder: "<tui|oneshot|acp|server>", help: "Form for every name: tui, oneshot, acp, server." },
       PLEXER,
       { ...SPACE, help: "The orch space the agents join." },
       { name: "--prompt", arity: "many", placeholder: "<text>", help: "The task text. One, or one per name." },

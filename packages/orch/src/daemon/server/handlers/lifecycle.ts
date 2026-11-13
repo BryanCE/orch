@@ -3,14 +3,14 @@ import { selfIdentityOf, spaceOfAgent } from "../../../identity/self.ts";
 import { callerKindOf } from "../../../policy/caller.ts";
 import { holdsLease } from "../../../store/lease-rows.ts";
 import { randomUUID } from "node:crypto";
-import { FORM_STDIO, type FormId } from "../../../types/form.ts";
+import { FORM_SESSION_OWNER, FORM_STDIO, type FormId } from "../../../types/form.ts";
 import { selectSpawnForm } from "../spawn/plan.ts";
 import { hostedHere } from "../../../local-process.ts";
 import { placeHere } from "../../../process-place.ts";
 import { admitModel } from "../../../policy/model.ts";
 import { resolveAdapter } from "../../../adapters/registry.ts";
 import { headlessBackend, heldBackend, startHeldAgent } from "../../../backends/registry.ts";
-import { startAcpAgent } from "../acp-agents.ts";
+import { startSessionAgent } from "../session-agents.ts";
 import { insertOutboxMessage } from "../../../store/outbox-rows.ts";
 import type { AgentAdapter } from "../../../types/adapter.ts";
 import type { BackendSpawnOpts } from "../../../types/backend.ts";
@@ -107,10 +107,11 @@ export async function spawnHeadless(state: DaemonState, params: ParamsOf<"spawn-
   return { form, key, backend: headlessBackend.id, handle: JSON.stringify(handle), process: hostedHere(running.pid, running.startToken) };
 }
 
-/** Start an agent in a form orchd holds: a PTY for `terminal`, pipes for `pipes`. */
+/** Start an agent in a form orchd holds: a PTY for a harness that owns its session, the form's
+ *  session driver on pipes for one whose session is orchd's. */
 export async function spawnHeldLaunch(state: DaemonState, adapter: AgentAdapter, opts: BackendSpawnOpts & { readonly key: string; readonly firstPrompt: string | null }): Promise<ResultOf<"spawn-headless">> {
   const form = opts.form;
-  const launched = FORM_STDIO[form] === "pipes" ? await startAcpAgent(state, adapter, opts, null, "new-agent") : await startHeldAgent(state.held, adapter, opts, "new-agent");
+  const launched = FORM_SESSION_OWNER[form] === "orchd" ? await startSessionAgent(state, adapter, opts, null, "new-agent") : await startHeldAgent(state.held, adapter, opts, "new-agent");
   // A spawn with no work idles until its first dispatch.
   if (opts.firstPrompt !== null) {
     insertOutboxMessage(state.directory, { id: randomUUID(), target: opts.key, payload: { action: "dispatch", text: opts.firstPrompt } });

@@ -14,6 +14,7 @@ import {
   type StopReason,
 } from "@agentclientprotocol/sdk";
 import type { QuestionOption } from "../types/question.ts";
+import type { SessionAsk } from "../types/held-session.ts";
 
 /** The agent process's stdin and stdout. */
 export interface AcpStreams {
@@ -28,17 +29,10 @@ export type AcpOpen =
   | { readonly kind: "load"; readonly cwd: string; readonly sessionId: string }
   | { readonly kind: "resume"; readonly cwd: string; readonly sessionId: string };
 
-/** A tool call waiting for permission. */
-export interface AcpPermissionAsk {
-  readonly toolCallId: string;
-  readonly title: string;
-  readonly options: readonly QuestionOption[];
-}
-
 /** Receives updates and answers independent permission requests. */
 export interface AcpSessionHandlers {
   onUpdate(update: SessionUpdate): void;
-  onPermission(ask: AcpPermissionAsk): Promise<string | null>;
+  onPermission(ask: SessionAsk): Promise<string | null>;
   /** Called once, before a `session/load` request replays the whole conversation as updates. */
   onLoad?(): void;
 }

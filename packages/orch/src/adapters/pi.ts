@@ -351,6 +351,7 @@ export abstract class PiBridgeAdapter {
   readonly bridge: BridgeRole = { takes: ["dispatch", "steer", "answer", "model"] };
   readonly hooks = null;
   readonly acp = null;
+  readonly server = null;
   readonly resume = {
     argv: (opts: SpawnOpts, sessionId: string): readonly string[] => [...this.interactiveArgv(opts), this.resumeFlag, sessionId],
   };

@@ -225,6 +225,10 @@ const ADAPTER_WIRE_LITERALS: readonly { readonly owner: string; readonly literal
   { owner: "claude", literal: "Stop" },
   { owner: "claude", literal: "Notification" },
   { owner: "claude", literal: "claude-hooks" },
+  { owner: "opencode", literal: "session.execution.started" },
+  { owner: "opencode", literal: "session.execution.succeeded" },
+  { owner: "opencode", literal: "session.execution.failed" },
+  { owner: "opencode", literal: "permission.asked" },
 ];
 
 function quotedLiteralPattern(literal: string): RegExp {

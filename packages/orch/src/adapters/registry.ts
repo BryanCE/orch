@@ -3,11 +3,12 @@ import { piAdapter } from "./pi.ts";
 import { ompAdapter } from "./omp.ts";
 import { codexAdapter } from "./codex.ts";
 import { claudeAdapter } from "./claude.ts";
+import { opencodeAdapter } from "./opencode.ts";
 import type { AgentAdapter } from "../types/adapter.ts";
 import type { OrchDir } from "../types/core.ts";
 import type { OrchSettings } from "../types/settings.ts";
 
-const adapters: readonly AgentAdapter[] = [piAdapter, ompAdapter, codexAdapter, claudeAdapter];
+const adapters: readonly AgentAdapter[] = [piAdapter, ompAdapter, codexAdapter, claudeAdapter, opencodeAdapter];
 
 /** Return every registered agent adapter in registration order. */
 export function allAdapters(): readonly AgentAdapter[] {

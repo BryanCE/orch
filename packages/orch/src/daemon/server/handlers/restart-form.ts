@@ -10,20 +10,20 @@ import { setForm } from "../../../store/interval-rows.ts";
 import { whileSwappingProcess } from "../../../presence/store.ts";
 import { isThinkingLevel } from "../../../policy/thinking.ts";
 import { FORM_STDIO, offersForm, type FormId } from "../../../types/form.ts";
-import { startAcpAgent } from "../acp-agents.ts";
-import { probeBinding } from "../acp-probe.ts";
+import { sessionDriver, startSessionAgent } from "../session-agents.ts";
 import { heldPipes, releasePipes } from "../held-pipes.ts";
 import { reclaim } from "./lifecycle.ts";
-import type { AcpRole, AgentAdapter, ResumeRole } from "../../../types/adapter.ts";
+import type { AgentAdapter, ResumeRole } from "../../../types/adapter.ts";
+import type { HeldSessionDriver } from "../../../types/held-session.ts";
 import type { BackendSpawnOpts } from "../../../types/backend.ts";
 import type { AgentView } from "../../../types/store.ts";
 import type { HeldTerminal } from "../../../types/pty.ts";
 import type { HereAgent } from "../../../types/agent-place.ts";
 import type { DaemonState } from "../state.ts";
 
-/** What a form needs from its harness: a binding on pipes, or a resume argv for a terminal. */
+/** What a form needs from its harness: a session driver on pipes, or a resume argv for a terminal. */
 type FormRole =
-  | { readonly stdio: "pipes"; readonly role: AcpRole }
+  | { readonly stdio: "pipes"; readonly driver: HeldSessionDriver }
   | { readonly stdio: "terminal"; readonly role: ResumeRole };
 
 /** What a restart in a held form leaves to its caller. */
@@ -35,8 +35,10 @@ export interface FormRestart {
 
 function formRole(adapter: AgentAdapter, form: FormId): FormRole | null {
   switch (FORM_STDIO[form]) {
-    case "pipes":
-      return adapter.acp === null ? null : { stdio: "pipes", role: adapter.acp };
+    case "pipes": {
+      const driver = sessionDriver(adapter, form);
+      return driver === null ? null : { stdio: "pipes", driver };
+    }
     case "terminal":
       return adapter.resume === null ? null : { stdio: "terminal", role: adapter.resume };
     case "none":
@@ -66,10 +68,9 @@ function restartOpts(state: DaemonState, adapter: AgentAdapter, agent: HereAgent
   };
 }
 
-/** Refuse unless the binding offers to reopen a session, by a probe on a process of its own. */
-async function requireReopen(state: DaemonState, view: AgentView, adapter: AgentAdapter, form: FormId, acp: AcpRole): Promise<void> {
-  const offered = await probeBinding(state.pipes, acp, state.services.settings.current().timeouts.acp_probe_ms).catch(() => null);
-  if (offered === null || (!offered.load && !offered.resume)) throw new Error(`cannot switch ${view.name} to ${form}: the ${adapter.id} binding does not offer session load`);
+/** Refuse unless the form's driver can reopen a recorded session. */
+async function requireReopen(state: DaemonState, view: AgentView, adapter: AgentAdapter, form: FormId, driver: HeldSessionDriver): Promise<void> {
+  if (!await driver.reopens(state.pipes, state.services.settings.current())) throw new Error(`cannot switch ${view.name} to ${form}: the ${adapter.id} binding does not offer session load`);
 }
 
 /** End the agent's process and its channel, and wait until orchd holds nothing under its key. */
@@ -116,9 +117,9 @@ export async function restartPipes(state: DaemonState, agent: HereAgent, adapter
   const opts = restartOpts(state, adapter, agent, view, view.form);
   if (sessionId !== null) {
     const role = formRole(adapter, view.form);
-    if (role?.stdio === "pipes") await requireReopen(state, view, adapter, view.form, role.role);
+    if (role?.stdio === "pipes") await requireReopen(state, view, adapter, view.form, role.driver);
   }
-  await swapProcess(state, agent, null, () => startAcpAgent(state, adapter, opts, sessionId, "existing-agent"));
+  await swapProcess(state, agent, null, () => startSessionAgent(state, adapter, opts, sessionId, "existing-agent"));
   return { awaitBridge: false };
 }
 
@@ -134,9 +135,11 @@ async function planSwitch(state: DaemonState, view: AgentView, adapter: AgentAda
   }
   const sessionId = selectAgentStatus(state.directory, view.id)?.sessionId ?? null;
   if (sessionId === null) throw new Error(`cannot switch ${view.name} to ${form}: no session id is recorded`);
-  if (adapter.acp?.sharesSessions !== true) throw new Error(`cannot switch ${view.name} to ${form}: the ${adapter.id} binding does not share sessions with its TUI`);
+  // The orchd-held side of the switch says whether the harness's terminal program reads its sessions.
+  const held = target.stdio === "pipes" ? target.driver : view.form === null ? null : sessionDriver(adapter, view.form);
+  if (held?.sharesSessions !== true) throw new Error(`cannot switch ${view.name} to ${form}: the ${adapter.id} binding does not share sessions with its TUI`);
   if (target.stdio === "pipes") {
-    await requireReopen(state, view, adapter, form, target.role);
+    await requireReopen(state, view, adapter, form, target.driver);
   }
   return { target, sessionId };
 }
@@ -148,7 +151,7 @@ export async function switchForm(state: DaemonState, agent: HereAgent, adapter: 
   const { target, sessionId } = await planSwitch(state, view, adapter, form);
   switch (target.stdio) {
     case "pipes":
-      await swapProcess(state, agent, form, () => startAcpAgent(state, adapter, opts, sessionId, "existing-agent"));
+      await swapProcess(state, agent, form, () => startSessionAgent(state, adapter, opts, sessionId, "existing-agent"));
       return { awaitBridge: false };
     case "terminal": {
       const [file, ...args] = target.role.argv(opts, sessionId);

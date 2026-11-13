@@ -119,6 +119,7 @@ export class CodexAdapter implements AgentAdapter {
     sharesSessions: false,
     install: { install: { linux: CODEX_ACP_INSTALL, darwin: CODEX_ACP_INSTALL, windows: CODEX_ACP_INSTALL }, needs: ["bun"] },
   };
+  readonly server = null;
   readonly resume = {
     argv: (opts: SpawnOpts, sessionId: string): readonly string[] => [...this.interactiveArgv(opts), "resume", sessionId],
   };

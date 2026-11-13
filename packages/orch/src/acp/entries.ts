@@ -1,5 +1,6 @@
 import type { SessionUpdate, StopReason, ToolCallUpdate } from "@agentclientprotocol/sdk";
-import type { SessionView, SessionViewEntry } from "../types/adapter.ts";
+import type { SessionViewEntry } from "../types/adapter.ts";
+import type { TurnOutcome } from "../types/held-session.ts";
 
 /** Turns session updates into entries, joining consecutive chunks of one message. */
 export interface AcpEntryBuilder {
@@ -78,14 +79,8 @@ export function acpEntryBuilder(): AcpEntryBuilder {
   };
 }
 
-/** The presence outcome of a completed protocol turn. */
-export interface AcpOutcome {
-  readonly state: Extract<SessionView["state"], "done" | "aborted" | "error">;
-  readonly error: string | null;
-}
-
 /** Maps every protocol stop reason to a presence outcome. */
-export function outcomeOf(stop: StopReason): AcpOutcome {
+export function outcomeOf(stop: StopReason): TurnOutcome {
   switch (stop) {
     case "end_turn": return { state: "done", error: null };
     case "cancelled": return { state: "aborted", error: null };

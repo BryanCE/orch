@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { methods } from "@agentclientprotocol/sdk";
-import { openAcpLink, type AcpLink, type AcpLinkEvents } from "../src/acp/link.ts";
-import type { AcpPermissionAsk } from "../src/acp/session.ts";
+import { openAcpLink, type AcpLink } from "../src/acp/link.ts";
+import type { SessionAsk, SessionLinkEvents } from "../src/types/held-session.ts";
 import type { BridgeDelivery, BridgeMessage } from "../src/shared/bridge-message.ts";
 import {
   chunk,
@@ -40,11 +40,11 @@ function recorder() {
     if (log.includes(line)) resolve();
     else waiters.push({ line, resolve });
   });
-  const events: AcpLinkEvents = {
+  const events: SessionLinkEvents = {
     onTurnStarted: (id) => record(`started:${id}`),
     onEntries: (entries) => record(`entries:${JSON.stringify(entries)}`),
     onTurnEnded: (outcome, text) => record(`ended:${outcome.state}:${text}`),
-    onAsk: (ask: AcpPermissionAsk) => {
+    onAsk: (ask: SessionAsk) => {
       record(`ask:${ask.toolCallId}`);
       return ask.toolCallId;
     },
@@ -57,7 +57,7 @@ function recorder() {
   return { log, events, seen };
 }
 
-async function open(fake: ReturnType<typeof fakeAcpAgent>, events: AcpLinkEvents): Promise<AcpLink> {
+async function open(fake: ReturnType<typeof fakeAcpAgent>, events: SessionLinkEvents): Promise<AcpLink> {
   const opened = await openAcpLink(fake.streams, { kind: "new", cwd }, info, events);
   links.push(opened);
   return opened;

@@ -29,6 +29,8 @@ export const HARNESS_SESSION_ENV = {
   codex: { marker: "CODEX_PID", sessionPid: "CODEX_PID" },
   /** Claude Code exports CLAUDECODE=1, its per-session UUID, and its own pid. */
   claude: { marker: "CLAUDECODE", sessionId: "CLAUDE_CODE_SESSION_ID", sessionPid: "CLAUDE_PID" },
+  /** opencode exports OPENCODE=1 and its per-session id into every shell its agent runs. */
+  opencode: { marker: "OPENCODE", sessionId: "OPENCODE_SESSION_ID" },
 } as const;
 
 /** Env vars orch's own shims read, independent of any harness. */

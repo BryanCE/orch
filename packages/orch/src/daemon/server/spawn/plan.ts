@@ -81,7 +81,7 @@ export function selectSpawnForm(requested: FormId | null, defaults: OrchSettings
     if (form === null) throw new SpawnRefusalError(`no backend here runs a native form`);
     return { form, backend };
   }
-  const supported: Record<FormId, boolean> = { tui: true, oneshot: true, acp: adapter.acp !== null };
+  const supported: Record<FormId, boolean> = { tui: true, oneshot: true, acp: adapter.acp !== null, server: adapter.server !== null };
   if (!supported[selected]) throw new SpawnRefusalError(`harness ${adapter.id} has no ${selected} form`);
   const compatible = offersForm(backend.offers, selected);
   if (compatible) return { form: selected, backend };

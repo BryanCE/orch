@@ -6,6 +6,7 @@ import { piAdapter } from "../src/adapters/pi.ts";
 import { ompAdapter } from "../src/adapters/omp.ts";
 import { claudeAdapter } from "../src/adapters/claude.ts";
 import { codexAdapter } from "../src/adapters/codex.ts";
+import { opencodeAdapter } from "../src/adapters/opencode.ts";
 
 describe("adapter role composition", () => {
   test.each([
@@ -13,6 +14,7 @@ describe("adapter role composition", () => {
     { adapter: ompAdapter, flag: "--resume" },
     { adapter: claudeAdapter, flag: "--resume" },
     { adapter: codexAdapter, flag: "resume" },
+    { adapter: opencodeAdapter, flag: "--session" },
   ])("$adapter.id resumes a terminal conversation by id", ({ adapter, flag }) => {
     const opts = { model: "test-model" };
     const sessionId = "conversation-id";
@@ -40,6 +42,7 @@ describe("adapter role composition", () => {
     expect(roles.get("pi")).toEqual({ thinking: true, workerLaunch: true, modelControl: true, lifecycleControl: true, sessionView: true, workspaceTrust: true, shim: true, defaultModel: true, models: true, modelWarm: true, compaction: true });
     expect(roles.get("omp")).toEqual({ thinking: false, workerLaunch: true, modelControl: true, lifecycleControl: true, sessionView: true, workspaceTrust: false, shim: true, defaultModel: true, models: true, modelWarm: true, compaction: false });
     expect(roles.get("claude")).toEqual({ thinking: true, workerLaunch: false, modelControl: false, lifecycleControl: true, sessionView: true, workspaceTrust: false, shim: true, defaultModel: false, models: true, modelWarm: true, compaction: true });
+    expect(roles.get("opencode")).toEqual({ thinking: false, workerLaunch: false, modelControl: false, lifecycleControl: false, sessionView: false, workspaceTrust: false, shim: false, defaultModel: false, models: true, modelWarm: true, compaction: false });
     expect(roles.get("codex")).toEqual({ thinking: false, workerLaunch: false, modelControl: false, lifecycleControl: false, sessionView: true, workspaceTrust: false, shim: true, defaultModel: false, models: true, modelWarm: false, compaction: true });
   });
 

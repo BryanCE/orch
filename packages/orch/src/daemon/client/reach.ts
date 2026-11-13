@@ -27,8 +27,8 @@ import { settingsPath } from "../../settings/schema.ts";
 import { isRegisterSessionResponse, sessionClaim } from "./registration.ts";
 import { DaemonAbsentError, DaemonUnreachableError, DEFAULT_TIMEOUT_MS, RpcError } from "./wire.ts";
 import { rpcCall } from "./rpc.ts";
-import type { Logger } from "../../types/core.ts";
-import { errorMessage, pidAlive, sleep } from "../../util.ts";
+import type { Logger, LogRecord } from "../../types/core.ts";
+import { collapse, errorMessage, pidAlive, sleep } from "../../util.ts";
 import type { RegisterSessionResponse } from "../../types/daemon.ts";
 
 /** The pid in the daemon lock, once the lifecycle layer has vetted the record.
@@ -88,8 +88,14 @@ export function starvedDaemonRefusal(directory: OrchDir, lockPid: number | undef
 /** How far back the log is read for the one line that says why orchd went. */
 const LOG_TAIL_BYTES = 4_096;
 
-/** The last line orchd logged, read from the tail so a long log stays cheap. */
-export function lastDaemonLogLine(directory: OrchDir): string | null {
+/** One record as one line a human reads: its event, and the message a crash carries. */
+function describeRecord(record: LogRecord): string {
+  const message = record.fields?.message;
+  return typeof message === "string" ? `${record.event}: ${collapse(message)}` : record.event;
+}
+
+/** What orchd logged last, read from the tail so a long log stays cheap. */
+export function lastDaemonEvent(directory: OrchDir): string | null {
   const file = logFile(directory);
   try {
     const size = statSync(file).size;
@@ -106,7 +112,7 @@ export function lastDaemonLogLine(directory: OrchDir): string | null {
     for (let index = lines.length - 1; index >= 0; index--) {
       try {
         const parsed: unknown = JSON.parse(lines[index]!);
-        if (isLogRecord(parsed) && parsed.proc === "orchd") return lines[index]!;
+        if (isLogRecord(parsed) && parsed.proc === "orchd") return describeRecord(parsed);
       } catch { /* malformed tail line */ }
     }
     return null;
@@ -120,8 +126,8 @@ export function lastDaemonLogLine(directory: OrchDir): string | null {
  *  timeout: that wording sends the operator to the log to learn what orch already knew. */
 function departedDaemonRefusal(directory: OrchDir, lockPid: number | undefined): string {
   const owner = lockPid === undefined ? "orchd holds no lock and nothing answered" : `orchd pid ${lockPid} is not running`;
-  const lastLine = lastDaemonLogLine(directory);
-  return `${owner}; its endpoint is stale, not busy. ${lastLine ? `Last log line: ${lastLine}. ` : ""}`
+  const lastEvent = lastDaemonEvent(directory);
+  return `${owner}; its endpoint is stale, not busy. ${lastEvent ? `orchd last logged ${lastEvent}. ` : ""}`
     + `Start a fresh one with 'orch daemon start'; ${logFile(directory)} has the rest.`;
 }
 
@@ -184,7 +190,7 @@ export async function ensureDaemon(directory: OrchDir, logger: Logger): Promise<
   const started = await awaitDaemonProbe(directory, Date.now() + START_GRACE_MS);
   if (started === "answered") return;
   if (started === "unreachable") throw new Error(unreachableRefusal(directory));
-  throw new DaemonAbsentError(directory, lastDaemonLogLine(directory));
+  throw new DaemonAbsentError(directory, lastDaemonEvent(directory));
 }
 
 /** Reach orchd, or warn and carry on. For the commands specified to work with the
@@ -201,7 +207,7 @@ export async function ensureDaemonOrWarn(directory: OrchDir, logger: Logger): Pr
 
 /** Translate daemon liveness failures once at the command boundary. */
 export function translateDaemonError(directory: OrchDir, error: unknown): unknown {
-  if (error instanceof DaemonAbsentError) return new Error(`orch daemon unavailable; run 'orch daemon start': ${errorMessage(error)}`);
+  if (error instanceof DaemonAbsentError) return new Error(`orch daemon unavailable; ${error.lastEvent === null ? "run 'orch daemon start'" : "orchd did not start"}: ${errorMessage(error)}`);
   if (error instanceof DaemonUnreachableError) return new Error(unreachableRefusal(directory));
   return error;
 }

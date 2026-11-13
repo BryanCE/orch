@@ -22,10 +22,13 @@ import {
 /** Nothing holds the endpoint: every dial was refused or found no endpoint at all. */
 export class DaemonAbsentError extends Error {
   readonly code = "DAEMON_ABSENT";
+  /** What orchd logged last when a start was tried and failed; null when no start was tried. */
+  readonly lastEvent: string | null;
 
-  constructor(orchDir: OrchDir, lastLogLine: string | null = null) {
-    super(`orchd daemon is absent (${orchDir})${lastLogLine === null ? "" : `; last log line: ${lastLogLine}`}`);
+  constructor(orchDir: OrchDir, lastEvent: string | null = null) {
+    super(`orchd daemon is absent (${orchDir})${lastEvent === null ? "" : `; orchd last logged ${lastEvent}`}`);
     this.name = "DaemonAbsentError";
+    this.lastEvent = lastEvent;
   }
 }
 

@@ -67,7 +67,7 @@ export async function cmdDoctor(services: DaemonClient, args: string[]) {
     process.stdout.write(JSON.stringify({ results, changes }, null, 2) + "\n");
   } else {
     const rows = results.map((r) => [r.status.toUpperCase(), r.label, r.detail]);
-    process.stdout.write(renderTable(["STATUS", "CHECK", "DETAIL"], rows, [8, 24, 80]) + "\n");
+    process.stdout.write(renderTable(["STATUS", "CHECK", "DETAIL"], rows, [8, 24]) + "\n");
     if (changes.length) process.stdout.write("Changes made:\n" + changes.map((c) => `  - ${c}`).join("\n") + "\n");
   }
   failExit(results);

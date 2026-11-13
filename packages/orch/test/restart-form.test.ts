@@ -93,7 +93,7 @@ async function launch(harness: Harness, form: FormId, sessionId: string | null, 
   attached.push({ directory: harness.orchDir, key });
   await spawnHeldLaunch(harness.state, ADAPTER, {
     form, key, name: "switcher", spawner, orchDir: harness.orchDir, cwd: harness.orchDir,
-    model: "acp-model", thinking: "medium", firstPrompt: null,
+    model: "next", thinking: "medium", firstPrompt: null,
   });
   if (sessionId !== null) acceptStatusReport(harness.orchDir, key, { sessionId }, () => undefined);
   return key;

@@ -17,7 +17,7 @@ import type { CallerCredential } from "../src/types/core.ts";
 import type { HostGreeting } from "../src/types/host.ts";
 import { stampGovernance } from "../src/daemon/server/governance.ts";
 import type { Governance } from "../src/daemon/client/protocol.ts";
-import { acpProgram, chunk, defaultFakeScript, fakeAcpAgent, permission, turn, type FakeAcpScript } from "./helpers/fake-acp-agent.ts";
+import { acpProgram, chunk, defaultFakeScript, fakeAcpAgent, modelSelector, permission, turn, type FakeAcpScript } from "./helpers/fake-acp-agent.ts";
 import { HELD_FAR_CATALOGUE, nearOrchd, type NearOrchd } from "./helpers/held-far.ts";
 import { testHost } from "./helpers/host.ts";
 import { startFarOrchd, type FarOrchd } from "./helpers/far-orchd.ts";
@@ -45,7 +45,7 @@ function greeting(id: string): HostGreeting {
 }
 
 async function acpThere(id: string, turns: FakeAcpScript["turns"]) {
-  const agent = fakeAcpAgent(defaultFakeScript({ turns }));
+  const agent = fakeAcpAgent(defaultFakeScript({ turns, configOptions: [modelSelector(["gpt-5.6-luna"])] }));
   const program = acpProgram(agent);
   const far = await startFarOrchd(greeting(id), { models: HELD_FAR_CATALOGUE, pipes: program.pipes });
   fars.push(far);

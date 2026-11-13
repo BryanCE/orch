@@ -162,6 +162,31 @@ describe("ACP link", () => {
   });
 });
 
+describe("ACP link reset", () => {
+  test("a reset starts a fresh session and reports its id", async () => {
+    const fake = setup();
+    const rec = recorder();
+    const { link, session } = await open(fake, rec.events);
+    if (link.reset === null) throw new Error("an ACP link offers reset");
+    await link.reset();
+    expect(rec.log).toEqual(["reset:test-session-2"]);
+    expect(session.sessionId).toBe("test-session-2");
+  });
+
+  test("a reset during a turn is refused and leaves the session alone", async () => {
+    const fake = setup({ turns: [turn({ waitForCancel: true, stopReason: "cancelled" })] });
+    const rec = recorder();
+    const { link } = await open(fake, rec.events);
+    link.push(delivery("d1", { action: "dispatch", text: "work" }));
+    await rec.seen("started:d1");
+    if (link.reset === null) throw new Error("an ACP link offers reset");
+    expect(link.reset()).rejects.toThrow("a turn is running");
+    expect(fake.received.filter((item) => item.method === methods.agent.session.new)).toHaveLength(1);
+    link.abort?.();
+    await rec.seen("ended:aborted:");
+  });
+});
+
 describe("ACP link after close", () => {
   test("a dispatch pushed after close reports the closed link once and applies nothing", async () => {
     const fake = setup();

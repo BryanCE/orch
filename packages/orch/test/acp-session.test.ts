@@ -14,6 +14,7 @@ import {
   chunk,
   defaultFakeScript,
   fakeAcpAgent,
+  modelSelector,
   permission,
   turn,
   type FakeAcpScript,
@@ -220,5 +221,66 @@ describe("ACP session", () => {
     await session.close();
     await session.ended;
     expect(fake.received.map((request) => request.method)).toEqual([methods.agent.initialize, methods.agent.session.new]);
+  });
+});
+
+/** A thought-level option offering `values`, the first one selected. */
+const effort = (values: readonly string[]) => ({
+  id: "reasoning_effort", name: "Effort", category: "thought_level", type: "select" as const,
+  currentValue: values[0] ?? "", options: values.map((value) => ({ value, name: value })),
+});
+
+const configCalls = (fake: ReturnType<typeof fakeAcpAgent>) =>
+  fake.received.filter((request) => request.method === methods.agent.session.setConfigOption).map((request) => request.params);
+
+describe("ACP session options", () => {
+  test("a model the agent does not offer throws by name and sends nothing", async () => {
+    const fake = setup();
+    const session = await openAcpSession(fake.streams, { kind: "new", cwd }, handlers(), info);
+    expect(session.setModel("gpt-other")).rejects.toThrow("Agent offers no model gpt-other; it offers first, next");
+    await session.setModel("first");
+    expect(configCalls(fake)).toEqual([]);
+    await session.close();
+  });
+
+  test("a thinking level is selected when offered and skipped, with nothing sent, when not", async () => {
+    const fake = setup({ configOptions: [modelSelector(["first"]), effort(["low", "high"])] });
+    const session = await openAcpSession(fake.streams, { kind: "new", cwd }, handlers(), info);
+    expect(await session.setThinking("off")).toBe(false);
+    expect(await session.setThinking("high")).toBe(true);
+    expect(configCalls(fake)).toEqual([{ sessionId, configId: "reasoning_effort", value: "high" }]);
+    await session.close();
+  });
+
+  test("an agent with no thinking option takes no level", async () => {
+    const fake = setup();
+    const session = await openAcpSession(fake.streams, { kind: "new", cwd }, handlers(), info);
+    expect(await session.setThinking("high")).toBe(false);
+    expect(configCalls(fake)).toEqual([]);
+    await session.close();
+  });
+
+  test("a config_option_update replaces the options the session selects from", async () => {
+    const update: SessionUpdate = { sessionUpdate: "config_option_update", configOptions: [modelSelector(["first", "late"])] };
+    const fake = setup({ turns: [turn({ updates: [update] })] });
+    const session = await openAcpSession(fake.streams, { kind: "new", cwd }, handlers(), info);
+    await session.prompt("hi");
+    await session.setModel("late");
+    expect(configCalls(fake)).toEqual([{ sessionId, configId: "model-selector", value: "late" }]);
+    await session.close();
+  });
+
+  test("renew opens a fresh session, carries the selected model over, and closes the old one", async () => {
+    const fake = setup();
+    const session = await openAcpSession(fake.streams, { kind: "new", cwd }, handlers(), info);
+    await session.setModel("next");
+    expect(await session.renew()).toBe(`${sessionId}-2`);
+    expect(session.sessionId).toBe(`${sessionId}-2`);
+    expect(fake.received.slice(-3)).toEqual([
+      { method: methods.agent.session.new, params: { cwd, mcpServers: [] } },
+      { method: methods.agent.session.setConfigOption, params: { sessionId: `${sessionId}-2`, configId: "model-selector", value: "next" } },
+      { method: methods.agent.session.close, params: { sessionId } },
+    ]);
+    await session.close();
   });
 });

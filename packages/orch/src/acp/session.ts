@@ -67,9 +67,10 @@ export interface AcpSession {
   setMode(modeId: string): Promise<void>;
   /** Selects one of the values the agent's model option offers; any other value throws. */
   setModel(value: string): Promise<void>;
-  /** Selects a thinking level the agent's thought-level option offers. An agent with no such
-   *  option for the current model takes none and keeps its own; a level it does not offer throws. */
-  setThinking(level: string): Promise<void>;
+  /** Selects a thinking level the agent's thought-level option offers. Answers false, and sends
+   *  nothing, when the agent has no such option for the current model or does not offer the level:
+   *  it keeps its own. */
+  setThinking(level: string): Promise<boolean>;
   /** Starts a fresh conversation on the same connection, carrying over every selected option,
    *  model first. Closes the old one when the agent offers close. Answers the new session id. */
   renew(): Promise<string>;
@@ -161,6 +162,13 @@ export async function openAcpSession(
 ): Promise<AcpSession> {
   let sessionId: string | null = open.kind === "new" ? null : open.sessionId;
   let earlyUpdates: SessionNotification[] = [];
+  /** The agent's config options as it last reported them: set by every response that carries
+   *  them and by each `config_option_update`. */
+  let options: readonly SessionConfigOption[] = [];
+  const observe = (update: SessionUpdate): void => {
+    if (update.sessionUpdate === "config_option_update") options = update.configOptions;
+    handlers.onUpdate(update);
+  };
   const asks = new Set<() => void>();
   const cancelAsks = () => {
     for (const cancel of asks) cancel();
@@ -168,7 +176,7 @@ export async function openAcpSession(
   const app = client({ name: info.name });
   app.onNotification(methods.client.session.update, ({ params }) => {
     if (sessionId === null) earlyUpdates.push(params);
-    else if (params.sessionId === sessionId) handlers.onUpdate(params.update);
+    else if (params.sessionId === sessionId) observe(params.update);
   });
   app.onRequest(methods.client.session.requestPermission, async ({ params }) => {
     if (sessionId !== null && params.sessionId !== sessionId) {
@@ -228,11 +236,11 @@ export async function openAcpSession(
     }
     if (sessionId === null) throw new Error("Agent did not return a session id");
     let id = sessionId;
+    options = response.configOptions ?? [];
     for (const notification of earlyUpdates) {
-      if (notification.sessionId === id) handlers.onUpdate(notification.update);
+      if (notification.sessionId === id) observe(notification.update);
     }
     earlyUpdates = [];
-    let options: readonly SessionConfigOption[] = response.configOptions ?? [];
     const offer: AcpOffer = {
       load,
       resume,
@@ -286,7 +294,9 @@ export async function openAcpSession(
       },
       async setThinking(level) {
         const option = optionOf(THOUGHT_LEVEL);
-        if (option !== undefined) await select(option, level, "thinking level");
+        if (option === undefined || !selectValues(option).includes(level)) return false;
+        await select(option, level, "thinking level");
+        return true;
       },
       async renew() {
         if (prompting) throw new Error("An ACP prompt is running; cancel it before starting a new conversation");

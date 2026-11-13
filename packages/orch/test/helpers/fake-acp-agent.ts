@@ -131,6 +131,16 @@ export function fakeAcpAgent(script: FakeAcpScript) {
   return { streams, received, permissions, connection };
 }
 
+/** A model selector offering `values`, the first one selected, as a binding reports it. */
+export function modelSelector(values: readonly string[]): SessionConfigOption {
+  const [first] = values;
+  if (first === undefined) throw new Error("a model selector offers at least one model");
+  return {
+    id: "model-selector", name: "Model", category: "model", type: "select",
+    currentValue: first, options: values.map((value) => ({ value, name: value })),
+  };
+}
+
 /** The default script: a load-capable session with one model selector, replacing any field the overrides set. */
 export function defaultFakeScript(overrides: Partial<FakeAcpScript> = {}): FakeAcpScript {
   return {
@@ -139,10 +149,7 @@ export function defaultFakeScript(overrides: Partial<FakeAcpScript> = {}): FakeA
       agentCapabilities: { loadSession: true, sessionCapabilities: { resume: {}, close: {} } },
     },
     sessionId: "test-session",
-    configOptions: [{
-      id: "model-selector", name: "Model", category: "model", type: "select",
-      currentValue: "first", options: [{ value: "first", name: "First" }, { value: "next", name: "Next" }],
-    }],
+    configOptions: [modelSelector(["first", "next"])],
     replay: [],
     turns: [],
     ...overrides,

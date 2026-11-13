@@ -106,10 +106,11 @@ export async function startAcpAgent(state: DaemonState, adapter: AgentAdapter, o
   let opened: AcpLink;
   try {
     opened = await openAcpLink({ input: child.input, output: child.output }, sessionId === null ? { kind: "new", cwd } : { kind: "existing", cwd, sessionId }, packageManifest(), events);
-    // The binding starts on its own default; the launch's model and thinking level replace it,
-    // and a value the binding does not offer refuses the launch by name.
+    // The binding starts on its own default; the launch's model and thinking level replace it.
+    // A model the binding does not offer refuses the launch by name.
     if (opts.model !== undefined) await opened.session.setModel(opts.model);
-    if (opts.thinking !== undefined) await opened.session.setThinking(opts.thinking);
+    // A level the binding does not offer is skipped, as t3code does: the binding keeps its own.
+    if (opts.thinking !== undefined && !await opened.session.setThinking(opts.thinking)) logger.warn("acp.thinking-not-offered", { thinking: opts.thinking });
   } catch (error: unknown) {
     releasePipes(key);
     screen.close();

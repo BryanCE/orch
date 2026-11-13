@@ -69,7 +69,7 @@ async function launch(harness: Harness, key: string, firstPrompt: string | null)
   attached.push({ directory: harness.orchDir, key });
   await spawnHeldLaunch(harness.state, ADAPTER, {
     form: "acp", key, name: "acp-worker", spawner: null, orchDir: harness.orchDir, cwd: harness.orchDir,
-    model: "acp-model", thinking: "medium", firstPrompt,
+    model: "next", thinking: "medium", firstPrompt,
   });
 }
 

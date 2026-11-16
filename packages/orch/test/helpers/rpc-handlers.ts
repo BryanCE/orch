@@ -95,6 +95,7 @@ export function stubRpcHandlers(overrides: Partial<RpcHandlers> = {}): RpcHandle
     "close-targets": notStubbed,
     "owned-agents": notStubbed,
     orphans: notStubbed,
+    orchs: notStubbed,
     question: notStubbed,
     questions: notStubbed,
     ack: notStubbed,

@@ -68,7 +68,7 @@ interface TextCommand {
   readonly text: string;
 }
 
-function parseTextCommand(verb: "steer" | "answer", args: string[]): TextCommand {
+export function parseTextCommand(verb: "steer" | "answer" | "message", args: string[]): TextCommand {
   const invocation = parseCommand(verb, args);
   const { flags, positional } = invocation;
   const target = positional[0];

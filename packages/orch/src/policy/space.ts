@@ -33,7 +33,7 @@ export function operatorControls(
  * directory outside any repository is its own boundary, which is the honest
  * answer rather than widening to the filesystem.
  */
-function repoRootOf(cwd: string | null | undefined): string | null {
+export function repoRootOf(cwd: string | null | undefined): string | null {
   if (cwd === null || cwd === undefined || cwd.length === 0) return null;
   return repositoryRootOf(cwd) ?? resolve(cwd);
 }

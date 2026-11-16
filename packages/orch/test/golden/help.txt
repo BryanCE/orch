@@ -4,6 +4,7 @@ orch - the single controller for coding agents, in any plexer.
 OBSERVE
   orch status [flags]                           Fleet table with cost and context. The default command.
   orch whoami                                   Who orch sees as the caller in this terminal.
+  orch orchs                                    The other live leading orchs, and the project each works in. Needs fleet.orch_peers.
   orch monitor [flags]                          Push stream of the states an orch acts on. Arm it as a Monitor.
   orch events [flags]                           Every state transition, mid-turn flips included.
   orch questions [flags]                        Agents blocked on a question.
@@ -17,6 +18,7 @@ DISPATCH
   orch steer <target> <text...> [flags]         Mid-run instruction. The reply says if it applied.
   orch broadcast "<text>" <target>... | --all [flags]
                                                 Steer several.
+  orch message <orch> <text...>                 Talk to another leading orch: by name, id, or project. Needs fleet.orch_peers.
   orch pipe <target> <target> ["<instruction>"] Hand the first agent's result to the second.
   orch model <target> <model[:thinking]> [flags]
                                                 Change the model.

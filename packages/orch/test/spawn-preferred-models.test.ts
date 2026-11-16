@@ -57,7 +57,7 @@ const settings = (preferred: string[]): OrchSettings => ({
   denied_commands: { commands: [], applies_to: ["slave"] },
   settings_file: { typo_max_edits: 2 },
   defaults: { ...SETTINGS_DEFAULTS.defaults, models: {} },
-  fleet: { worker_peer_tools: false, max_agents_per_pack: 10, max_agents_per_tab: 4, max_depth: 1, cross_space: false, max_agents_per_space: {}, min_free_memory_mb: 2048 },
+  fleet: { worker_peer_tools: false, max_agents_per_pack: 10, max_agents_per_tab: 4, max_depth: 1, cross_space: false, orch_peers: false, max_agents_per_space: {}, min_free_memory_mb: 2048 },
   models: { allowed: {}, preferred: { pi: preferred } },
   workers: { inherit_extensions: false, exclude_extensions: {}, builtin_tools: true, allow_tools: [], verify_commands: [], compact_at_tokens: {} },
   queue: { max_retries: 1, dispatch_concurrency: 4 },

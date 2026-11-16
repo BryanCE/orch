@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { availableMemoryMb, formatMemoryLine, memoryRefusal } from "../src/policy/memory.ts";
 
-const settings = { fleet: { max_agents_per_pack: 10, max_agents_per_tab: 4, max_depth: 1, max_agents_per_space: {}, min_free_memory_mb: 2048, worker_peer_tools: false, cross_space: false } };
+const settings = { fleet: { max_agents_per_pack: 10, max_agents_per_tab: 4, max_depth: 1, max_agents_per_space: {}, min_free_memory_mb: 2048, worker_peer_tools: false, cross_space: false, orch_peers: false } };
 
 describe("spawn memory floor", () => {
   // Fifteen live agents on one host drove free memory to zero before any count cap was reached.

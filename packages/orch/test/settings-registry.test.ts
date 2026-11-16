@@ -96,6 +96,7 @@ function completeSettings(): Record<string, unknown> {
       max_agents_per_space: { main: 2 },
       worker_peer_tools: true,
       cross_space: true,
+      orch_peers: true,
     },
     mail: { to_spawner: "events", to_worker: "prompt" },
     models: { allowed: { pi: ["openai/test"] }, preferred: { pi: ["openai/test"] } },

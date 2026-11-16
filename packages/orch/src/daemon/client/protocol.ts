@@ -335,6 +335,10 @@ const NOTIFIER_CHOICE = z.object({
 
 const ORPHAN = z.object({ id: z.string(), name: z.string() });
 
+/** One other leading orch the caller may talk to. `project` is the repository its cwd sits in, else the cwd. */
+const PEER_ORCH = z.object({ id: z.string(), name: z.string(), label: z.string().nullable(), harness: z.string(), space: z.string().nullable(), host: z.string(), cwd: z.string(), project: z.string() });
+export type PeerOrch = z.infer<typeof PEER_ORCH>;
+
 /** What an abort did: the turn cancelled, or why abort does not apply to that agent. */
 const ABORTED = z.discriminatedUnion("outcome", [
   z.object({ outcome: z.literal("aborted") }),
@@ -796,6 +800,7 @@ export const RPC_PARAMS = {
   /** The agents the caller holds an open lease on; `live` keeps only those not known dead. */
   "owned-agents": z.object({ caller: CALLER, live: z.boolean() }),
   orphans: z.object({}),
+  orchs: z.object({ caller: CALLER }),
   question: z.custom<AgentNotice>(isAgentNotice),
   questions: z.object({ caller: CALLER, all: z.boolean().optional() }),
   ack: z.object({ id: nonBlank }),
@@ -982,6 +987,7 @@ export const RPC_RESULTS = {
   "close-targets": z.object({ targets: z.array(CLOSE_TARGET), refusal: z.string().nullable() }),
   "owned-agents": z.object({ keys: z.array(z.string()) }),
   orphans: z.object({ agents: z.array(ORPHAN) }),
+  orchs: z.object({ orchs: z.array(PEER_ORCH) }),
   question: OK,
   ack: OK,
   "control-outcome": OK,

@@ -72,7 +72,7 @@ export function governanceFlags(flags: ParsedFlags): WriteGovernance {
 /** One write to orchd, carrying the caller's credential; orchd stamps the actor from it. Throws the refusal text a human should read; the caller owns what an unreachable daemon costs. Use {@link writeRpc} when that cost is the whole command. */
 export async function callDaemon<M extends GovernedMethod>(services: DaemonClient, method: M, params: ParamsOf<M>, gov: WriteGovernance = {}, timeoutMs?: number): Promise<ResultOf<M>> {
   const directory = services.orchDir;
-  if (timeoutMs === undefined && (method === "steer" || method === "answer")) {
+  if (timeoutMs === undefined && (method === "steer" || method === "answer" || method === "message")) {
     const { timeouts } = services.settings.current();
     timeoutMs = timeouts.adapter_command_ms + timeouts.dispatch_ack_ms;
   }

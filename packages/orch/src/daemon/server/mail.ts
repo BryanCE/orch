@@ -5,6 +5,7 @@ import { SETTINGS_DEFAULTS } from "../../settings/schema.ts";
 import { insertOutboxMessage } from "../../store/outbox-rows.ts";
 import { agentView } from "../../store/agent-view.ts";
 import { resolveTargetRoute } from "../../control/dispatch.ts";
+import { joinsLeadingOrchs, requireOrchPeers } from "./peer-orchs.ts";
 import type { MailDelivery, OrchSettings } from "../../types/settings.ts";
 import type { HereAgent } from "../../types/agent-place.ts";
 
@@ -32,16 +33,21 @@ function targetPaneFocused(directory: OrchDir, target: HereAgent): boolean {
   return inventory.list().some((pane) => String(pane.handle) === handle && pane.focused);
 }
 
-/** Queue one agent's message to another. Mail is governed by the space wall only, never by
- * the lease: it is not a driving verb (Rule 11). The row is picked up by the outbox drain
- * or by the caller's own delivery attempt, and `mailDelivery` decides its route then. */
+/** Throws when the mail may not pass. Two leading orchs obey `fleet.orch_peers` alone; every other pair obeys the space wall. */
+function admitMail(directory: OrchDir, fleet: Pick<OrchSettings["fleet"], "cross_space" | "orch_peers">, sender: string, recipient: string): void {
+  if (joinsLeadingOrchs(directory, sender, recipient)) return requireOrchPeers(fleet);
+  const wall = checkWall(directory, sender, recipient, { crossSpace: fleet.cross_space });
+  if (!wall.allowed) throw new Error(wall.reason ?? "space wall denied the mail");
+}
+
+/** Queue one agent's message to another. Mail is governed by the space wall or the orch-peers
+ * switch, never by the lease: it is not a driving verb (Rule 11). The row is picked up by the
+ * outbox drain or by the caller's own delivery attempt, and `mailDelivery` decides its route then. */
 export function acceptMail(directory: OrchDir, settings: OrchSettings | null, from: string, target: string, text: string, logger?: Logger): { id: string } {
   const sender = requiredMailString(from, "from");
   const recipient = requiredMailString(target, "target");
   const body = requiredMailString(text, "text");
-  const crossSpace = settings?.fleet.cross_space ?? SETTINGS_DEFAULTS.fleet.cross_space;
-  const wall = checkWall(directory, sender, recipient, { crossSpace });
-  if (!wall.allowed) throw new Error(wall.reason ?? "space wall denied the mail");
+  admitMail(directory, settings?.fleet ?? SETTINGS_DEFAULTS.fleet, sender, recipient);
 
   const id = randomUUID();
   insertOutboxMessage(directory, { id, target: recipient, payload: { action: "mail", from: sender, text: body } });

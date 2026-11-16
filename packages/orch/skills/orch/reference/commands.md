@@ -18,6 +18,7 @@ help disagree, help is right.
 | One blocking checkpoint on one agent | `orch help wait` |
 | New code (`reload`), new session (`reset`), new process (`restart`) | `orch help reload`, `orch help reset`, `orch help restart` |
 | Handing one result to another agent | `orch help pipe` |
+| The user says to talk to another orch, or names one in another project | `orch help orchs`, `orch help message` |
 | Collecting a done worktree | `orch help review` |
 | Ending agents, `--all` | `orch help close` |
 | Tabs and panes for a script | `orch help tab`, `orch help pane` |

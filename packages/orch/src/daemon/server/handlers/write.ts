@@ -12,6 +12,7 @@ import { checkWall, operatorControls } from "../../../policy/space.ts";
 import { publishFromOrchd } from "../events.ts";
 import { deliverOutboxMessage } from "../outbox.ts";
 import { acceptMail, mailDelivery } from "../mail.ts";
+import { joinsLeadingOrchs } from "../peer-orchs.ts";
 import { normalizeControlTarget } from "../../../control/normalize-target.ts";
 import { deliverControl, resolveTargetAdapter, resolveTargetRoute } from "../../../control/dispatch.ts";
 import { isAgentGone } from "../../../control/agent-gone.ts";
@@ -325,14 +326,20 @@ export async function dispatch(state: DaemonState, params: ParamsOf<"dispatch">)
   return writeText(state, "dispatch", { ...params, text: workerPrompt(params.text, false, adapter, worker.context) });
 }
 
+/** The line a mail opens with: who sent it, and for a leading orch, where it works and how to answer. */
+function mailHeader(directory: OrchDir, from: string, target: string): string {
+  const sender = agentView(directory, from);
+  const name = sender?.name ?? from;
+  if (sender === null || !joinsLeadingOrchs(directory, from, target)) return `[from ${name}] `;
+  return `[from orch ${name} in ${sender.environment.cwd}; reply with: orch message ${name} "<text>"] `;
+}
+
 export async function message(state: DaemonState, params: ParamsOf<"message">): Promise<Accepted> {
   const directory = state.directory;
   const settings = state.services.settings;
-  const from = params.from;
-  const target = params.target;
-  const sender = agentView(directory, params.from);
-  const prefix = sender ? `[from ${sender.name}] ` : `[from ${params.from}] `;
-  const accepted = acceptMail(directory, settings.currentOrNull(), from, target, prefix + params.text, state.services.logger);
+  const { from, target } = params;
+  if (params.actor !== undefined && params.actor !== from) throw new Error(`mail goes out as its caller: ${params.actor} cannot send as ${from}`);
+  const accepted = acceptMail(directory, settings.currentOrNull(), from, target, mailHeader(directory, from, target) + params.text, state.services.logger);
   const timeoutMs = settings.current().timeouts.dispatch_ack_ms;
   let ack: "acknowledged" | "unavailable";
   try {

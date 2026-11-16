@@ -12,7 +12,7 @@ const settings = (workerPeerTools?: boolean, allowTools: string[] = []): OrchSet
   denied_commands: { commands: [], applies_to: ["slave"] },
   settings_file: { typo_max_edits: 2 },
   defaults: { ...SETTINGS_DEFAULTS.defaults, models: {} },
-  fleet: { worker_peer_tools: workerPeerTools ?? false, max_agents_per_pack: 10, max_agents_per_tab: 4, max_depth: 1, cross_space: false, max_agents_per_space: {}, min_free_memory_mb: 2048 },
+  fleet: { worker_peer_tools: workerPeerTools ?? false, max_agents_per_pack: 10, max_agents_per_tab: 4, max_depth: 1, cross_space: false, orch_peers: false, max_agents_per_space: {}, min_free_memory_mb: 2048 },
   models: { allowed: {}, preferred: {} },
   workers: { inherit_extensions: true, exclude_extensions: {}, builtin_tools: true, allow_tools: allowTools, verify_commands: [], compact_at_tokens: {} },
   queue: { max_retries: 1, dispatch_concurrency: 4 },

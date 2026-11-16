@@ -184,6 +184,7 @@ const HELP: Readonly<Record<string, string>> = {
   "fleet.min_free_memory_mb": "Least available memory on this host, in MiB, at which a spawn onto it is still allowed. Below it every spawn here is refused until agents close.",
   "fleet.worker_peer_tools": "Whether workers may use peer tools.",
   "fleet.cross_space": "Whether workers may cross space boundaries.",
+  "fleet.orch_peers": `Whether leading ${term("orch")}s, the harness sessions a human started, may list each other with orch orchs and talk with orch message, across spaces and repos. Off refuses both.`,
   "mail.to_spawner": "Where mail a worker sends the agent that spawned it lands. prompt types it into that agent's input as it arrives, whoever is in the pane; prompt-unless-focused does the same except while the human is in that pane, when it goes to orch events instead; events publishes it as a message event on orch events and leaves the input alone.",
   "mail.to_worker": `Where every other mail lands: an ${term("orch")} to its worker, peer to peer, a task result to its enqueuer. prompt types it into the recipient's input; prompt-unless-focused does the same except while the human is in that pane; events publishes it on orch events.`,
   "models.allowed": "Model allowlist patterns by harness.",

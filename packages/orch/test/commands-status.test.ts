@@ -314,7 +314,7 @@ describe("commands/status", () => {
     const views = new Map([root, child, other].map((view) => [view.id, view]));
     const presence = new Map([root, child, other].map((view) => [view.id, presenceEntryFixture({ key: view.id, liveness: "alive" })]));
     const capacity = computeFleetCapacity(views, presence, {
-      fleet: { max_agents_per_pack: 10, max_agents_per_tab: 4, max_depth: 3, max_agents_per_space: { main: 6 }, max_agents_total: 10, min_free_memory_mb: 2048, worker_peer_tools: false, cross_space: false },
+      fleet: { max_agents_per_pack: 10, max_agents_per_tab: 4, max_depth: 3, max_agents_per_space: { main: 6 }, max_agents_total: 10, min_free_memory_mb: 2048, worker_peer_tools: false, cross_space: false, orch_peers: false },
       spaces: { main: "main" },
     }, laptop);
     expect(capacity.packs).toEqual([

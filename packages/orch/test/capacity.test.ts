@@ -32,6 +32,7 @@ const settings = {
     min_free_memory_mb: 2048,
     worker_peer_tools: false,
     cross_space: false,
+    orch_peers: false,
   },
   spaces: { main: "main" },
 } satisfies Parameters<typeof computeFleetCapacity>[2];

@@ -49,7 +49,7 @@ export interface OrchSettings {
   runtime: OrchRuntime;
   enabled: { adapters: AdapterId[]; backends: BackendId[] };
   defaults: { forms: Partial<Record<AdapterId, FormId>>; adapter?: AdapterId; backend?: BackendId; models: Partial<Record<AdapterId, string>>; thinking: ThinkingLevel; thinking_by_harness: Partial<Record<AdapterId, ThinkingLevel>>; worktree: boolean };
-  fleet: { max_agents_per_pack: number; max_agents_per_tab: number; max_depth: number; max_agents_total?: number; max_agents_per_space: Record<string, number>; min_free_memory_mb: number; worker_peer_tools: boolean; cross_space: boolean };
+  fleet: { max_agents_per_pack: number; max_agents_per_tab: number; max_depth: number; max_agents_total?: number; max_agents_per_space: Record<string, number>; min_free_memory_mb: number; worker_peer_tools: boolean; cross_space: boolean; orch_peers: boolean };
   mail: { to_spawner: MailDelivery; to_worker: MailDelivery };
   models: { allowed: Partial<Record<AdapterId, string[]>>; preferred: Partial<Record<AdapterId, string[]>> };
   workers: { inherit_extensions: boolean; exclude_extensions: ExtensionExclusions; builtin_tools: boolean; allow_tools: string[]; verify_commands: string[]; compact_at_tokens: CompactionTable };

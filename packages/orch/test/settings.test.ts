@@ -114,7 +114,7 @@ describe("loadSettings", () => {
         forms: { opencode: "server" },
         worktree: true,
       },
-      fleet: { max_agents_total: 12, max_agents_per_pack: 10, max_agents_per_tab: 4, max_depth: 2, max_agents_per_space: { wD: 4 }, min_free_memory_mb: 2048, worker_peer_tools: true, cross_space: true },
+      fleet: { max_agents_total: 12, max_agents_per_pack: 10, max_agents_per_tab: 4, max_depth: 2, max_agents_per_space: { wD: 4 }, min_free_memory_mb: 2048, worker_peer_tools: true, cross_space: true, orch_peers: false },
       mail: { to_spawner: "prompt-unless-focused", to_worker: "prompt" },
       models: { allowed: { claude: ["sonnet", "opus"] }, preferred: { claude: ["sonnet"] } },
       workers: { inherit_extensions: true, exclude_extensions: {}, builtin_tools: true, allow_tools: [], verify_commands: [], compact_at_tokens: {} },
@@ -230,7 +230,7 @@ describe("loadSettings", () => {
       runtime: "node",
       enabled: { adapters: [], backends: [] },
       defaults: { forms: { opencode: "server" }, models: {}, thinking: "medium", thinking_by_harness: {}, worktree: false },
-      fleet: { max_agents_total: undefined, max_agents_per_pack: 10, max_agents_per_tab: 4, max_depth: 1, max_agents_per_space: {}, min_free_memory_mb: 2048, worker_peer_tools: false, cross_space: false },
+      fleet: { max_agents_total: undefined, max_agents_per_pack: 10, max_agents_per_tab: 4, max_depth: 1, max_agents_per_space: {}, min_free_memory_mb: 2048, worker_peer_tools: false, cross_space: false, orch_peers: false },
       mail: { to_spawner: "prompt-unless-focused", to_worker: "prompt" },
       models: { allowed: {}, preferred: {} },
       workers: { inherit_extensions: true, exclude_extensions: {}, builtin_tools: true, allow_tools: [], verify_commands: [], compact_at_tokens: {} },
@@ -474,7 +474,7 @@ describe("writeSettingsFullTree", () => {
     writeSettingsFullTree(fileSettingsManager(directory));
 
     const raw = readSettingsRecord(directory);
-    expect(raw.fleet).toEqual({ max_agents_per_pack: 10, max_agents_per_tab: 4, max_depth: 1, max_agents_per_space: {}, min_free_memory_mb: 2048, worker_peer_tools: false, cross_space: false });
+    expect(raw.fleet).toEqual({ max_agents_per_pack: 10, max_agents_per_tab: 4, max_depth: 1, max_agents_per_space: {}, min_free_memory_mb: 2048, worker_peer_tools: false, cross_space: false, orch_peers: false });
     expect(Object.hasOwn(isRecord(raw.fleet) ? raw.fleet : {}, "max_agents_total")).toBe(false);
     expect(fileSettingsManager(directory).current().fleet.max_agents_total).toBeUndefined();
   });

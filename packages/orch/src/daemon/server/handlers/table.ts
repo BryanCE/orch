@@ -46,6 +46,7 @@ import type { NotifyEvent } from "../../../types/notify.ts";
 import { selectOpenOutboxForTarget } from "../../../store/outbox-rows.ts";
 import { activePaneHud } from "../../../backends/hud.ts";
 import { peerView } from "../peer-view.ts";
+import { peerOrchs } from "../peer-orchs.ts";
 import { governed } from "../governance.ts";
 import type { PaneLabels } from "../../../types/plexer.ts";
 import { peerHandlers } from "./peer.ts";
@@ -215,6 +216,7 @@ export function rpcHandlers(state: DaemonState): RpcHandlers {
     "close-targets": (params) => closeTargets(state, params),
     "owned-agents": (params) => ownedAgents(state, params),
     orphans: () => orphans(state),
+    orchs: (params) => ({ orchs: peerOrchs(directory, services.settings.current(), params.caller) }),
     question: (params) => recordAgentQuestion(directory, params),
     questions: (params) => listPendingQuestions(state, params),
     answer: governed(state, waking(state, (params) => answer(state, params))),

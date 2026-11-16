@@ -29,6 +29,7 @@ import { cmdModels } from "./models.ts";
 import { cmdDoctor } from "./doctor.ts";
 import { cmdDetach, cmdAdopt, cmdReap } from "./lease.ts";
 import { cmdWhoami } from "./whoami.ts";
+import { cmdMessage, cmdOrchs } from "./orchs.ts";
 import { registerCaller } from "./self.ts";
 import { COMMANDS, GLOBAL_FLAGS, commandSpec } from "./registry.ts";
 import { renderMap, renderTopic } from "../cli/help.ts";
@@ -54,7 +55,7 @@ const VERSION = packageManifest().version;
 
 const STALE_GUARD_COMMANDS = new Set([
   "spawn", "dispatch", "steer", "answer", "close", "kill", "reset", "new", "reload", "restart",
-  "queue", "work", "model", "broadcast", "detach", "adopt", "reap", "space",
+  "queue", "work", "model", "broadcast", "message", "detach", "adopt", "reap", "space",
 ]);
 
 /** Commands that never dial orchd, plus `status`, which registers itself. */
@@ -148,6 +149,8 @@ export const commandHandlers: Record<string, Handler> = {
   answer: cmdAnswer,
   result: (services, args) => cmdResult(services, args),
   steer: cmdSteer,
+  message: cmdMessage,
+  orchs: cmdOrchs,
   pipe: cmdPipe,
   broadcast: cmdBroadcast,
   tail: (services, args) => cmdTail(services, args),

@@ -5,6 +5,7 @@ import { DURATION_FORMS } from "../cli/duration.ts";
 import { ADAPTER_IDS } from "../types/adapter.ts";
 import { FORM_IDS } from "../types/form.ts";
 import { parseInvocation } from "../cli/parse.ts";
+import { term } from "../policy/vocabulary.ts";
 import type { CommandSpec, FlagSpec, Invocation } from "../cli/spec.ts";
 
 const ALL: FlagSpec = { name: "--all", arity: "none", help: "Every agent you may act on, instead of named targets." };
@@ -57,6 +58,7 @@ const OBSERVE: readonly CommandSpec[] = [
     ],
   },
   { name: "whoami", section: "observe", summary: "Who orch sees as the caller in this terminal.", flags: [] },
+  { name: "orchs", section: "observe", summary: `The other live leading ${term("orch")}s, and the project each works in. Needs fleet.orch_peers.`, flags: [] },
   { name: "monitor", section: "observe", summary: "Push stream of the states an orch acts on. Arm it as a Monitor.", flags: STREAM_FLAGS },
   { name: "events", section: "observe", summary: "Every state transition, mid-turn flips included.", flags: STREAM_FLAGS },
   {
@@ -104,6 +106,7 @@ const DISPATCH: readonly CommandSpec[] = [
     summary: "Steer several.",
     flags: [{ ...ALL, help: "Operator-only. Every agent you hold an open lease on." }, STEAL],
   },
+  { name: "message", section: "dispatch", args: "<orch> <text...>", summary: `Talk to another leading ${term("orch")}: by name, id, or project. Needs fleet.orch_peers.`, flags: [] },
   { name: "pipe", section: "dispatch", args: "<target> <target> [\"<instruction>\"]", summary: "Hand the first agent's result to the second.", flags: [] },
   {
     name: "model", section: "dispatch", args: "<target> <model[:thinking]>",

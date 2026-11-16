@@ -64,7 +64,7 @@ async function readMessage(services: Services, invocation: Invocation): Promise<
   const [code] = invocation.positional;
   if (code === undefined || invocation.positional.length > 1) throw usageError(invocation);
   const mail = await readRpc(services, "mail-text", { caller: callerCredential(), code });
-  process.stdout.write(`${mail.text}\n`);
+  process.stdout.write(invocation.flags.has("--json") ? `${JSON.stringify(mail)}\n` : `${mail.text}\n`);
 }
 
 export async function cmdMessage(services: Services, args: string[]): Promise<void> {

@@ -5,6 +5,7 @@ import { extractVersion } from "../../shared/versions.ts";
 import { buildCommandFailure, findFreshCacheEntry, parseCliJson } from "../shared-cli.ts";
 import { DEFAULT_TOOL_RETRY, plexerExecOptions, runTool, toolErrorDetail, toolOutputText } from "../tool-exec.ts";
 import { PLEXER_TIMEOUTS } from "../../config.ts";
+import { shownPanesReplySchema } from "./wire.ts";
 import type { HerdrPane, HerdrTab } from "../../types/plexer.ts";
 import type { RetryPolicy } from "../../types/core.ts";
 
@@ -113,6 +114,9 @@ export interface HerdrCli {
   panes(): HerdrPane[];
   names(): Map<string, string>;
   tabs(): Map<string, HerdrTab>;
+  /** The pane each workspace shows: its active tab's focused pane. Every attached window
+   *  shows one of these, while herdr's own `focused` names only the last window to move. */
+  shownPanes(): Set<string>;
   exec(args: string[], options?: ExecFileSyncOptionsWithStringEncoding): string;
 }
 
@@ -183,6 +187,11 @@ export function createHerdrCli(executor: HerdrExecutor = defaultHerdrExecutor): 
       const tabs = new Map<string, HerdrTab>();
       for (const tab of result.tabs.filter(isHerdrTab)) tabs.set(tab.tab_id, tab);
       return tabs;
+    },
+    shownPanes: () => {
+      const { snapshot } = parseCliJson(herdr(["api", "snapshot"]), shownPanesReplySchema, "herdr api snapshot", (message) => new Error(message));
+      const activeTabs = new Set(snapshot.workspaces.map((workspace) => workspace.active_tab_id));
+      return new Set(snapshot.layouts.filter((layout) => activeTabs.has(layout.tab_id)).flatMap((layout) => layout.focused_pane_id ?? []));
     },
     exec: (args, options = plexerExecOptions()) => {
       try { return executor("herdr", args, options); }

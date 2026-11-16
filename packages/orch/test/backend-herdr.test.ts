@@ -75,11 +75,18 @@ const fakeExecutor: HerdrExecutor = (_command, args) => {
   if (command === "pane" && subcommand === "process-info") return paneProcessInfo(args[3] ?? "");
   if (command === "pane" && subcommand === "list") {
     return JSON.stringify({ panes: [
-      { pane_id: "w0:p1", workspace_id: "ws-test", tab_id: "t1", rect: { width: 100, height: 50, x: 0, y: 0 } },
+      { pane_id: "w0:p1", workspace_id: "ws-test", tab_id: "t1", focused: true, rect: { width: 100, height: 50, x: 0, y: 0 } },
       { pane_id: "w0:p2", workspace_id: "ws-test", tab_id: "t1", rect: { width: 100, height: 50, x: 100, y: 0 } },
     ] });
   }
   if (command === "agent" && subcommand === "list") return JSON.stringify({ agents: [...liveAgentNames].map((name) => ({ pane_id: "live-pane", name })) });
+  // Two windows: herdr's global focus (w0:p1 above) is the last window to move; ws-test shows w0:p2.
+  if (command === "api" && subcommand === "snapshot") {
+    return JSON.stringify({ snapshot: {
+      workspaces: [{ workspace_id: "ws-test", active_tab_id: "t1" }, { workspace_id: "ws-2", active_tab_id: "t3" }],
+      layouts: [{ tab_id: "t1", focused_pane_id: "w0:p2" }, { tab_id: "t2", focused_pane_id: "w0:p1" }],
+    } });
+  }
   if (command === "pane" && subcommand === "rename" && paneRenameFails) throw new Error("pane rename failed");
   if (command === "tab" && subcommand === "list") {
     return JSON.stringify({ tabs: [
@@ -315,6 +322,11 @@ describe("HerdrBackend", () => {
   test("the inventory answers which workspace holds a pane, and null for one herdr no longer lists", () => {
     expect(backend.placementInventory.coordinateOf("w0:p2")).toBe("ws-test");
     expect(backend.placementInventory.coordinateOf("w9:p9")).toBeNull();
+  });
+
+  test("a pane is focused when its workspace shows it, not when herdr's one global focus names it", () => {
+    const focused = backend.placementInventory.list().filter((pane) => pane.focused).map((pane) => pane.handle);
+    expect(focused).toEqual(["w0:p2"]);
   });
 
   test("the pane host closes a pane through herdr", () => {

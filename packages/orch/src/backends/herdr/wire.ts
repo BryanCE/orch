@@ -69,3 +69,11 @@ export const workspaceOpenReplySchema = z.object({
 export const workspaceListReplySchema = z.object({
   workspaces: z.array(workspaceSchema),
 });
+
+/** The parts of `api snapshot` that name what each workspace shows: its active tab, and each tab's focused pane. */
+export const shownPanesReplySchema = z.object({
+  snapshot: z.object({
+    workspaces: z.array(z.object({ workspace_id: z.string(), active_tab_id: z.string().optional() })),
+    layouts: z.array(z.object({ tab_id: z.string(), focused_pane_id: z.string().optional() })),
+  }),
+});

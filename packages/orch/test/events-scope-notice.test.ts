@@ -58,11 +58,10 @@ describe("events scope notice", () => {
     expect(writes).toBe(0);
   });
 
-  /** A watch armed by a session that owns nothing can never fire. Three minutes of
-   *  an empty monitor is indistinguishable from a dead daemon, so the stream says
-   *  it — to a person and to a harness alike, and whether or not history was asked
-   *  for, because the emptiness outlives the replay. */
-  test("says so when the caller owns no agents", () => {
+  /** A watch armed by a session that owns nothing carries only its own mail. The
+   *  stream says so, to a person and to a harness alike, whether or not history was
+   *  asked for, because the narrow scope outlives the replay. */
+  test("says only mail arrives when the caller owns no agents", () => {
     const lines: string[] = [];
     startEventsLiveStream(parseEventsOptions(["--since-seq", "0"]), MINE, {
       ownedAgents: () => 0,
@@ -71,8 +70,21 @@ describe("events scope notice", () => {
     });
 
     expect(lines).toHaveLength(1);
-    expect(lines[0]).toContain("you own no agents");
+    expect(lines[0]).toContain("you own no agents yet");
+    expect(lines[0]).toContain("only mail sent to you arrives");
     expect(lines[0]).toContain("--all");
+  });
+
+  test("an --all stream watches the space, and gets no owned-agents notice", () => {
+    const lines: string[] = [];
+    startEventsLiveStream(parseEventsOptions(["--all"]), ANY, {
+      toTerminal: false,
+      ownedAgents: () => 0,
+      writeNotice: (line: string) => lines.push(line),
+      startTransport: () => ({ done: Promise.resolve(), close: () => undefined }),
+    });
+
+    expect(lines).toEqual([]);
   });
 
   test("the empty notice names the verb that armed the stream", () => {

@@ -175,19 +175,13 @@ export function startEventsLiveStream(options: EventsOptions, scope: ResolvedCal
   // misled by a stream that cannot fire, and the harness reading it is the one
   // that will sit on it for an hour.
   const owned = ports.ownedAgents?.() ?? 0;
-  if (!options.json && owned === 0) ports.writeNotice(emptyScopeNotice(ports.verb ?? "events"));
+  if (!options.json && scope.mine && owned === 0) ports.writeNotice(emptyScopeNotice(ports.verb ?? "events"));
   const notice = eventsScopeNotice(options, scope, ports.toTerminal);
   if (notice !== null) ports.writeNotice(`${notice}\n`);
   return ports.startTransport();
 }
 
-/**
- * The agents this caller owns right now — everything its stream can carry.
- *
- * Zero is the case that reads as a broken daemon: a session that has spawned
- * nothing owns nothing, so a watch armed before the first spawn is silence by
- * construction, and a monitor sat on it for three minutes saying nothing.
- */
+/** The agents this caller owns right now. Zero leaves only the caller's own mail on its stream. */
 function ownedAgentCount(scope: ResolvedCallerScope, views: readonly AgentView[]): number {
   if (!scope.mine || scope.address === undefined) return 0;
   let owned = 0;
@@ -198,9 +192,9 @@ function ownedAgentCount(scope: ResolvedCallerScope, views: readonly AgentView[]
   return owned;
 }
 
-/** What a caller owning nothing is told, in place of an empty stream. */
+/** What a caller owning nothing is told: its own mail is all the stream carries until it spawns. */
 function emptyScopeNotice(verb: StreamVerb): string {
-  return `orch ${verb}: you own no agents, so nothing can arrive on this stream yet.`
+  return `orch ${verb}: you own no agents yet, so only mail sent to you arrives on this stream now.`
     + " It covers whatever you spawn or dispatch to from here on; --all watches the rest of your space now.\n";
 }
 

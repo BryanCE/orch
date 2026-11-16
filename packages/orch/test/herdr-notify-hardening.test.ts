@@ -32,6 +32,7 @@ const fakeExecutor: HerdrExecutor = (_command, args) => {
   if (command === "pane" && subcommand === "list") return JSON.stringify({ panes: [{ pane_id: "w6:p9", workspace_id: "ws-test" }] });
   if (command === "agent" && subcommand === "list") return JSON.stringify({ agents: [] });
   if (command === "tab" && subcommand === "list") return JSON.stringify({ tabs: [] });
+  if (command === "api" && subcommand === "snapshot") return JSON.stringify({ snapshot: { workspaces: [], layouts: [] } });
   if (command === "tab" && subcommand === "create") {
     return JSON.stringify({ tab: { tab_id: "t6", workspace_id: "ws-test" }, root_pane: { pane_id: "w6:p10" } });
   }

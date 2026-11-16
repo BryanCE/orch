@@ -424,6 +424,7 @@ export class HerdrBackend implements Backend<HerdrHandle> {
   private panesWithMetadata(): BackendTarget<HerdrHandle>[] {
     const tabs = this.cli.tabs();
     const names = this.cli.names();
+    const shown = this.cli.shownPanes();
     return this.cli.panes().map((pane) => {
       const tab = pane.tab_id ? tabs.get(pane.tab_id) : undefined;
       return {
@@ -433,7 +434,7 @@ export class HerdrBackend implements Backend<HerdrHandle> {
         groupLabel: tab?.label ?? null,
         name: names.get(pane.pane_id) ?? pane.name ?? null,
         agent: pane.agent ?? null,
-        focused: !!pane.focused,
+        focused: shown.has(pane.pane_id),
         status: pane.agent_status ?? null,
         sessionPath: paneSessionPath(pane),
       };

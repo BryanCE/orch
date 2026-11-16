@@ -3,14 +3,17 @@ import { sql } from "drizzle-orm";
 import { hostIdentity } from "../src/hosts/identity.ts";
 import { orchDirAt } from "../src/orch-dir.ts";
 import { processStartToken } from "../src/process-identity.ts";
-import { acceptMail } from "../src/daemon/server/mail.ts";
+import { acceptMail, mailDelivery } from "../src/daemon/server/mail.ts";
+import { placeHere } from "../src/process-place.ts";
+import { FakePanedBackend, fakePane, withRegisteredBackend } from "./helpers/backend.ts";
+import type { MailDelivery } from "../src/types/settings.ts";
 import { isLeadingOrch, peerOrchs } from "../src/daemon/server/peer-orchs.ts";
 import { agentById, getOrCreateSessionAgent } from "../src/store/agent-rows.ts";
 import { setSpace } from "../src/store/interval-rows.ts";
 import { selectOutboxMessage } from "../src/store/outbox-rows.ts";
 import { closeAllStores, orm } from "../src/store/connection.ts";
 import { matchOrchs } from "../src/commands/orchs.ts";
-import { DEAD_PID, seedAgentRow, seedOperator } from "./helpers/agent.ts";
+import { DEAD_PID, placeAgent, seedAgentRow, seedOperator } from "./helpers/agent.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
 import { testServices } from "./helpers/services.ts";
@@ -118,6 +121,42 @@ describe("mail between two leading orchs", () => {
 
     expect(() => acceptMail(directory, settingsWith(directory, true), web, "apiworker", "hello"))
       .toThrow("space wall: actor space web cannot write to target space api (apiworker)");
+  });
+});
+
+describe("where mail between two leading orchs lands", () => {
+  const mail = (to_orch: MailDelivery) => ({ to_spawner: "prompt" as const, to_worker: "prompt" as const, to_orch });
+
+  function orchInPane(directory: OrchDir, focused: boolean): { web: string; api: string; backend: FakePanedBackend } {
+    const web = seedSession(directory, "claude", "tok-web");
+    const api = seedSession(directory, "codex", "tok-api");
+    placeAgent(api, { backend: "headless", handle: "pane-api" }, directory);
+    return { web, api, backend: new FakePanedBackend({ panes: [fakePane("pane-api", { focused })] }) };
+  }
+
+  test("follows mail.to_orch, never mail.to_worker", () => {
+    const directory = fixture();
+    const { web, api } = orchInPane(directory, false);
+
+    expect(mailDelivery(directory, mail("events"), web, placeHere(directory, api))).toBe("events");
+  });
+
+  test("goes to the monitor while the human is in the other orch's pane", () => {
+    const directory = fixture();
+    const { web, api, backend } = orchInPane(directory, true);
+
+    const landing = withRegisteredBackend(backend, () => mailDelivery(directory, mail("prompt-unless-focused"), web, placeHere(directory, api)));
+
+    expect(landing).toBe("events");
+  });
+
+  test("types into the other orch's input while its pane is not in view", () => {
+    const directory = fixture();
+    const { web, api, backend } = orchInPane(directory, false);
+
+    const landing = withRegisteredBackend(backend, () => mailDelivery(directory, mail("prompt-unless-focused"), web, placeHere(directory, api)));
+
+    expect(landing).toBe("prompt");
   });
 });
 

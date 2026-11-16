@@ -14,12 +14,17 @@ function requiredMailString(value: string, name: string): string {
   return value;
 }
 
-/** The landing one mail gets: a worker writing the agent that spawned it follows
- *  `to_spawner`; every other sender and recipient pair follows `to_worker`.
- *  `prompt-unless-focused` resolves here: the stream while the human is in the
- *  recipient's pane, because keys typed there go out with whatever the human types. */
+/** The direction setting one mail follows: `to_orch` between two leading orchs, `to_spawner`
+ *  from a worker to the agent that spawned it, `to_worker` for every other pair. */
+function mailDirection(directory: OrchDir, mail: OrchSettings["mail"], from: string, target: HereAgent): MailDelivery {
+  if (joinsLeadingOrchs(directory, from, target.id)) return mail.to_orch;
+  return agentView(directory, from)?.spawnedBy === target.id ? mail.to_spawner : mail.to_worker;
+}
+
+/** The landing one mail gets. `prompt-unless-focused` resolves here: the stream while the human
+ *  is in the recipient's pane, because keys typed there go out with whatever the human types. */
 export function mailDelivery(directory: OrchDir, mail: OrchSettings["mail"], from: string, target: HereAgent): Exclude<MailDelivery, "prompt-unless-focused"> {
-  const direction = agentView(directory, from)?.spawnedBy === target.id ? mail.to_spawner : mail.to_worker;
+  const direction = mailDirection(directory, mail, from, target);
   if (direction !== "prompt-unless-focused") return direction;
   return targetPaneFocused(directory, target) ? "events" : "prompt";
 }

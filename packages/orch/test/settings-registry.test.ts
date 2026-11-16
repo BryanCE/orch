@@ -98,7 +98,7 @@ function completeSettings(): Record<string, unknown> {
       cross_space: true,
       orch_peers: true,
     },
-    mail: { to_spawner: "events", to_worker: "prompt" },
+    mail: { to_spawner: "events", to_worker: "prompt", to_orch: "events" },
     models: { allowed: { pi: ["openai/test"] }, preferred: { pi: ["openai/test"] } },
     workers: {
       inherit_extensions: false,

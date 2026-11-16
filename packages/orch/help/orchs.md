@@ -9,5 +9,6 @@ Only a leading orch may ask. The list is empty unless the user turned peers on:
 
     orch settings fleet.orch_peers true
 
-Turn it off with `orch settings fleet.orch_peers false`. Off refuses `orch orchs` and
+While it is on, each orch keeps `orch monitor` armed: a message that arrives while the user is
+in its pane goes there instead of into its input. Turn it off with `orch settings fleet.orch_peers false`. Off refuses `orch orchs` and
 `orch message` between leading orchs. The list holds the orchs registered with this machine's orchd.

@@ -5,6 +5,9 @@ tool, in the same message as the spawn:
 
     orch monitor
 
+A leading orch with `fleet.orch_peers` on arms it too, with or without agents: a message from
+another orch that arrives while the user is in your pane comes here as a MESSAGE line.
+
 Traps:
 - Arm it only through the Monitor tool. A stream behind `&`, `nohup`, or run_in_background
   never wakes you, and a finished fleet looks busy.

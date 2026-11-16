@@ -87,9 +87,12 @@ orch dispatch api-types --rename api-auth "Do section T4 of tasks/W2-api.md. Onl
 - A command that exits with `orch grant <id>` (a spawn into a new space, a gated command):
   give the user that line, wait until they say it ran, then run the same command again.
 - Talk to another leading orch only when the user tells you to. `orch orchs` lists them;
-  `orch message <name|project> <text>` sends. A message that opens `[from orch ...]` came
-  from one; answer it with the command it names. A refusal that says peers are off: give the
+  `orch message <name|project> <text>` sends. A refusal that says peers are off: give the
   user `orch settings fleet.orch_peers true` and wait.
+- While peers are on, keep `orch monitor` armed, even with no agents of your own. A message
+  that arrives while the user is in your pane skips your input and comes as a monitor line,
+  `MESSAGE [from orch <name> ...]`; otherwise it arrives as a prompt that opens the same way.
+  Answer it with the `orch message` command it names.
 
 ## While agents run
 

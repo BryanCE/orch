@@ -94,7 +94,7 @@ export const NOTIFY_SIMPLE_IDS: readonly string[] = NOTIFY_IDS.filter((id) => NO
 
 export const SETTINGS_DEFAULTS = {
   fleet: { max_agents_per_pack: 10, max_agents_per_tab: 4, max_depth: 1, min_free_memory_mb: 2048, worker_peer_tools: false, cross_space: false, orch_peers: false },
-  mail: { to_spawner: "prompt-unless-focused", to_worker: "prompt" },
+  mail: { to_spawner: "prompt-unless-focused", to_worker: "prompt", to_orch: "prompt-unless-focused" },
   queue: { max_retries: 1, dispatch_concurrency: 4 },
   retention: { ended_agents_days: 90, queue_days: 14, events_days: 7, runs_days: 30, outbox_days: 7, control_outcomes_days: 30, logs_days: 7, sweep_interval_ms: 3_600_000 },
   lock: { retries: 50, interval_ms: 100, stale_ms: 10_000 },
@@ -176,10 +176,12 @@ export const SETTINGS_FILE_SCHEMA = z.strictObject({
    * the pane; `prompt-unless-focused` does the same unless the human is in that pane,
    * when it publishes instead; `events` always publishes it as a `message` event the
    * recipient reads from `orch events`, so the input is never touched. `to_spawner`
-   * governs mail a worker sends the agent that spawned it; `to_worker` every other mail. */
+   * governs mail a worker sends the agent that spawned it; `to_orch` mail between two
+   * leading orchs; `to_worker` every other mail. */
   mail: z.strictObject({
     to_spawner: z.enum(MAIL_DELIVERIES).optional(),
     to_worker: z.enum(MAIL_DELIVERIES).optional(),
+    to_orch: z.enum(MAIL_DELIVERIES).optional(),
   }).optional(),
   models: z.strictObject({
     /** The launch gate PER HARNESS: a spawn is refused unless its model matches one of

@@ -23,7 +23,7 @@ import type { CallerScopeChoice, ResolvedCallerScope } from "../types/policy.ts"
 import type { PendingQuestionView } from "../types/daemon.ts";
 import type { AgentView } from "../types/store.ts";
 import { isAgentState, type AgentState } from "../agent-state.ts";
-import { ARROW } from "../util.ts";
+import { ARROW, truncate } from "../util.ts";
 
 /** The verbs that hold a stream open; `close --stream` kills any of them. */
 export const STREAM_VERBS = ["events", "monitor"] as const;
@@ -301,8 +301,20 @@ function renderEventLine(event: NotifyEvent, coordinate: string | null, summaryC
   // configured label that could make the coordinate look like an orch-chosen name.
   const textEvent: NotifyEvent = { ...event, space: coordinate ?? "" };
   // Mail is keyed by its recipient, so its line names the event, not that recipient.
-  if (event.type === "message") return `MESSAGE${coordinate === null ? "" : ` ${spaceTag(coordinate, true)}`} ${oneLine(event.mail.text)}`;
+  if (event.type === "message") return `MESSAGE${coordinate === null ? "" : ` ${spaceTag(coordinate, true)}`} ${mailLine(event.mail, summaryChars)}`;
   return `${notificationText(textEvent, { colorize: true, summaryChars }).title}  ${eventStateChange(event)}`;
+}
+
+/** The code `orch message read` takes: the first group of the mail's id. */
+function mailCode(id: string): string {
+  return id.split("-")[0] ?? id;
+}
+
+/** A mail that fits whole, or its start behind the command that prints all of it. */
+function mailLine(mail: { readonly id: string; readonly text: string }, summaryChars: number): string {
+  const text = oneLine(mail.text);
+  if (text.length <= summaryChars) return text;
+  return `(read all: orch message read ${mailCode(mail.id)}) ${truncate(text, summaryChars)}`;
 }
 
 function eventStateChange(event: Exclude<NotifyEvent, { type: "message" }>): string {

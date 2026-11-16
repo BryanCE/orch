@@ -8,6 +8,8 @@ import { writeDelivery } from "./delivery.ts";
 import { parseCommand } from "./registry.ts";
 import { callerId } from "./self.ts";
 import { die } from "./target.ts";
+import { usageError } from "../cli/usage.ts";
+import type { Invocation } from "../cli/spec.ts";
 import type { PeerOrch } from "../daemon/client/protocol.ts";
 import type { Services } from "../types/services.ts";
 
@@ -58,7 +60,16 @@ function onlyOrch(orchs: readonly PeerOrch[], target: string): PeerOrch {
   die(`No leading orch matches ${target}. Live orchs:\n${candidateLines(orchs)}`);
 }
 
+async function readMessage(services: Services, invocation: Invocation): Promise<void> {
+  const [code] = invocation.positional;
+  if (code === undefined || invocation.positional.length > 1) throw usageError(invocation);
+  const mail = await readRpc(services, "mail-text", { caller: callerCredential(), code });
+  process.stdout.write(`${mail.text}\n`);
+}
+
 export async function cmdMessage(services: Services, args: string[]): Promise<void> {
+  const invocation = parseCommand("message", args);
+  if (invocation.command.name === "read") return readMessage(services, invocation);
   const { json, target, text } = parseTextCommand("message", args);
   const from = await callerId(services);
   const orch = onlyOrch(await readOrchs(services), target);

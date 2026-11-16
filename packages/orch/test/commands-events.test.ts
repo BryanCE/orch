@@ -159,6 +159,13 @@ describe("commands/events", () => {
     expect(line).not.toContain("message→message");
   });
 
+  test("a message past monitor.summary_chars leads with the command that reads all of it", () => {
+    const mail = `[from orch claude-h16tjo02] ${"long status ".repeat(SUMMARY_CHARS)}`;
+    const line = renderEvent({ host: hostIdentity(), type: "message", key: "agent", agent: "pi", tab: null, model: null, newState: "message", dispatchId: "d", ts: "now", mail: { id: "42447aaf-13cb-4b69-becc-0cbbad272bc8", text: mail } }, false, 4, SUMMARY_CHARS);
+    expect(line).toStartWith("MESSAGE (read all: orch message read 42447aaf) [from orch claude-h16tjo02] long status");
+    expect(line.length).toBeLessThan(SUMMARY_CHARS + 100);
+  });
+
   // A worker's report is the line's point: a monitor cut at a notification's title width
   // read "0 passed, 7 failed beca" and sent the orchestrator to the diff to learn why.
   test("a done line keeps the report up to monitor.summary_chars, then marks the cut", () => {

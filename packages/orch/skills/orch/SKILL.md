@@ -92,7 +92,8 @@ orch dispatch api-types --rename api-auth "Do section T4 of tasks/W2-api.md. Onl
 - While peers are on, keep `orch monitor` armed, even with no agents of your own. A message
   that arrives while the user is in your pane skips your input and comes as a monitor line,
   `MESSAGE [from orch <name> ...]`; otherwise it arrives as a prompt that opens the same way.
-  Answer it with the `orch message` command it names.
+  A line that opens `(read all: orch message read <code>)` is cut: run that command for the
+  whole text before you act. Answer it with the `orch message` command it names.
 
 ## While agents run
 

@@ -801,6 +801,8 @@ export const RPC_PARAMS = {
   "owned-agents": z.object({ caller: CALLER, live: z.boolean() }),
   orphans: z.object({}),
   orchs: z.object({ caller: CALLER }),
+  /** One mail the caller sent or received, by its id or the start of it. */
+  "mail-text": z.object({ caller: CALLER, code: nonBlank }),
   question: z.custom<AgentNotice>(isAgentNotice),
   questions: z.object({ caller: CALLER, all: z.boolean().optional() }),
   ack: z.object({ id: nonBlank }),
@@ -988,6 +990,7 @@ export const RPC_RESULTS = {
   "owned-agents": z.object({ keys: z.array(z.string()) }),
   orphans: z.object({ agents: z.array(ORPHAN) }),
   orchs: z.object({ orchs: z.array(PEER_ORCH) }),
+  "mail-text": z.object({ id: z.string(), text: z.string() }),
   question: OK,
   ack: OK,
   "control-outcome": OK,

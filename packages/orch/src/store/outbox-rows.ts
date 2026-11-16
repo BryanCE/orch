@@ -1,5 +1,5 @@
 import type { OrchDir } from "../types/core.ts";
-import { and, asc, eq, inArray, lte, lt } from "drizzle-orm";
+import { and, asc, eq, inArray, lte, lt, sql } from "drizzle-orm";
 import { orm, queueWrite } from "./connection.ts";
 import { outbox } from "../db/schema.ts";
 import { isOutboxPayload } from "../shared/bridge-message.ts";
@@ -67,6 +67,14 @@ export function selectOpenOutboxForTarget(directory: OrchDir, target: string): O
   return orm(directory).select().from(outbox)
     .where(and(eq(outbox.target, target), inArray(outbox.state, [...OPEN_OUTBOX_STATES])))
     .orderBy(asc(outbox.createdAt))
+    .all()
+    .map(toMessage);
+}
+
+/** Every write whose id starts with the given prefix. */
+export function selectOutboxByIdPrefix(directory: OrchDir, prefix: string): OutboxMessage[] {
+  return orm(directory).select().from(outbox)
+    .where(sql`substr(${outbox.id}, 1, ${prefix.length}) = ${prefix}`)
     .all()
     .map(toMessage);
 }

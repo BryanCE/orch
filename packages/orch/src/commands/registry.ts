@@ -106,7 +106,10 @@ const DISPATCH: readonly CommandSpec[] = [
     summary: "Steer several.",
     flags: [{ ...ALL, help: "Operator-only. Every agent you hold an open lease on." }, STEAL],
   },
-  { name: "message", section: "dispatch", args: "<orch> <text...>", summary: `Talk to another leading ${term("orch")}: by name, id, or project. Needs fleet.orch_peers.`, flags: [] },
+  {
+    name: "message", section: "dispatch", args: "<orch> <text...>", summary: `Talk to another leading ${term("orch")}: by name, id, or project. Needs fleet.orch_peers.`, flags: [],
+    subcommands: [{ name: "read", args: "<code>", summary: "The full text of a message sent to or by you, by the code its monitor line names.", flags: [] }],
+  },
   { name: "pipe", section: "dispatch", args: "<target> <target> [\"<instruction>\"]", summary: "Hand the first agent's result to the second.", flags: [] },
   {
     name: "model", section: "dispatch", args: "<target> <model[:thinking]>",

@@ -3,7 +3,7 @@ import { sql } from "drizzle-orm";
 import { hostIdentity } from "../src/hosts/identity.ts";
 import { orchDirAt } from "../src/orch-dir.ts";
 import { processStartToken } from "../src/process-identity.ts";
-import { acceptMail, mailDelivery } from "../src/daemon/server/mail.ts";
+import { acceptMail, mailDelivery, readMail } from "../src/daemon/server/mail.ts";
 import { placeHere } from "../src/process-place.ts";
 import { FakePanedBackend, fakePane, withRegisteredBackend } from "./helpers/backend.ts";
 import type { MailDelivery } from "../src/types/settings.ts";
@@ -157,6 +157,22 @@ describe("where mail between two leading orchs lands", () => {
     const landing = withRegisteredBackend(backend, () => mailDelivery(directory, mail("prompt-unless-focused"), web, placeHere(directory, api)));
 
     expect(landing).toBe("prompt");
+  });
+});
+
+describe("readMail", () => {
+  test("gives the sender and the recipient the full text by the start of its id, and no one else", () => {
+    const directory = fixture();
+    const web = seedSession(directory, "claude", "tok-web");
+    const api = seedSession(directory, "codex", "tok-api");
+    seedSession(directory, "pi", "tok-other");
+    const text = `[from orch web] ${"all of it ".repeat(100)}`;
+    const { id } = acceptMail(directory, settingsWith(directory, true), web, api, text);
+    const code = id.split("-")[0] ?? id;
+
+    expect(readMail(directory, credentialOf("codex", "tok-api"), code)).toEqual({ id, text });
+    expect(readMail(directory, credentialOf("claude", "tok-web"), code).text).toBe(text);
+    expect(() => readMail(directory, credentialOf("pi", "tok-other"), code)).toThrow(`no mail ${code} to or from you`);
   });
 });
 

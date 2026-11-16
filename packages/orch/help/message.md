@@ -9,6 +9,11 @@ orch's input through its plexer pane or bridge, unless the user is in that pane.
 the input, so it never mixes with what the user types, and goes to that orch's `orch monitor`
 as a MESSAGE line. Keep `orch monitor` armed while peers are on, or that message waits unread.
 
+A MESSAGE line holds `monitor.summary_chars` of the text. A longer message opens with the
+command that prints all of it, sent to or by you, for `retention.outbox_days`:
+
+    orch message read 42447aaf
+
 The message opens with the sender's name and directory, and the command to reply with.
 Both ends must be leading orchs, and the user must have turned peers on:
 

@@ -1,8 +1,9 @@
-import type { Logger, OrchDir } from "../../types/core.ts";
+import type { CallerCredential, Logger, OrchDir } from "../../types/core.ts";
 import { randomUUID } from "node:crypto";
 import { checkWall } from "../../policy/space.ts";
 import { SETTINGS_DEFAULTS } from "../../settings/schema.ts";
-import { insertOutboxMessage } from "../../store/outbox-rows.ts";
+import { insertOutboxMessage, selectOutboxByIdPrefix } from "../../store/outbox-rows.ts";
+import { selfIdentityOf } from "../../identity/self.ts";
 import { agentView } from "../../store/agent-view.ts";
 import { resolveTargetRoute } from "../../control/dispatch.ts";
 import { joinsLeadingOrchs, requireOrchPeers } from "./peer-orchs.ts";
@@ -43,6 +44,18 @@ function admitMail(directory: OrchDir, fleet: Pick<OrchSettings["fleet"], "cross
   if (joinsLeadingOrchs(directory, sender, recipient)) return requireOrchPeers(fleet);
   const wall = checkWall(directory, sender, recipient, { crossSpace: fleet.cross_space });
   if (!wall.allowed) throw new Error(wall.reason ?? "space wall denied the mail");
+}
+
+/** The full text of one mail the caller sent or received, named by its id or the start of it. */
+export function readMail(directory: OrchDir, credential: CallerCredential, code: string): { id: string; text: string } {
+  const caller = selfIdentityOf(directory, credential)?.id;
+  if (caller === undefined) throw new Error("only a registered caller has mail");
+  const mine = selectOutboxByIdPrefix(directory, code).flatMap((row) =>
+    row.payload.action === "mail" && (row.target === caller || row.payload.from === caller) ? [{ id: row.id, text: row.payload.text }] : []);
+  const [mail] = mine;
+  if (mine.length > 1) throw new Error(`${code} names several mails; give more of the id: ${mine.map((each) => each.id).join(", ")}`);
+  if (mail === undefined) throw new Error(`no mail ${code} to or from you; mail is kept for retention.outbox_days`);
+  return mail;
 }
 
 /** Queue one agent's message to another. Mail is governed by the space wall or the orch-peers

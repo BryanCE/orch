@@ -282,6 +282,7 @@ function parseTypedRequest(method: RpcMethod, id: number | null, value: unknown)
     case "owned-agents": return parseOne(method, RPC_PARAMS[method], id, value);
     case "orphans": return parseOne(method, RPC_PARAMS[method], id, value);
     case "orchs": return parseOne(method, RPC_PARAMS[method], id, value);
+    case "mail-text": return parseOne(method, RPC_PARAMS[method], id, value);
     case "question": return parseOne(method, RPC_PARAMS[method], id, value);
     case "questions": return parseOne(method, RPC_PARAMS[method], id, value);
     case "ack": return parseOne(method, RPC_PARAMS[method], id, value);

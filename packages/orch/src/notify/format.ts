@@ -120,7 +120,7 @@ function notificationSummary(event: NotifyEvent, summaryChars: number): string {
       summary = event.task ?? "agent is asking";
       break;
     case "message":
-      summary = event.mail.text;
+      summary = event.mail.from === null ? event.mail.text : `${event.mail.from}: ${event.mail.text}`;
       break;
     case "closed":
       summary = "closed";

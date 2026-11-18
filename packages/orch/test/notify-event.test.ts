@@ -33,7 +33,7 @@ const message: NotifyEvent = { host: hostIdentity(),
   type: "message",
   newState: "message",
   dispatchId: "dispatch-1",
-  mail: { id: "mail-1", text: "hello" },
+  mail: { id: "mail-1", from: "worker", text: "hello" },
 };
 
 const closed: NotifyEvent = { host: hostIdentity(),

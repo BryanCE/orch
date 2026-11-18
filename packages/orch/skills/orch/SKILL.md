@@ -90,15 +90,14 @@ orch dispatch api-types --rename api-auth "Do section T4 of tasks/W2-api.md. Onl
   `orch message <name|project> <text>` sends. A refusal that says peers are off: give the
   user `orch settings fleet.orch_peers true` and wait.
 - While peers are on, keep `orch monitor` armed, even with no agents of your own. A message
-  that arrives while the user is in your pane skips your input and comes as a monitor line,
-  `MESSAGE [from orch <name> ...]`; otherwise it arrives as a prompt that opens the same way.
-  Answer it with the `orch message` command it names.
+  that arrives while the user is in your pane skips your input and comes as a monitor line;
+  otherwise it arrives as a prompt that opens `[from orch <name>; reply: ...]`.
+  Answer it with `orch message <name> "<text>"`.
 
 ## While agents run
 
-- `MESSAGE`: mail sent to you, from a worker or another orch. A line that opens
-  `(read all: orch message read <code>)` is cut: run that command for the whole text before
-  you act.
+- `MESSAGE <code> from <name>: <text>`: mail sent to you, from a worker or another orch.
+  A line that ends `...` is cut: run `orch message read <code>` for the whole text before you act.
 - `asking`: read `orch questions`, then `orch answer` within seconds.
 - `waiting`: a locked command holds the agent. `orch peek <holder>` shows if the holder is stuck.
 - `pending: <files>`: the agent's own files are clean, and the verify run fails only in another

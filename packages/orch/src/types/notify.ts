@@ -36,10 +36,13 @@ export interface AgentActivity {
   readonly filesTouched?: readonly string[];
 }
 
+/** `from` is the sender's name; a steer or dispatch typed at a raw session has none. */
+export interface NotifyMail { readonly id: string; readonly from: string | null; readonly text: string }
+
 export type NotifyEvent =
   | (EventIdentity & AgentActivity & { readonly type: "transition"; readonly oldState: AgentState; readonly newState: Exclude<AgentState, "asking"> })
   | (EventIdentity & AgentActivity & { readonly type: "asking"; readonly oldState: AgentState; readonly newState: "asking"; readonly askCount: number; readonly gaveUp: boolean })
-  | (EventIdentity & { readonly type: "message"; readonly newState: "message"; readonly dispatchId: string; readonly mail: { readonly id: string; readonly text: string } })
+  | (EventIdentity & { readonly type: "message"; readonly newState: "message"; readonly dispatchId: string; readonly mail: NotifyMail })
   | (EventIdentity & { readonly type: "closed"; readonly oldState: AgentState; readonly newState: "closed" })
   | (EventIdentity & { readonly type: "task"; readonly oldState: TaskState; readonly newState: TaskState; readonly task: string; readonly lastError?: string });
 

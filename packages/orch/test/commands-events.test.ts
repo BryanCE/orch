@@ -5,7 +5,7 @@ import { orchDirAt } from "../src/orch-dir.ts";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { eventAcceptor, formatEventGap, isNotifyEvent, onMonitor, parseEventsOptions, passesStates, renderEvent } from "../src/commands/events.ts";
-import { notifySinkLabel, spaceTag } from "../src/notify/format.ts";
+import { notifySinkLabel } from "../src/notify/format.ts";
 import { MONITOR_DEFAULT_ON } from "../src/settings/schema.ts";
 import { agentInMineScope, agentInScope } from "../src/policy/scope.ts";
 import { mintAgentId } from "../src/shared/agent-id.ts";
@@ -68,7 +68,7 @@ describe("commands/events", () => {
     expect(shows(transition("working", "blocked"))).toBe(true);
     expect(shows(transition("done", "exited"))).toBe(true);
     expect(shows({ host: hostIdentity(), type: "asking", key: "agent", agent: "pi", tab: null, model: null, oldState: "working", newState: "asking", askCount: 1, gaveUp: false, ts: "now" })).toBe(true);
-    expect(shows({ host: hostIdentity(), type: "message", key: "agent", agent: "pi", tab: null, model: null, newState: "message", dispatchId: "d", ts: "now", mail: { id: "m", text: "report" } })).toBe(true);
+    expect(shows({ host: hostIdentity(), type: "message", key: "agent", agent: "pi", tab: null, model: null, newState: "message", dispatchId: "d", ts: "now", mail: { id: "m", from: "w", text: "report" } })).toBe(true);
     expect(shows(transition("idle", "working"))).toBe(false);
     expect(shows(transition("working", "idle"))).toBe(false);
     expect(shows(transition("blocked", "working"))).toBe(false);
@@ -150,20 +150,23 @@ describe("commands/events", () => {
 
   // Cost and pack capacity are `orch status` columns. On a stream they made every
   // transition read like a status row and buried what the line exists to say.
-  test("message events render the full delivered mail text once", () => {
-    const mail = "[from worker] hello orchestrator, this report runs well past the sixty characters a notification title keeps";
-    const line = renderEvent({ host: hostIdentity(), type: "message", key: "agent", space: "wF", agent: "pi", tab: null, model: null, newState: "message", dispatchId: "dispatch-message", ts: "now", mail: { id: "mail-1", text: mail } }, false, 4, SUMMARY_CHARS);
-    expect(line).toBe(`MESSAGE ${spaceTag("wF", true)} ${mail}`);
-    expect(line).not.toContain("pi:");
-    expect(line.split("[from worker").length).toBe(2);
-    expect(line).not.toContain("message→message");
+  test("a message line is its code, its sender, then the text, and nothing else", () => {
+    const mail = "hello orchestrator, this report runs well past the sixty characters a notification title keeps";
+    const line = renderEvent({ host: hostIdentity(), type: "message", key: "agent", space: "wF", agent: "pi", tab: null, model: null, newState: "message", dispatchId: "dispatch-message", ts: "now", mail: { id: "mail-1", from: "worker", text: mail } }, false, 4, SUMMARY_CHARS);
+    expect(line).toBe(`MESSAGE mail from worker: ${mail}`);
   });
 
-  test("a message past monitor.summary_chars leads with the command that reads all of it", () => {
-    const mail = `[from orch claude-h16tjo02] ${"long status ".repeat(SUMMARY_CHARS)}`;
-    const line = renderEvent({ host: hostIdentity(), type: "message", key: "agent", agent: "pi", tab: null, model: null, newState: "message", dispatchId: "d", ts: "now", mail: { id: "42447aaf-13cb-4b69-becc-0cbbad272bc8", text: mail } }, false, 4, SUMMARY_CHARS);
-    expect(line).toStartWith("MESSAGE (read all: orch message read 42447aaf) [from orch claude-h16tjo02] long status");
-    expect(line.length).toBeLessThan(SUMMARY_CHARS + 100);
+  test("a message with no sender drops the from", () => {
+    const line = renderEvent({ host: hostIdentity(), type: "message", key: "agent", agent: "pi", tab: null, model: null, newState: "message", dispatchId: "d", ts: "now", mail: { id: "42447aaf-13cb", from: null, text: "go" } }, false, 4, SUMMARY_CHARS);
+    expect(line).toBe("MESSAGE 42447aaf: go");
+  });
+
+  test("a message past monitor.summary_chars keeps its start in view and ends cut", () => {
+    const mail = "long status ".repeat(SUMMARY_CHARS);
+    const line = renderEvent({ host: hostIdentity(), type: "message", key: "agent", agent: "pi", tab: null, model: null, newState: "message", dispatchId: "d", ts: "now", mail: { id: "42447aaf-13cb-4b69-becc-0cbbad272bc8", from: "claude-h16tjo02", text: mail } }, false, 4, SUMMARY_CHARS);
+    expect(line).toStartWith("MESSAGE 42447aaf from claude-h16tjo02: long status");
+    expect(line).toEndWith("...");
+    expect(line.length).toBe("MESSAGE 42447aaf from claude-h16tjo02: ".length + SUMMARY_CHARS);
   });
 
   // A worker's report is the line's point: a monitor cut at a notification's title width
@@ -212,7 +215,7 @@ describe("commands/events space ceiling", () => {
     const worker = mintAgentId();
     const accepts = eventAcceptor({ ...parseEventsOptions([]), targets: ["recon"] }, new Set([worker]), { mine: true, address: me }, "w1");
     expect(accepts({ ...transition("working", "done"), key: worker, space: "w1", spawnedBy: me })).toBe(true);
-    expect(accepts({ host: hostIdentity(), type: "message", key: me, agent: "orchestrator", tab: null, model: null, newState: "message", dispatchId: "d", ts: "now", mail: { id: "m", text: "report" } })).toBe(true);
+    expect(accepts({ host: hostIdentity(), type: "message", key: me, agent: "orchestrator", tab: null, model: null, newState: "message", dispatchId: "d", ts: "now", mail: { id: "m", from: "w", text: "report" } })).toBe(true);
     expect(accepts({ ...transition("working", "done"), key: me, space: "w1", spawnedBy: me })).toBe(false);
     expect(accepts({ ...transition("working", "done"), key: me, space: "w1", spawnedBy: me })).toBe(false);
   });

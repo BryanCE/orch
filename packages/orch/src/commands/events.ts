@@ -7,7 +7,7 @@ import { ensureDaemon } from "../daemon/client/reach.ts";
 import { eventState, isNotifyEvent } from "../notify/event.ts";
 
 export { isNotifyEvent };
-import { notificationText, oneLine, spaceTag } from "../notify/format.ts";
+import { notificationText, oneLine } from "../notify/format.ts";
 import { die } from "./target.ts";
 import { readRpc } from "./daemon.ts";
 import { parseCommand } from "./registry.ts";
@@ -18,7 +18,7 @@ import { whoAmI, refuseNonOperatorOverride } from "./self.ts";
 import { readFleet } from "./fleet.ts";
 import { resolveEntity } from "./resolve.ts";
 import type { Services } from "../types/services.ts";
-import type { NotifyEvent } from "../types/notify.ts";
+import type { NotifyEvent, NotifyMail } from "../types/notify.ts";
 import type { CallerScopeChoice, ResolvedCallerScope } from "../types/policy.ts";
 import type { PendingQuestionView } from "../types/daemon.ts";
 import type { AgentView } from "../types/store.ts";
@@ -301,7 +301,7 @@ function renderEventLine(event: NotifyEvent, coordinate: string | null, summaryC
   // configured label that could make the coordinate look like an orch-chosen name.
   const textEvent: NotifyEvent = { ...event, space: coordinate ?? "" };
   // Mail is keyed by its recipient, so its line names the event, not that recipient.
-  if (event.type === "message") return `MESSAGE${coordinate === null ? "" : ` ${spaceTag(coordinate, true)}`} ${mailLine(event.mail, summaryChars)}`;
+  if (event.type === "message") return mailLine(event.mail, summaryChars);
   return `${notificationText(textEvent, { colorize: true, summaryChars }).title}  ${eventStateChange(event)}`;
 }
 
@@ -310,11 +310,10 @@ function mailCode(id: string): string {
   return id.split("-")[0] ?? id;
 }
 
-/** A mail that fits whole, or its start behind the command that prints all of it. */
-function mailLine(mail: { readonly id: string; readonly text: string }, summaryChars: number): string {
-  const text = oneLine(mail.text);
-  if (text.length <= summaryChars) return text;
-  return `(read all: orch message read ${mailCode(mail.id)}) ${truncate(text, summaryChars)}`;
+/** `MESSAGE <code> from <name>: <text>`, the text cut at `summaryChars`; the code reads all of it. */
+function mailLine(mail: NotifyMail, summaryChars: number): string {
+  const sender = mail.from === null ? "" : ` from ${mail.from}`;
+  return `MESSAGE ${mailCode(mail.id)}${sender}: ${truncate(oneLine(mail.text), summaryChars)}`;
 }
 
 function eventStateChange(event: Exclude<NotifyEvent, { type: "message" }>): string {

@@ -214,7 +214,7 @@ const HELP: Readonly<Record<string, string>> = {
   "questions.renag_ms": "How long an unanswered question waits before the daemon asks again, in milliseconds.",
   "questions.renag_limit": "How many asking events the daemon emits before giving up.",
   "monitor.on": "Agent states orch monitor shows; every other state stays on orch events. A message sent to you, from a worker or another orch, always shows.",
-  "monitor.summary_chars": "How many characters of an agent's report or a message an orch monitor or orch events line shows before it is cut. A cut message line opens with orch message read <code>, which prints all of it.",
+  "monitor.summary_chars": "How many characters of an agent's report or a message an orch monitor or orch events line shows before it is cut. A message line is MESSAGE <code> from <name>: <text>; orch message read <code> prints all of a cut one.",
   "timeouts.dispatch_ack_ms": "Dispatch, steer, and answer acknowledgement timeout in milliseconds.",
   "timeouts.wait_ms": "Wait timeout in milliseconds.",
   "timeouts.adapter_command_ms": "Adapter command timeout in milliseconds.",

@@ -18,11 +18,12 @@ import { deliverControl, resolveTargetAdapter, resolveTargetRoute } from "../../
 import { isAgentGone } from "../../../control/agent-gone.ts";
 import { linkAttached } from "../../../control/agent-links.ts";
 import { isOutboxPayload } from "../../../shared/bridge-message.ts";
+import type { OutboxPayload } from "../../../shared/bridge-message.ts";
 import { agentView } from "../../../store/agent-view.ts";
 import { leaseHolderIsAlive } from "../state.ts";
 import type { DaemonState } from "../state.ts";
 import type { Governance, ParamsOf } from "../../client/protocol.ts";
-import type { NotifyEvent } from "../../../types/notify.ts";
+import type { NotifyEvent, NotifyMail } from "../../../types/notify.ts";
 import type { OutboxDelivery, OutboxDeps } from "../../../types/daemon.ts";
 import { pendingQuestion, questionOptionsOf, settleQuestion } from "../../../store/question-rows.ts";
 import { hereIsLive, hostOfPlace, placeAgentIfAny } from "../../../process-place.ts";
@@ -33,7 +34,7 @@ import { getAdapter } from "../../../adapters/registry.ts";
 import { workerPrompt } from "../../../worker-prompt.ts";
 
 /** Build the event carrying mail for a live session with no bridge route. */
-function sessionMessageEvent(directory: OrchDir, agent: HereAgent, id: string, text: string): NotifyEvent {
+function sessionMessageEvent(directory: OrchDir, agent: HereAgent, id: string, mail: SessionMail): NotifyEvent {
   const key = agent.id;
   const view = agentView(directory, key);
   const holder = currentLease(directory, key)?.orchId;
@@ -50,19 +51,21 @@ function sessionMessageEvent(directory: OrchDir, agent: HereAgent, id: string, t
     newState: "message",
     dispatchId: id,
     ts: new Date().toISOString(),
-    mail: { id, text },
+    mail: { id, ...mail },
   };
 }
 
+type SessionMail = Omit<NotifyMail, "id">;
+
 /** Publish one write as a `message` event on a live target's stream. The target's input is
  *  never touched; a dead target has no stream, so the write is gone. */
-function deliverToSessionStream(state: DaemonState, agent: HereAgent, action: string, id: string, text: string, log: Logger): OutboxDelivery {
+function deliverToSessionStream(state: DaemonState, agent: HereAgent, action: string, id: string, mail: SessionMail, log: Logger): OutboxDelivery {
   const directory = state.directory;
   if (!hereIsLive(directory, agent)) {
     log.warn("dispatch.gone", { target: agent.id, reason: "no delivery route" });
     return "gone";
   }
-  const event = sessionMessageEvent(directory, agent, id, text);
+  const event = sessionMessageEvent(directory, agent, id, mail);
   publishFromOrchd(state, event);
   log.info("dispatch.delivered", { target: agent.id, action, reason: "session-stream" });
   return "acked";
@@ -106,9 +109,9 @@ export async function deliverWrite(state: DaemonState, agent: HereAgent, payload
     log.warn("dispatch.malformed", { target: canonicalTarget });
     return "gone";
   }
-  const text = payload.text;
+  const { stream, text } = writeForms(directory, payload, canonicalTarget);
   if (payload.action === "mail" && mailDelivery(directory, state.services.settings.current().mail, payload.from, agent) === "events") {
-    return deliverToSessionStream(state, agent, payload.action, id, text, log);
+    return deliverToSessionStream(state, agent, payload.action, id, stream, log);
   }
   const kind = payload.action === "dispatch" ? "run" : "steer";
   const route = resolveTargetRoute(directory, agent);
@@ -118,7 +121,7 @@ export async function deliverWrite(state: DaemonState, agent: HereAgent, payload
   const caller = agentView(directory, canonicalTarget)?.kind;
   const rawSession = caller !== undefined && caller !== "agent";
   if (rawSession && !linkAttached(canonicalTarget) && !route?.backend.agentInput) {
-    return deliverToSessionStream(state, agent, payload.action, id, text, log);
+    return deliverToSessionStream(state, agent, payload.action, id, stream, log);
   }
   if (!resolveTargetAdapter(directory, canonicalTarget)) {
     if (!route?.backend.agentInput) {
@@ -326,12 +329,26 @@ export async function dispatch(state: DaemonState, params: ParamsOf<"dispatch">)
   return writeText(state, "dispatch", { ...params, text: workerPrompt(params.text, false, adapter, worker.context) });
 }
 
-/** The line a mail opens with: who sent it, and for a leading orch, where it works and how to answer. */
+function senderName(directory: OrchDir, from: string): string {
+  return agentView(directory, from)?.name ?? from;
+}
+
+type TextWrite = Exclude<OutboxPayload, { readonly action: "answer" | "model" }>;
+
+/** A write as a stream shows it, sender apart, and as a prompt types it, sender in front. */
+function writeForms(directory: OrchDir, payload: TextWrite, target: string): { stream: SessionMail; text: string } {
+  if (payload.action !== "mail") return { stream: { from: null, text: payload.text }, text: payload.text };
+  return {
+    stream: { from: senderName(directory, payload.from), text: payload.text },
+    text: mailHeader(directory, payload.from, target) + payload.text,
+  };
+}
+
+/** What mail typed into a prompt opens with: who sent it, and for a leading orch, how to answer. */
 function mailHeader(directory: OrchDir, from: string, target: string): string {
-  const sender = agentView(directory, from);
-  const name = sender?.name ?? from;
-  if (sender === null || !joinsLeadingOrchs(directory, from, target)) return `[from ${name}] `;
-  return `[from orch ${name} in ${sender.environment.cwd}; reply with: orch message ${name} "<text>"] `;
+  const name = senderName(directory, from);
+  if (!joinsLeadingOrchs(directory, from, target)) return `[from ${name}] `;
+  return `[from orch ${name}; reply: orch message ${name} "<text>"] `;
 }
 
 export async function message(state: DaemonState, params: ParamsOf<"message">): Promise<Accepted> {
@@ -339,7 +356,7 @@ export async function message(state: DaemonState, params: ParamsOf<"message">): 
   const settings = state.services.settings;
   const { from, target } = params;
   if (params.actor !== undefined && params.actor !== from) throw new Error(`mail goes out as its caller: ${params.actor} cannot send as ${from}`);
-  const accepted = acceptMail(directory, settings.currentOrNull(), from, target, mailHeader(directory, from, target) + params.text, state.services.logger);
+  const accepted = acceptMail(directory, settings.currentOrNull(), from, target, params.text, state.services.logger);
   const timeoutMs = settings.current().timeouts.dispatch_ack_ms;
   let ack: "acknowledged" | "unavailable";
   try {

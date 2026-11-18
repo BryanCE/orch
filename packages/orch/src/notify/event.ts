@@ -62,7 +62,7 @@ export const notifyEventSchema = z.discriminatedUnion("type", [
     type: z.literal("message"),
     newState: z.literal("message"),
     dispatchId: z.string(),
-    mail: z.object({ id: z.string(), text: z.string() }),
+    mail: z.object({ id: z.string(), from: z.string().nullable(), text: z.string() }),
   }),
   z.object({
     ...identity,

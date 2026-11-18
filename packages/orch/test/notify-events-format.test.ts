@@ -139,10 +139,10 @@ describe("notification and presence event formatting", () => {
       type: "message",
       newState: "message",
       dispatchId: "dispatch-1",
-      mail: { id: "mail-1", text: "[from worker] hello orchestrator" },
+      mail: { id: "mail-1", from: "worker", text: "hello orchestrator" },
       ts: "2026-01-01T00:00:00.000Z",
     }, { colorize: false, summaryChars: SETTINGS_DEFAULTS.notification.title_chars }).title;
-    expect(title).toContain("[from worker] hello orchestrator");
+    expect(title).toContain("worker: hello orchestrator");
   });
 
   test("webhook payload includes space and spaceColor", async () => {

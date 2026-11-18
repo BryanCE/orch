@@ -166,7 +166,7 @@ describe("readMail", () => {
     const web = seedSession(directory, "claude", "tok-web");
     const api = seedSession(directory, "codex", "tok-api");
     seedSession(directory, "pi", "tok-other");
-    const text = `[from orch web] ${"all of it ".repeat(100)}`;
+    const text = "all of it ".repeat(100);
     const { id } = acceptMail(directory, settingsWith(directory, true), web, api, text);
     const code = id.split("-")[0] ?? id;
 

@@ -61,9 +61,9 @@ const spawnAdapter = makeFakeAdapter({
 });
 
 describe("backend registry selection is backend-independent", () => {
-  test("herdr, headless, tmux, and orca are all registered", () => {
+  test("herdr, headless, held, tmux, and orca are all registered", () => {
     const ids = allBackends().map((backend) => backend.id).sort();
-    expect(ids).toEqual(["headless", "herdr", "orca", "tmux"]);
+    expect(ids).toEqual(["headless", "held", "herdr", "orca", "tmux"]);
     expect(getBackend("headless")?.id).toBe("headless");
   });
 
@@ -82,15 +82,15 @@ describe("backend registry selection is backend-independent", () => {
 
   test("Claude fleet selection produces Claude launch commands", () => {
     const commands = Array.from({ length: 2 }, () => claudeAdapter.interactiveCmd({}));
-    expect(commands).toEqual(["claude", "claude"]);
+    expect(commands).toEqual(["claude --strict-mcp-config", "claude --strict-mcp-config"]);
     expect(claudeAdapter.headlessCmd("task", {}).at(0)).toBe("claude");
   });
 
   test("Claude and pi remain selectable on every registered backend", () => {
     for (const backend of allBackends()) {
-      expect(resolveAdapter("claude").interactiveCmd({})).toBe("claude");
+      expect(resolveAdapter("claude").interactiveCmd({})).toBe("claude --strict-mcp-config");
       expect(resolveAdapter("pi").interactiveCmd({})).toBe("pi");
-      expect(backend.id).toMatch(/^(herdr|headless|tmux|orca)$/);
+      expect(backend.id).toMatch(/^(herdr|headless|held|tmux|orca)$/);
     }
   });
 

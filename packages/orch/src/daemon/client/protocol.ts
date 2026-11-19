@@ -112,6 +112,7 @@ const nonBlank = z.string().refine((value) => value.trim().length > 0, "must not
 const optionalText = z.string().transform((value) => value.length === 0 ? undefined : value).optional();
 const workerPolicy = z.object({
   inheritExtensions: z.boolean(),
+  inheritMcp: z.boolean(),
   excludeExtensions: ExtensionExclusionsSchema,
   builtinTools: z.boolean(),
   allowTools: z.array(z.string()).readonly(),

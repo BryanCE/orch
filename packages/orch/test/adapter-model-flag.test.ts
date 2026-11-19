@@ -25,8 +25,8 @@ describe("interactive launches carry the resolved model (12.6)", () => {
   });
 
   test("claude.interactiveCmd includes --model when set and omits it cleanly when not", () => {
-    expect(claudeAdapter.interactiveCmd({ model: MODEL })).toBe(`claude --model ${MODEL}`);
-    expect(claudeAdapter.interactiveCmd({})).toBe("claude");
+    expect(claudeAdapter.interactiveCmd({ model: MODEL })).toBe(`claude --model ${MODEL} --strict-mcp-config`);
+    expect(claudeAdapter.interactiveCmd({})).toBe("claude --strict-mcp-config");
   });
 
   test("codex.interactiveCmd includes a quoted --model when set and omits it cleanly when not", () => {

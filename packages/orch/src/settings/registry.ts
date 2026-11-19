@@ -191,6 +191,7 @@ const HELP: Readonly<Record<string, string>> = {
   "models.allowed": "Model allowlist patterns by harness.",
   "models.preferred": "Model quicklists by harness.",
   "workers.inherit_extensions": "Whether workers inherit harness extensions.",
+  "workers.inherit_mcp": "Whether Claude workers load the user's MCP servers and claude.ai connectors. Off, the default, launches them with none, so no MCP tool definition costs tokens. The next worker launch takes a change.",
   "workers.exclude_extensions": "Extensions workers must not load, by harness, each in that harness's naming: {\"pi\": [\"<extension>\"], \"claude\": [\"<plugin>@<marketplace>\"]}. An LSP plugin starts a language server per worker. The next worker launch takes a change.",
   "workers.builtin_tools": "Whether workers receive built-in tools.",
   "workers.allow_tools": "Tools workers may use.",

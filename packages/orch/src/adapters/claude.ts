@@ -70,16 +70,20 @@ function parseClaudeModelsOutput(stdout: string): readonly HarnessModel[] {
 /** Claude's token count at which a session compacts its conversation. */
 const COMPACT_WINDOW_ENV = "CLAUDE_CODE_AUTO_COMPACT_WINDOW";
 
+/** Claude's switch for the claude.ai connectors, which `--strict-mcp-config` does not name. */
+const CLAUDEAI_MCP_ENV = "ENABLE_CLAUDEAI_MCP_SERVERS";
+
 /** Claude's `enabledPlugins` for a worker: each plugin in `workers.exclude_extensions.claude` turned off. */
 function disabledPlugins(settings: OrchSettings): Record<string, false> {
   return Object.fromEntries((settings.workers.exclude_extensions.claude ?? []).map((plugin) => [plugin, false]));
 }
 
-/** The worker settings file with orch's hooks and plugin exclusions in place. The file's `env`
+/** The worker settings file with orch's hooks, plugin exclusions and connector switch in place. The file's `env`
  *  overrides the process env, so it never holds the compaction point: each launch sets that for its own model. */
 function withOrchKeys(current: Record<string, unknown>, hooks: Record<string, unknown>, settings: OrchSettings): Record<string, unknown> {
   const { env: _fileEnv, enabledPlugins: _orchOwned, ...rest } = current;
-  const { [COMPACT_WINDOW_ENV]: _launchOwned, ...env } = isRecord(current.env) ? current.env : {};
+  const { [COMPACT_WINDOW_ENV]: _launchOwned, [CLAUDEAI_MCP_ENV]: _connectorsOwned, ...userEnv } = isRecord(current.env) ? current.env : {};
+  const env = settings.workers.inherit_mcp ? userEnv : { ...userEnv, [CLAUDEAI_MCP_ENV]: "false" };
   const enabledPlugins = disabledPlugins(settings);
   return {
     ...rest,
@@ -132,6 +136,11 @@ const CLAUDE_EFFORT_LEVELS: Readonly<Record<ThinkingLevel, string>> = {
 /** Load orch's hooks into a session orch spawns, and into no other session. */
 function settingsArgv(opts: SpawnOpts): string[] {
   return opts.orchDir ? ["--settings", claudeSettingsPath(opts.orchDir)] : [];
+}
+
+/** A worker that does not inherit MCP loads no server, so no MCP tool definition costs tokens. */
+function mcpArgv(opts: SpawnOpts): string[] {
+  return opts.workers?.inheritMcp ? [] : ["--strict-mcp-config"];
 }
 
 /** The worker settings file as orch writes it: the user's keys beside orch's values. A file orch cannot parse throws. */
@@ -192,7 +201,7 @@ export function diagnoseClaudeShim(root: string, orchDir: OrchDir, settings: Orc
   }
   return isDeepStrictEqual(fileSettings, expected)
     ? { id, label, status: "ok", detail: `all orch Claude hooks are current (${shim})` }
-    : rewrite(`missing or stale orch Claude hooks, plugin exclusions out of step with workers.exclude_extensions.claude, or a compaction point the launch owns, in ${settingsPath}`);
+    : rewrite(`missing or stale orch Claude hooks, plugin exclusions out of step with workers.exclude_extensions.claude, a connector switch out of step with workers.inherit_mcp, or a compaction point the launch owns, in ${settingsPath}`);
 }
 
 /**
@@ -252,14 +261,14 @@ class ClaudeAdapter implements AgentAdapter {
   }
 
   interactiveArgv(opts: SpawnOpts): readonly string[] {
-    const argv = [...buildInteractiveArgv("claude", opts), ...settingsArgv(opts)];
+    const argv = [...buildInteractiveArgv("claude", opts), ...settingsArgv(opts), ...mcpArgv(opts)];
     if (opts.thinking !== undefined) argv.push(...this.thinking.launchArgs(opts.thinking));
     return argv;
   }
 
   /** Run Claude Code's print mode for detached workers. */
   headlessCmd(prompt: string, opts: SpawnOpts): string[] {
-    const flags = ["-p", ...settingsArgv(opts)];
+    const flags = ["-p", ...settingsArgv(opts), ...mcpArgv(opts)];
     if (opts.thinking !== undefined) flags.push(...this.thinking.launchArgs(opts.thinking));
     return buildHeadlessArgv("claude", flags, opts, prompt);
   }

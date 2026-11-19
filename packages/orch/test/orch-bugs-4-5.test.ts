@@ -7,6 +7,7 @@ import type { WorkerPolicy } from "../src/types/policy.ts";
 
 const inherited: WorkerPolicy = {
   inheritExtensions: true,
+  inheritMcp: false,
   excludeExtensions: {},
   builtinTools: true,
   allowTools: [],

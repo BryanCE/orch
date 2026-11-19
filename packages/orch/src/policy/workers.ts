@@ -22,6 +22,7 @@ export function workerPolicyFrom(settings: OrchSettings): WorkerPolicy {
   const orchTools = [...ORCH_BASE_TOOLS, ...(settings.fleet.worker_peer_tools ? ORCH_PEER_TOOLS : [])];
   return {
     inheritExtensions: workers.inherit_extensions,
+    inheritMcp: workers.inherit_mcp,
     excludeExtensions: workers.exclude_extensions,
     builtinTools: workers.builtin_tools,
     // An allowlist that omitted orch's tools would mute the worker, so they join it.

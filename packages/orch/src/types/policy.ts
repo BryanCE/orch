@@ -79,6 +79,8 @@ export const ROLES = ["orch", "slave"] as const satisfies readonly Role[];
 export interface WorkerPolicy {
   /** Load the harness's own discovered extensions alongside orch's bridge. */
   readonly inheritExtensions: boolean;
+  /** Load the user's MCP servers; false launches the worker with none. */
+  readonly inheritMcp: boolean;
   /** Extensions to drop when inheriting, by harness, each in that harness's own naming. */
   readonly excludeExtensions: ExtensionExclusions;
   /** Keep the harness's built-in tools; false restricts to `allowTools` only. */

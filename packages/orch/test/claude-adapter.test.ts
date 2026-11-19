@@ -155,7 +155,15 @@ describe("Claude adapter", () => {
   });
 
   test("builds the interactive Claude launch command", () => {
-    expect(claudeAdapter.interactiveCmd({})).toBe("claude");
+    expect(claudeAdapter.interactiveCmd({})).toBe("claude --strict-mcp-config");
+  });
+
+  test("loads no MCP server unless the worker policy inherits MCP", () => {
+    const policy = { inheritExtensions: true, excludeExtensions: {}, builtinTools: true, allowTools: [], compactAtTokens: {} };
+    expect(claudeAdapter.interactiveArgv({ workers: { ...policy, inheritMcp: false } })).toEqual(["claude", "--strict-mcp-config"]);
+    expect(claudeAdapter.headlessCmd("reply", { workers: { ...policy, inheritMcp: false } })).toEqual(["claude", "-p", "--strict-mcp-config", "reply"]);
+    expect(claudeAdapter.interactiveArgv({ workers: { ...policy, inheritMcp: true } })).toEqual(["claude"]);
+    expect(claudeAdapter.headlessCmd("reply", { workers: { ...policy, inheritMcp: true } })).toEqual(["claude", "-p", "reply"]);
   });
 
   test.each([
@@ -169,7 +177,7 @@ describe("Claude adapter", () => {
     { thinking: undefined, effort: undefined },
   ] satisfies { thinking: ThinkingLevel | undefined; effort: string | undefined }[])("launches with effort for $thinking", ({ thinking, effort }) => {
     const effortArgv = effort === undefined ? [] : ["--effort", effort];
-    const settingsArgv = ["--settings", claudeSettingsPath(orchDir)];
+    const settingsArgv = ["--settings", claudeSettingsPath(orchDir), "--strict-mcp-config"];
     expect(claudeAdapter.interactiveArgv({ orchDir, model: "opus", thinking })).toEqual(["claude", "--model", "opus", ...settingsArgv, ...effortArgv]);
     expect(claudeAdapter.headlessCmd("reply", { orchDir, model: "opus", thinking })).toEqual(["claude", "-p", ...settingsArgv, ...effortArgv, "--model", "opus", "reply"]);
   });
@@ -181,12 +189,12 @@ describe("Claude adapter", () => {
 
   test("loads orch-owned settings in interactive and headless launches", () => {
     const settingsPath = claudeSettingsPath(orchDir);
-    expect(claudeAdapter.interactiveArgv({ orchDir })).toEqual(["claude", "--settings", settingsPath]);
-    expect(claudeAdapter.headlessCmd("reply", { orchDir })).toEqual(["claude", "-p", "--settings", settingsPath, "reply"]);
+    expect(claudeAdapter.interactiveArgv({ orchDir })).toEqual(["claude", "--settings", settingsPath, "--strict-mcp-config"]);
+    expect(claudeAdapter.headlessCmd("reply", { orchDir })).toEqual(["claude", "-p", "--settings", settingsPath, "--strict-mcp-config", "reply"]);
   });
 
   test("pins headless print mode to the hook-driven presence path", () => {
-    expect(claudeAdapter.headlessCmd("reply", {})).toEqual(["claude", "-p", "reply"]);
+    expect(claudeAdapter.headlessCmd("reply", {})).toEqual(["claude", "-p", "--strict-mcp-config", "reply"]);
   });
 
   test("detects state from a live presence status", () => {

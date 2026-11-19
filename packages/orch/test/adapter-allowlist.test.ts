@@ -5,6 +5,7 @@ import type { WorkerPolicy } from "../src/types/policy.ts";
 
 const INHERIT: WorkerPolicy = {
   inheritExtensions: true,
+  inheritMcp: false,
   excludeExtensions: {},
   builtinTools: true,
   allowTools: [],
@@ -13,6 +14,7 @@ const INHERIT: WorkerPolicy = {
 
 const LOCKED_DOWN: WorkerPolicy = {
   inheritExtensions: false,
+  inheritMcp: false,
   excludeExtensions: {},
   builtinTools: false,
   allowTools: ["read", "bash", "orch_ask"],

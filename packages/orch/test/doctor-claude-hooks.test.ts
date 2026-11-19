@@ -52,6 +52,9 @@ function hooksFor(
   }));
 }
 
+/** The connector switch orch writes while `workers.inherit_mcp` is off, its default. */
+const NO_CONNECTORS = { ENABLE_CLAUDEAI_MCP_SERVERS: "false" };
+
 const sourcePackageRoot = path.join(import.meta.dir, "..");
 const packageRoot = fs.mkdtempSync(path.join(os.tmpdir(), "orch-doctor-claude-package-"));
 const currentShim = claudeHookShimPath(packageRoot);
@@ -74,7 +77,7 @@ afterEach(() => {
 describe("doctor Claude hooks shim check", () => {
   test("accepts orch hooks pointing at the current shim", () => {
     const file = settingsPath();
-    writeSettings(file, { hooks: hooksFor(currentShim) });
+    writeSettings(file, { env: NO_CONNECTORS, hooks: hooksFor(currentShim) });
 
     const result = diagnoseClaudeShim(packageRoot, orchHome, currentSettings(), logger);
 
@@ -82,15 +85,32 @@ describe("doctor Claude hooks shim check", () => {
     expect(result.detail).toContain("all orch Claude hooks are current");
   });
 
+  // Each claude.ai connector's tool definitions cost a worker tokens on every turn.
+  test("turns the claude.ai connectors off by default, and drops the switch when workers inherit MCP", () => {
+    const file = settingsPath();
+    writeSettings(file, { hooks: hooksFor(currentShim) });
+    const off = diagnoseClaudeShim(packageRoot, orchHome, currentSettings(), logger);
+    expect(off).toMatchObject({ status: "warn" });
+    off.fix?.apply();
+    expect(JSON.parse(fs.readFileSync(file, "utf8"))).toEqual({ env: NO_CONNECTORS, hooks: hooksFor(currentShim) });
+
+    writeSettingsFixture(orchHome, { runtime: "node", workers: { inherit_mcp: true } });
+    const on = diagnoseClaudeShim(packageRoot, orchHome, currentSettings(), logger);
+    expect(on).toMatchObject({ status: "warn" });
+    on.fix?.apply();
+    expect(JSON.parse(fs.readFileSync(file, "utf8"))).toEqual({ hooks: hooksFor(currentShim) });
+    writeSettingsFixture(orchHome, { runtime: "node" });
+  });
+
   // The file's env overrides the process env, so a compaction point there would beat
   // the one each launch sets for its own model.
   test("reports a compaction point in the file as stale, and a rewrite drops it", () => {
     const file = settingsPath();
-    writeSettings(file, { env: { CLAUDE_CODE_AUTO_COMPACT_WINDOW: "200000" }, hooks: hooksFor(currentShim) });
+    writeSettings(file, { env: { ...NO_CONNECTORS, CLAUDE_CODE_AUTO_COMPACT_WINDOW: "200000" }, hooks: hooksFor(currentShim) });
     const result = diagnoseClaudeShim(packageRoot, orchHome, currentSettings(), logger);
     expect(result).toMatchObject({ status: "warn" });
     result.fix?.apply();
-    expect(JSON.parse(fs.readFileSync(file, "utf8"))).toEqual({ hooks: hooksFor(currentShim) });
+    expect(JSON.parse(fs.readFileSync(file, "utf8"))).toEqual({ env: NO_CONNECTORS, hooks: hooksFor(currentShim) });
   });
 
   // Each worker would otherwise start its own copy of every plugin's language server.
@@ -101,7 +121,7 @@ describe("doctor Claude hooks shim check", () => {
     const result = diagnoseClaudeShim(packageRoot, orchHome, currentSettings(), logger);
     expect(result).toMatchObject({ status: "warn" });
     result.fix?.apply();
-    expect(JSON.parse(fs.readFileSync(file, "utf8"))).toEqual({ enabledPlugins: { "tsgo-lsp@local": false }, hooks: hooksFor(currentShim) });
+    expect(JSON.parse(fs.readFileSync(file, "utf8"))).toEqual({ env: NO_CONNECTORS, enabledPlugins: { "tsgo-lsp@local": false }, hooks: hooksFor(currentShim) });
     expect(diagnoseClaudeShim(packageRoot, orchHome, currentSettings(), logger)).toMatchObject({ status: "ok" });
     writeSettingsFixture(orchHome, { runtime: "node" });
   });
@@ -109,7 +129,7 @@ describe("doctor Claude hooks shim check", () => {
   test.each(["node", "deno", "bun"] as const)("accepts the %s hook form when %s is the declared runtime", (runtime) => {
     writeSettingsFixture(orchHome, { runtime });
     const file = settingsPath();
-    writeSettings(file, { hooks: hooksFor(currentShim, (s, e) => claudeHookCommand(s, e, runtime, orchHome)) });
+    writeSettings(file, { env: NO_CONNECTORS, hooks: hooksFor(currentShim, (s, e) => claudeHookCommand(s, e, runtime, orchHome)) });
 
     const result = diagnoseClaudeShim(packageRoot, orchHome, currentSettings(), logger);
 
@@ -169,7 +189,7 @@ describe("doctor Claude hooks shim check", () => {
     expect(result).toMatchObject({ id: "claude-hooks", status: "warn" });
     expect(result.fix?.description).toContain("rewrite orch's Claude settings");
     result.fix?.apply();
-    expect(JSON.parse(fs.readFileSync(settingsPath(), "utf8"))).toEqual({ hooks: hooksFor(currentShim) });
+    expect(JSON.parse(fs.readFileSync(settingsPath(), "utf8"))).toEqual({ env: NO_CONNECTORS, hooks: hooksFor(currentShim) });
   });
 
   test("fails on malformed settings and offers no rewrite that would lose the user's keys", () => {
@@ -186,7 +206,7 @@ describe("doctor Claude hooks shim check", () => {
   test("the user's own keys never make the hooks stale, and a rewrite keeps them", () => {
     const file = settingsPath();
     const permissions = { deny: ["Bash(ssh:*)"] };
-    const env = { MY_VAR: "kept" };
+    const env = { MY_VAR: "kept", ...NO_CONNECTORS };
     writeSettings(file, { permissions, env, hooks: hooksFor(currentShim) });
     expect(diagnoseClaudeShim(packageRoot, orchHome, currentSettings(), logger)).toMatchObject({ status: "ok" });
 

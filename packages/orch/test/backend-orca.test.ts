@@ -1,10 +1,9 @@
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { OrcaBackend } from "../src/backends/orca/index.ts";
-import { orcaBinary } from "../src/backends/orca/cli.ts";
+import { orcaBinary, type OrcaExecutor, type OrcaTerminal } from "../src/backends/orca/cli.ts";
 import { AgentGoneError } from "../src/control/agent-gone.ts";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
 import { mintAgentId } from "../src/shared/agent-id.ts";
-import type { OrcaExecutor, OrcaTerminal } from "../src/types/plexer.ts";
 import { fakeAdapter } from "./helpers/adapter.ts";
 import { isolateOrchEnv, restoreOrchEnv } from "./helpers/env.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";

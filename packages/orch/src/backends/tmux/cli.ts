@@ -1,7 +1,28 @@
 import { type ExecFileSyncOptionsWithStringEncoding } from "node:child_process";
 import { DEFAULT_TOOL_RETRY, plexerExecOptions, runTool, runToolBestEffort, toolErrorDetail } from "../tool-exec.ts";
 import type { RetryPolicy } from "../../types/core.ts";
-import type { TmuxPane, TmuxPaneRect } from "../../types/plexer.ts";
+
+/** One tmux pane row from the shared inventory query (D1). */
+export interface TmuxPane {
+  readonly paneId: string;
+  readonly session: string;
+  readonly windowId: string;
+  readonly windowIndex: string;
+  readonly windowName: string;
+  readonly paneTitle: string;
+  readonly paneActive: boolean;
+  readonly windowActive: boolean;
+  readonly sessionAttached: boolean;
+  readonly agentKey: string;
+  readonly agent: string;
+  readonly agentName: string;
+}
+
+/** One pane's id and cell geometry, for layout planning. */
+export interface TmuxPaneRect {
+  readonly paneId: string;
+  readonly rect: { readonly width: number; readonly height: number; readonly x: number; readonly y: number };
+}
 
 /** tmux answered that no server runs: an empty plexer, not a fault. */
 export function noTmuxServer(error: unknown): boolean {

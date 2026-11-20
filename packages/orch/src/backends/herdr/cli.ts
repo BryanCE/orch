@@ -5,8 +5,7 @@ import { extractVersion } from "../../shared/versions.ts";
 import { buildCommandFailure, findFreshCacheEntry, parseCliJson } from "../shared-cli.ts";
 import { DEFAULT_TOOL_RETRY, plexerExecOptions, runTool, toolErrorDetail, toolOutputText } from "../tool-exec.ts";
 import { PLEXER_TIMEOUTS } from "../../config.ts";
-import { shownPanesReplySchema } from "./wire.ts";
-import type { HerdrPane, HerdrTab } from "../../types/plexer.ts";
+import { shownPanesReplySchema, type HerdrPane, type HerdrTab } from "./wire.ts";
 import type { RetryPolicy } from "../../types/core.ts";
 
 interface HerdrAgent {

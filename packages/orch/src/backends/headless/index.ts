@@ -18,8 +18,18 @@ import type { Backend, BackendId, BackendSpawnOpts, CaptureRole, ForegroundRole,
 import type { StdioKind } from "../../types/form.ts";
 import type { AgentAdapter, SpawnOpts } from "../../types/adapter.ts";
 import type { Logger, OrchDir } from "../../types/core.ts";
-import type { HeadlessBackendDeps, HeadlessHandle } from "../../types/plexer.ts";
+import type { HeadlessHandle } from "../../types/plexer.ts";
 import type { HereAgent } from "../../types/agent-place.ts";
+
+/**
+ * Detached process backend. Dead entries stay observable in the agent store,
+ * while close can only signal a registered process with matching presence ownership.
+ */
+interface HeadlessBackendDeps {
+  /** Injected process liveness check and signaler, primarily for hermetic tests. */
+  pidAlive?: (pid: number) => boolean;
+  killer?: (process: LocalProcess, signal: "SIGTERM") => void;
+}
 
 const HEADLESS_BACKEND: BackendId = "headless";
 

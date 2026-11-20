@@ -9,7 +9,7 @@ import { pidStampedWith } from "../../process-identity.ts";
 import { LocalProcessRole, placedShellPid } from "../process.ts";
 import { binaryOnPath, shellLine, shellQuote } from "../../util.ts";
 import { isAgentId } from "../../shared/agent-id.ts";
-import { OrcaCommandError, GONE_HANDLE_CODES, ORCA_INPUT_RETRY, createOrcaCli, orcaBinary, type OrcaCli } from "./cli.ts";
+import { OrcaCommandError, GONE_HANDLE_CODES, ORCA_INPUT_RETRY, createOrcaCli, orcaBinary, type OrcaCli, type OrcaExecutor, type OrcaTerminal } from "./cli.ts";
 import { createInteractiveCommand } from "../backend.ts";
 import { createBackendCaptureRole } from "../../presence/roles.ts";
 import type {
@@ -39,7 +39,14 @@ import type {
 } from "../../types/backend.ts";
 import type { AgentAdapter } from "../../types/adapter.ts";
 import type { OrchDir } from "../../types/core.ts";
-import type { OrcaBackendDeps, OrcaHandle, OrcaTerminal } from "../../types/plexer.ts";
+
+/** Handle owned by one Orca terminal: the runtime-scoped `handle` string. */
+type OrcaHandle = string;
+
+/** Injected command runner for hermetic provider tests. */
+interface OrcaBackendDeps {
+  readonly executor?: OrcaExecutor;
+}
 
 const ORCA_BACKEND: BackendId = "orca";
 /** The oldest Orca this integration speaks to. */

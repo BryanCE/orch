@@ -5,8 +5,8 @@ import {
   OrcaCommandError,
   orcaBinary,
   createOrcaCli,
+  type OrcaExecutor,
 } from "../src/backends/orca/cli.ts";
-import type { OrcaExecutor } from "../src/types/plexer.ts";
 
 const terminal = {
   handle: "term-1",

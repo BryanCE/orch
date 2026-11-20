@@ -1,5 +1,39 @@
 import { z } from "zod";
-import type { HerdrPane, HerdrTab, HerdrWorkspace } from "../../types/plexer.ts";
+
+export interface HerdrPane {
+  pane_id: string;
+  tab_id?: string;
+  workspace_id?: string;
+  agent_status?: string;
+  name?: string;
+  focused?: boolean;
+  agent?: string;
+  agent_session?: { kind: string; value: string } | null;
+  rect?: { width: number; height: number; x: number; y: number };
+}
+
+export interface HerdrTab {
+  tab_id: string;
+  label?: string;
+  workspace_id?: string;
+  focused?: boolean;
+  number?: number;
+  pane_count?: number;
+  agent_status?: string;
+}
+
+export interface HerdrWorkspace {
+  workspace_id: string;
+  label?: string;
+  focused?: boolean;
+  number?: number;
+  tab_count?: number;
+  pane_count?: number;
+  agent_status?: string;
+}
+
+/** Handle owned by one herdr pane. */
+export type HerdrHandle = string;
 
 const paneSchema = z.object({
   pane_id: z.string(),

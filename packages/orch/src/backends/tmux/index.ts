@@ -14,12 +14,19 @@ const TMUX_ENVIRONMENT_STAMP = environmentStamp({ labels: false, blockedEvent: n
 import { sleepMs } from "../shell-ready.ts";
 import { PLEXER_TIMEOUTS } from "../../config.ts";
 import { selectAgentStatus } from "../../store/status-rows.ts";
-import { bestEffortTmux, execTmux, noTmuxServer, orchPanes, windowPaneRects } from "./cli.ts";
+import { bestEffortTmux, execTmux, noTmuxServer, orchPanes, windowPaneRects, type TmuxPane } from "./cli.ts";
 import { LocalProcessRole, placedShellPid } from "../process.ts";
 import type { AgentNamingRole, AgentStatusRole, Backend, BackendGroup, BackendGroupLayout, BackendId, BackendSpawnOpts, BackendSplit, CaptureRole, CommandPlacementRole, CreateGroupRequest, CreatedGroup, CreatedHome, EnvironmentIdentityRole, GroupHomeRole, GroupLayoutRole, HomeSubject, MoveRequest, ForegroundRole, PlacementRole, PlacementInventoryRole, LabelRole, ScreenRole, ZoomRole, PlexerHome, SpaceHomeRole } from "../../types/backend.ts";
 import type { AgentAdapter } from "../../types/adapter.ts";
 import type { OrchDir } from "../../types/core.ts";
-import type { TmuxBackendDeps, TmuxHandle, TmuxPane } from "../../types/plexer.ts";
+
+/** Handle owned by one tmux pane. */
+type TmuxHandle = string;
+
+/** Injected home command runner for hermetic provider tests. */
+interface TmuxBackendDeps {
+  readonly homeExec?: (args: string[]) => string;
+}
 
 const TMUX_BACKEND: BackendId = "tmux";
 

@@ -6,8 +6,26 @@ import { extractVersion } from "../../shared/versions.ts";
 import { buildCommandFailure, findFreshCacheEntry, parseCliJson } from "../shared-cli.ts";
 import { DEFAULT_TOOL_RETRY, plexerExecOptions, runTool, toolErrorDetail, toolOutputText } from "../tool-exec.ts";
 import { PLEXER_TIMEOUTS } from "../../config.ts";
-import type { OrcaExecutor, OrcaTerminal } from "../../types/plexer.ts";
 import type { RetryPolicy } from "../../types/core.ts";
+
+/** One Orca terminal row from `terminal list --json`. A terminal is one pane
+ *  leaf inside one tab inside one worktree. */
+export interface OrcaTerminal {
+  readonly handle: string;
+  readonly ptyId: string | null;
+  readonly worktreeId: string;
+  readonly worktreePath: string;
+  readonly branch: string;
+  readonly tabId: string;
+  readonly leafId: string;
+  readonly title: string | null;
+  readonly connected: boolean;
+  readonly writable: boolean;
+  readonly lastOutputAt: number | null;
+}
+
+/** Runs one Orca CLI command and returns its stdout. Injected by hermetic tests. */
+export type OrcaExecutor = (command: string, args: string[], options?: ExecFileSyncOptionsWithStringEncoding, policy?: RetryPolicy) => string;
 
 /** Orca's terminal-handle errors mean the caller must refresh its inventory. */
 export const GONE_HANDLE_CODES: ReadonlySet<string> = new Set([

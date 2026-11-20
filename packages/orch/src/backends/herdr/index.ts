@@ -15,7 +15,7 @@ export const HERDR_BLOCKED_EVENT = "herdr:blocked";
 /** What a pane in this plexer composes, as the agent inside it will read it. */
 const HERDR_ENVIRONMENT_STAMP = environmentStamp({ labels: true, blockedEvent: HERDR_BLOCKED_EVENT });
 import { GONE_HANDLE_CODES, HERDR_INPUT_RETRY, HerdrCommandError, createHerdrCli, type HerdrCli } from "./cli.ts";
-import { layoutReplySchema, moveReplySchema, paneOpenReplySchema, tabOpenReplySchema, workspaceListReplySchema, workspaceOpenReplySchema } from "./wire.ts";
+import { layoutReplySchema, moveReplySchema, paneOpenReplySchema, tabOpenReplySchema, workspaceListReplySchema, workspaceOpenReplySchema, type HerdrHandle, type HerdrPane, type HerdrTab } from "./wire.ts";
 import { AgentGoneError } from "../../control/agent-gone.ts";
 import { homeLabel } from "../backend.ts";
 import { createBackendCaptureRole } from "../../presence/roles.ts";
@@ -26,7 +26,6 @@ import { PLEXER_TIMEOUTS } from "../../config.ts";
 import type { AgentNamingRole, AgentStatusRole, Backend, BackendGroup, BackendGroupLayout, BackendId, BackendSpawnOpts, BackendSplit, BackendTarget, BackendZoomMode, CaptureRole, CommandPlacementRole, CreateGroupRequest, CreatedGroup, CreatedHome, EnvironmentIdentityRole, GroupHomeRole, GroupLayoutRole, HomeSubject, MoveRequest, PlacementRequest, ForegroundRole, PlacementRole, PlacementInventoryRole, LabelRole, ScreenRole, ZoomRole, PlexerHome, ServerInfoRole, ServerReport, SpaceHomeRole, VersionRole } from "../../types/backend.ts";
 import type { AgentAdapter } from "../../types/adapter.ts";
 import type { OrchDir } from "../../types/core.ts";
-import type { HerdrHandle, HerdrPane, HerdrTab } from "../../types/plexer.ts";
 
 const HERDR_BACKEND: BackendId = "herdr";
 

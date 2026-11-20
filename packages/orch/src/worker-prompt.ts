@@ -1,4 +1,4 @@
-// Leaf module: the bundled harness artifacts (extensions/claude/index.ts and
+// Leaf module: the bundled harness artifacts (each extensions/<harness>/index.ts and
 // friends) import `prepareWorkerTask` from here, so nothing in this file may
 // reach the store's sqlite graph (Rule 6). The two helpers that answer from the
 // store — `maySpawnBelow` and `workerHeaderContextOf` — live in policy/spawner.ts.
@@ -72,7 +72,7 @@ function askClause(adapter: AgentAdapter | undefined): string {
  * Appended only when BOTH sides of the reply can carry it: this worker's bridge
  * has the peer tools, and the spawner is live; orchd queues mail for it. A worker's
  * own bridge says nothing about whether whoever launched it can receive mail — a
- * Claude Code session orchestrating a pi fleet never does, and telling its workers
+ * harness session that orchestrates a fleet from outside orch never does, and telling its workers
  * to `orch_send target "spawner"` sent every one of them into a refusal they then
  * had to reason their way out of.
  */

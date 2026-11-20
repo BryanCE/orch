@@ -86,12 +86,15 @@ export async function resolveHarnessModels(
   flags: readonly string[] | string | undefined,
   harnesses: readonly AdapterId[],
   interactive: boolean,
-): Promise<HarnessModelChoices | null> {
+): Promise<(HarnessModelChoices & { readonly offers: Readonly<Record<string, HarnessOffer>> }) | null> {
   const choices: HarnessModelChoices = { defaults: {}, preferred: {}, allowed: {} };
+  const readOffers: Record<string, HarnessOffer> = {};
   const modelFlags = typeof flags === "string" ? [flags] : flags ?? [];
   const assignments = resolveModelAssignments(modelFlags, harnesses);
   for (const id of harnesses) {
-    const { models: offered, suggested } = await readHarnessCatalogue(id, offers, interactive);
+    const offer = await readHarnessCatalogue(id, offers, interactive);
+    readOffers[id] = offer;
+    const { models: offered, suggested } = offer;
     const targeted = assignments.get(id);
     const chosen = await resolveDefaultModel({ flag: targeted, harnessId: id, suggested, offered, interactive, recorded: settings?.defaults.models[id] });
     if (chosen === null) return null;
@@ -108,17 +111,17 @@ export async function resolveHarnessModels(
     choices.allowed[id] = allowed;
     choices.preferred[id] = allowed;
   }
-  return choices;
+  return { ...choices, offers: readOffers };
 }
 
 /** Tell the operator how to make an installed-but-signed-out harness usable, and what to
  *  run afterwards. Skipping the model prompt is silent otherwise: an empty list looks
  *  like orch forgot to ask. */
-function emptyCatalogueHint(harnessId: string): string {
+function emptyCatalogueHint(harnessId: string, signIn: string | null): string {
   return [
     `Hey - ${harnessId} is installed but lists no models, so it has nothing to spawn with.`,
     `It is not signed in yet, not configured, or its login went stale. No model was recorded for it.`,
-    `To fix it: ${signedOutFix(harnessId)}`,
+    `To fix it: ${signedOutFix(harnessId, signIn)}`,
   ].join("\n");
 }
 
@@ -138,7 +141,7 @@ export async function readHarnessCatalogue(harnessId: AdapterId, offers: Harness
   if (offer === undefined) throw new Error(`orchd reported nothing for ${harnessId}`);
   if (!interactive) return offer;
   if (offer.models.length) logStep(`${harnessId} lists ${offer.models.length} models`);
-  else logWarning(emptyCatalogueHint(harnessId));
+  else logWarning(emptyCatalogueHint(harnessId, offer.signIn));
   return offer;
 }
 
@@ -252,7 +255,7 @@ export interface SetupComposition {
 /** What the setup wizard asks orchd: what each harness offers, and which plexers are on this machine. */
 export interface SetupProbes {
   readonly offers: HarnessOffers;
-  readonly availablePlexers: () => Promise<ReadonlySet<string>>;
+  readonly plexers: () => Promise<{ readonly available: ReadonlySet<string>; readonly recommended: ReadonlySet<string> }>;
 }
 
 export async function resolveSetupComposition(settings: OrchSettings | null, probes: SetupProbes, options: SetupOptions): Promise<SetupComposition | null> {
@@ -262,10 +265,16 @@ export async function resolveSetupComposition(settings: OrchSettings | null, pro
   if (adapters === null) return null;
   const defaultAdapter = await resolveActiveDefault(adapters, options.adapterFlag !== undefined, options.interactive, selectDefaultAdapter);
   if (defaultAdapter === null) return null;
-  const pickBackends = async (ids: readonly BackendId[]): Promise<BackendId[] | null> => selectBackends(ids, await probes.availablePlexers());
+  let plexerProbe: ReturnType<SetupProbes["plexers"]> | undefined;
+  const readPlexers = () => (plexerProbe ??= probes.plexers());
+  const pickBackends = async (ids: readonly BackendId[]): Promise<BackendId[] | null> => {
+    const { available, recommended } = await readPlexers();
+    return selectBackends(ids, available, recommended);
+  };
   const backends = await resolveProviderSet("backend", "--plexer", options.backendFlag, BACKEND_IDS, options.interactive, pickBackends);
   if (backends === null) return null;
-  const defaultBackend = await resolveActiveDefault(backends, options.backendFlag !== undefined, options.interactive, selectDefaultBackend);
+  const defaultBackend = await resolveActiveDefault(backends, options.backendFlag !== undefined, options.interactive,
+    async (ids) => selectDefaultBackend(ids, (await readPlexers()).recommended));
   if (defaultBackend === null) return null;
   const models = await resolveHarnessModels(settings, probes.offers, options.modelFlags, adapters, options.interactive);
   return models === null ? null : { runtime, adapters, defaultAdapter, backends, defaultBackend, models };

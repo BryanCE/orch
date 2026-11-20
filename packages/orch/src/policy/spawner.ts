@@ -28,8 +28,8 @@ export function workerHeaderContextOf(self: CallerSelf, settings: OrchSettings, 
 /**
  * The environment EVERY plexer launches an agent into.
  *
- * One builder, because three had already drifted: herdr set `ORCH_PROJECT`,
- * headless set it, and tmux set none — so a tmux worker in a worktree resolved
+ * One builder, because three had already drifted: one plexer set `ORCH_PROJECT`,
+ * headless set it, and another set none — so that plexer's worker in a worktree resolved
  * `projectRoot()` to its own cwd and `peers.ts` filtered it out of the fleet
  * that spawned it. Project scope is not a
  * per-plexer nicety; it is how a worker knows which fleet it belongs to.

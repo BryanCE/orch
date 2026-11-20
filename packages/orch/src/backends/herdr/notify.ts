@@ -1,7 +1,6 @@
 import type { NotificationPosition, OrchSettings } from "../../types/settings.ts";
 import { SETTINGS_DEFAULTS } from "../../settings/schema.ts";
 import type { HerdrCli } from "./cli.ts";
-import { HERDR_SINK_ID } from "../../types/backend.ts";
 import { notificationText } from "../../notify/format.ts";
 import { isRecord } from "../../util.ts";
 import type { NotificationIo, Notifier } from "../../types/notify.ts";
@@ -18,7 +17,7 @@ export function createHerdrNotifier(cli: HerdrCli): Notifier {
     wait: (ms) => { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); },
   };
   return {
-    id: HERDR_SINK_ID,
+    id: "herdr",
     label: "Herdr",
     metadata: { description: "Herdr native notifications", requiredConfig: [] },
     remediation: "fix: enable the herdr plexer in orch setup, and start herdr so its control socket answers",

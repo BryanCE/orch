@@ -1,5 +1,5 @@
 import type { ExecFileSyncOptionsWithStringEncoding } from "node:child_process";
-import type { AgentAdapter } from "./adapter.ts";
+import type { AgentAdapter, Prerequisite } from "./adapter.ts";
 import type { HeadlessHandle } from "./plexer.ts";
 import type { ThinkingLevel, WorkerPolicy } from "./policy.ts";
 import type { AgentId, HereAgent } from "./agent-place.ts";
@@ -57,7 +57,7 @@ export interface CommandPlacementRole<Handle = BackendHandle> {
 export interface PlacementInventoryRole<Handle = BackendHandle> {
   current(): PlacementCoordinate | null;
   list(): readonly BackendTarget<Handle>[];
-  /** The plexer's own coordinate (herdr workspace, tmux session) holding a
+  /** The plexer's own coordinate (a plexer's workspace or session) holding a
    *  place, or null when the place is gone. How orch lands a fleet beside a
    *  caller whose handle it RECORDED, without sniffing the plexer again. */
   coordinateOf(handle: Handle): string | null;
@@ -91,7 +91,7 @@ export interface RelaunchRole<Handle = BackendHandle> {
   relaunch(handle: Handle, command: string): Promise<{ readonly handle: Handle; readonly process: LocalProcess }>;
 }
 
-/** Request to create one plexer group (herdr tab, tmux window). */
+/** Request to create one plexer group (a plexer's tab or window). */
 export interface CreateGroupRequest {
   /** The plexer's coordinate to open the group in, or undefined when orch
    *  resolved none — it never invents one, and the plexer uses its own default. */
@@ -257,8 +257,12 @@ export interface ProcessRole<Handle = BackendHandle> {
 }
 
 
-/** The closed backend-id set, importable without pulling any provider code. */
-export const BACKEND_IDS = ["herdr", "tmux", "orca", "headless", "held"] as const;
+/** The terminal multiplexers orch integrates: outside tools, each with its own backend directory. */
+export const PLEXER_IDS = ["herdr", "tmux", "orca"] as const;
+
+/** The closed backend-id set, importable without pulling any provider code: the plexers, and
+ *  the two backends orch is itself. */
+export const BACKEND_IDS = [...PLEXER_IDS, "headless", "held"] as const;
 
 /** Plexer backends supported by orch. */
 export type BackendId = (typeof BACKEND_IDS)[number];
@@ -364,7 +368,7 @@ export interface BackendRect {
 export interface BackendTarget<Handle = BackendHandle> {
   readonly handle: Handle;
   readonly workspace: string | null;
-  /** Owning group (herdr tab, tmux window), when the backend has groups. */
+  /** Owning group (a plexer's tab or window), when the backend has groups. */
   readonly group: string | null;
   /** Display label of the owning group, when the backend labels groups. */
   readonly groupLabel: string | null;
@@ -379,7 +383,7 @@ export interface BackendTarget<Handle = BackendHandle> {
   readonly sessionPath: string | null;
 }
 
-/** One group (herdr tab, tmux window) reported by a backend. */
+/** One group (a plexer's tab or window) reported by a backend. */
 export interface BackendGroup {
   readonly id: string;
   readonly label: string | null;
@@ -409,7 +413,7 @@ export interface BackendGroupLayout<Handle = BackendHandle> {
  * never re-mints a second identity from a post-spawn handle. The backend is also
  * the control authority: delivery, focus, keystrokes, and layout route through
  * this port, never through a concrete plexer CLI at the call site. The port is
- * agent-agnostic — it never references pi/claude/codex.
+ * agent-agnostic — it never references a harness.
  *
  * Required methods return false when the operation fails or the backend cannot
  * perform it; optional methods are absent when a backend has no such concept
@@ -420,6 +424,8 @@ export interface Backend<Handle = BackendHandle> {
   /** The stdio this backend can start a process on, most natural first. A form runs here only
    *  when its stdio is listed. */
   readonly offers: readonly StdioKind[];
+  /** How setup installs this backend's program, and whether setup recommends it. */
+  readonly install: Prerequisite;
   /** Whether the backend binary/runtime is present on this machine. */
   isAvailable(): boolean;
   /** Whether the current process is inside a live session for this backend. */
@@ -532,7 +538,3 @@ export type ToolExecutor = (
   args: readonly string[],
   options: ExecFileSyncOptionsWithStringEncoding,
 ) => string;
-
-/** Herdr's notification sink id: the sink herdr's backend registers, named by herdr's own plexer id
- *  (the first in {@link BACKEND_IDS}), so the id is spelled once. The one spelling core may import. */
-export const HERDR_SINK_ID = BACKEND_IDS[0];

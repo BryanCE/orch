@@ -1,9 +1,17 @@
 import { buildHeadlessArgv, type AgentState } from "../shared/harness.ts";
 import { HARNESS_SESSION_ENV } from "../shared/session-env.ts";
-import { OPENCODE_PREREQUISITE } from "../shared/prerequisites.ts";
+import { posix } from "../shared/prerequisites.ts";
 import { isRecord, textValue } from "../util.ts";
 import { opencodeServerDriver } from "./opencode-driver.ts";
-import type { AdapterCommand, AgentAdapter, HarnessModel, LifecycleVerb, ModelCatalogue, ResultExtractionInput, SpawnOpts, StateDetectionInput, SteerRequest } from "../types/adapter.ts";
+import type { AdapterCommand, AgentAdapter, HarnessModel, LifecycleVerb, ModelCatalogue, Prerequisite, ResultExtractionInput, SpawnOpts, StateDetectionInput, SteerRequest } from "../types/adapter.ts";
+import type { FormId } from "../types/form.ts";
+
+/** opencode installs one binary that is its terminal program, its server and its ACP binding. */
+const OPENCODE_INSTALL: Prerequisite = {
+  install: { ...posix("curl -fsSL https://opencode.ai/v2/install | bash"), windows: "npm i -g @opencode/cli" },
+  docsUrl: "https://opencode.ai/docs/",
+  signIn: "opencode auth login",
+};
 
 /** opencode lists its models one `provider/model` per line. */
 const MODELS_ARGV = ["models"] as const;
@@ -30,6 +38,10 @@ function runRecords(output: string | undefined): Record<string, unknown>[] {
  */
 class OpencodeAdapter implements AgentAdapter {
   readonly id = "opencode" as const;
+  readonly install = OPENCODE_INSTALL;
+  /** opencode runs natively: orchd starts its own server and drives it over the server API. */
+  readonly preferredForm: FormId = "server";
+  readonly skillsDir = null;
 
   /** opencode exports OPENCODE=1 and its session id into every shell it runs. */
   readonly sessionEnvMarker = HARNESS_SESSION_ENV.opencode.marker;
@@ -55,7 +67,7 @@ class OpencodeAdapter implements AgentAdapter {
     argv: (_opts: SpawnOpts): readonly string[] => ["opencode", "acp"],
     env: (_opts: SpawnOpts): Readonly<Record<string, string>> => ({}),
     sharesSessions: true,
-    install: OPENCODE_PREREQUISITE,
+    install: OPENCODE_INSTALL,
   };
   readonly server = opencodeServerDriver;
   readonly resume = {

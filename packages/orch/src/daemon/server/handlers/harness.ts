@@ -16,13 +16,14 @@ export async function harnessCatalogues(state: DaemonState, params: ParamsOf<"ha
       const adapter = resolveAdapter(id);
       const suggested = adapter.defaultModel?.defaultModelString() ?? null;
       const compaction = adapter.compaction !== null;
+      const signIn = adapter.install.signIn ?? null;
       try {
         if (adapter.modelWarm) await adapter.modelWarm.warmModels(models);
-        return { id, models: [...adapter.models?.listModels(models) ?? []], suggested, compaction, error: null };
+        return { id, models: [...adapter.models?.listModels(models) ?? []], suggested, compaction, signIn, error: null };
       } catch (error: unknown) {
         const message = errorMessage(error);
         logger.error("models.catalogue-failed", { adapter: id, error: message });
-        return { id, models: [], suggested, compaction, error: message };
+        return { id, models: [], suggested, compaction, signIn, error: message };
       }
     })),
   };

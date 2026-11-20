@@ -3,7 +3,8 @@ import { isRecord } from "../util.ts";
 import { bridgeExtensionArgv, bridgeModelArgv, diagnoseExtensionLink, installExtensionLink, PiBridgeAdapter, settingsDefaultModel, toolPolicyArgv } from "./pi.ts";
 import { HARNESS_SESSION_ENV } from "../shared/session-env.ts";
 import { homeDir } from "../shared/home.ts";
-import type { AgentAdapter, HarnessModel, ModelCatalogue, ShimInstallOpts, SpawnOpts } from "../types/adapter.ts";
+import { everywhere } from "../shared/prerequisites.ts";
+import type { AgentAdapter, HarnessModel, ModelCatalogue, Prerequisite, ShimInstallOpts, SpawnOpts } from "../types/adapter.ts";
 import type { CheckResult } from "../types/doctor.ts";
 import type { ExtensionName, Logger, OrchDir } from "../types/core.ts";
 import type { OrchSettings } from "../types/settings.ts";
@@ -64,6 +65,9 @@ function ompToolArgv(opts: SpawnOpts): string[] {
 class OmpAdapter extends PiBridgeAdapter implements AgentAdapter {
   protected readonly resumeFlag = "--resume";
   readonly id = "omp" as const;
+  readonly install: Prerequisite = { install: everywhere("bun add -g @oh-my-pi/pi-coding-agent"), needs: ["bun"], signIn: "omp setup" };
+  readonly preferredForm = null;
+  readonly skillsDir = null;
 
   /** omp exports its session id into subprocesses; it is both marker and identity. */
   readonly sessionEnvMarker = HARNESS_SESSION_ENV.omp.marker;

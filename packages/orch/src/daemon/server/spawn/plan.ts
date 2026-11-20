@@ -75,7 +75,7 @@ export function selectBackend(explicit: string | null, settings: OrchSettings): 
 
 /** Match an agent's selected form to the stdio a backend offers. */
 export function selectSpawnForm(requested: FormId | null, defaults: OrchSettings["defaults"]["forms"], adapter: AgentAdapter, backend: Backend, held: Backend): { form: FormId; backend: Backend } {
-  const selected = requested ?? defaults[adapter.id];
+  const selected = requested ?? defaults[adapter.id] ?? adapter.preferredForm ?? undefined;
   if (selected === undefined) {
     const form = nativeForm(backend.offers);
     if (form === null) throw new SpawnRefusalError(`no backend here runs a native form`);

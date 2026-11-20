@@ -11,8 +11,8 @@ import { shellQuote } from "../util.ts";
  * otherwise the mark names the subject orch opened the home for.
  *
  * The subject id is narrowed to the grammar every plexer accepts for a display
- * name: it reaches here from callers that derive it from a path, and tmux
- * refuses `.` and `:` in a session name.
+ * name: it reaches here from callers that derive it from a path, and a plexer
+ * may refuse `.` and `:` in a session name.
  */
 export function homeLabel(subject: HomeSubject, requested?: string | null): string {
   if (requested) return requested;

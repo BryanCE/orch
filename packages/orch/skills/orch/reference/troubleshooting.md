@@ -20,9 +20,9 @@ then `orch restart <name>`.
 ## Queued dispatch
 
 `Queued for <agent> (dispatch <id>): no ack within ...` means orchd holds the write and the
-agent has not taken it yet. A pi agent's bridge is still starting or redialing, and orchd
-delivers the write when the bridge attaches. A `claude` agent got the text in its input and
-has not submitted it yet, because it is mid-turn. Move on either way. `codex` gives no
+agent has not taken it yet. An agent with a bridge is still starting or redialing, and orchd
+delivers the write when the bridge attaches. An agent orch types into got the text in its input and
+has not submitted it yet, because it is mid-turn. Move on either way. A harness with neither gives no
 start-up signal, so spawn warns that it is UNVERIFIED; `orch status` shows when it is ready.
 
 ## Model refusals

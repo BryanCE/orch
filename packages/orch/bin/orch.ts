@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// orch — unified controller for pi agents running in herdr panes.
+// orch — one controller for coding agents, in any harness and any plexer.
 // The shebang is node like every other entrypoint: a bun shebang here makes `bun build`
 // emit its `// @bun` pragma into dist/bin/orch.js, and bun decodes a pragma'd file as
 // Latin-1, so every non-ASCII literal (the setup wizard's box glyphs) prints double-encoded.

@@ -7,8 +7,8 @@ import type { CheckResult } from "../../../types/doctor.ts";
 
 /**
  * Hashes of the bridge bundles currently on disk — one per harness, since each
- * ships its own composition root. A pane is judged against the whole set: an omp
- * agent whose hash matches omp's bundle is current, and comparing it against pi's
+ * ships its own composition root. A pane is judged against the whole set: an
+ * agent whose hash matches its own harness's bundle is current, and comparing it against another's
  * would report a fleet-wide failure that is really just "a different harness".
  */
 function shippedBundleHashes(bundlePath?: string): ReadonlySet<string> {
@@ -18,7 +18,7 @@ function shippedBundleHashes(bundlePath?: string): ReadonlySet<string> {
   }));
 }
 
-/** Verify Claude's orch hooks are installed and target this checkout's shim. */
+/** Verify each harness's orch hooks are installed and target this checkout's shim. */
 export async function checkExtensionStaleness(orchDir: OrchDir, bundlePath?: string): Promise<CheckResult> {
   await Promise.resolve();
   const id = "extension-staleness";

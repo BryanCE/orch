@@ -24,7 +24,8 @@ import { LocalProcessRole, placedShellPid } from "../process.ts";
 import { plexerExecOptions } from "../tool-exec.ts";
 import { PLEXER_TIMEOUTS } from "../../config.ts";
 import type { AgentNamingRole, AgentStatusRole, Backend, BackendGroup, BackendGroupLayout, BackendId, BackendSpawnOpts, BackendSplit, BackendTarget, BackendZoomMode, CaptureRole, CommandPlacementRole, CreateGroupRequest, CreatedGroup, CreatedHome, EnvironmentIdentityRole, GroupHomeRole, GroupLayoutRole, HomeSubject, MoveRequest, PlacementRequest, ForegroundRole, PlacementRole, PlacementInventoryRole, LabelRole, ScreenRole, ZoomRole, PlexerHome, ServerInfoRole, ServerReport, SpaceHomeRole, VersionRole } from "../../types/backend.ts";
-import type { AgentAdapter } from "../../types/adapter.ts";
+import type { AgentAdapter, Prerequisite } from "../../types/adapter.ts";
+import { posix } from "../../shared/prerequisites.ts";
 import type { OrchDir } from "../../types/core.ts";
 
 const HERDR_BACKEND: BackendId = "herdr";
@@ -140,6 +141,14 @@ export class HerdrBackend implements Backend<HerdrHandle> {
   }
   readonly id = HERDR_BACKEND;
   readonly offers: readonly StdioKind[] = ["terminal"];
+  readonly install: Prerequisite = {
+    install: {
+      ...posix("curl -fsSL https://herdr.dev/install.sh | sh"),
+      windows: "irm https://herdr.dev/install.ps1 | iex",
+    },
+    docsUrl: "https://herdr.dev/docs/install/",
+    recommended: true,
+  };
   private orchDir: OrchDir | undefined;
   readonly process = new LocalProcessRole<HerdrHandle>(placedShellPid(() => this.foreground));
   // Composes identity (it knows which space this process sits in) and nothing for

@@ -214,7 +214,7 @@ export async function admitSpawn(
   // Shim refresh is a launch side effect, so it happens only after policy
   // accepts, and only for the harnesses actually being launched.
   await refreshStaleShims(directory, logger, [...new Set(agents.map((agent) => agent.adapter))], settingsFile);
-  // Herdr rejects an invalid prefix, so no placement side effect may precede it.
+  // A plexer may reject an invalid prefix, so no placement side effect may precede it.
   try {
     assertValidAgentName(settings.prefix);
   } catch (error: unknown) {

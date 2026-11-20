@@ -1,4 +1,4 @@
-// Transcript text extraction for JSONL transcripts, used by the claude and codex
+// Transcript text extraction for JSONL transcripts, used by the harness adapters
 // adapters and by both harness shims. Pure: util.ts only, so a standalone shim
 // bundle can pull it without dragging store/config in.
 import { isRecord, textValue } from "../util.ts";
@@ -45,7 +45,7 @@ function transcriptNestedAssistantText(record: JsonRecord): string | undefined {
 
 /**
  * Assistant text from a single transcript record. Handles both a role field and
- * Claude's `{type:"assistant"}` / `{type:"assistant_message"}` wrappers, and
+ * the `{type:"assistant"}` / `{type:"assistant_message"}` wrappers, and
  * recurses through the common nesting keys (`data`/`payload`/`item`).
  */
 export function assistantText(record: JsonRecord): string | undefined {
@@ -54,7 +54,7 @@ export function assistantText(record: JsonRecord): string | undefined {
   return transcriptNestedAssistantText(record);
 }
 
-/** The last assistant text in a claude-format JSONL transcript, or undefined when none. */
+/** The last assistant text in a JSONL transcript, or undefined when none. */
 export function visitJsonlValues(raw: string, visit: (value: unknown) => void): void {
   for (const line of raw.split(/\r?\n/)) {
     if (!line.trim()) continue;

@@ -14,8 +14,8 @@ import type { ParamsOf, ResultOf, RpcMethod } from "../daemon/client/protocol.ts
  * This is orch's OWN port, not any harness's API: nothing here imports a harness
  * package, so `src/agent/**` typechecks, bundles and runs with none of them
  * installed. Each harness's composition root (`extensions/<harness>/index.ts`)
- * imports its own package's types and hands its live API in — pi and omp both
- * satisfy this structurally, and a build that stops satisfying it fails in its
+ * imports its own package's types and hands its live API in — each such harness
+ * satisfies this structurally, and a build that stops satisfying it fails in its
  * own directory rather than silently degrading the shared plane.
  *
  * It is deliberately the SUBSET the control plane actually uses. Widening it to
@@ -117,8 +117,8 @@ export interface HarnessApi {
  * What one harness build calls itself and calls its settle signal.
  *
  * The settle event is the run's real "done" — it fires only when the harness will
- * not auto-continue (no retry or compaction pending), unlike `agent_end`. pi
- * spells it `agent_settled`, omp spells it `session_stop`, and each emits only its
+ * not auto-continue (no retry or compaction pending), unlike `agent_end`. Each
+ * harness spells it its own way and emits only its
  * own; the name belongs to the harness's composition root, never to shared code.
  */
 export interface HarnessIdentity {
@@ -139,7 +139,7 @@ export interface PeerSummary {
   key: string;
   /** Display name stamped at launch (or by the plexer); the human spelling of this peer. */
   name?: string;
-  /** Harness this peer runs (pi, claude, codex, omp). */
+  /** Harness this peer runs. */
   harness?: string;
   space: string | null;
   state: string;

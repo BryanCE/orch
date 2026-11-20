@@ -2,14 +2,14 @@ import type { ForegroundProcesses } from "../types/backend.ts";
 
 export const NO_FOREGROUND: ForegroundProcesses = { shellPid: null, foregroundPid: null, processes: [] };
 
-/** What an environment counts as an agent's own shell. Copied from herdr's
- *  `is_pane_shell_process_name` so orch reads exactly the fact herdr reads. */
+/** What an environment counts as an agent's own shell: the same names a plexer
+ *  reads as a pane's shell process, so orch reads exactly the fact the plexer reads. */
 const SHELL_PROCESS_NAMES = new Set([
   "sh", "bash", "dash", "zsh", "fish", "ksh", "mksh", "csh", "tcsh",
   "elvish", "xonsh", "nu", "pwsh", "powershell", "cmd",
 ]);
 
-/** herdr's own normalization: basename, no login-shell dash, no `.exe`, lowercased.
+/** The plexer's own normalization: basename, no login-shell dash, no `.exe`, lowercased.
  *  A login shell reports as `-bash`, and matching on a `sh` suffix instead calls
  *  `ssh` a shell. */
 function processName(name: string): string {

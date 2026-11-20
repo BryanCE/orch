@@ -24,7 +24,7 @@ export type ModelExpansion =
   | { readonly kind: "unlisted"; readonly from: string };
 
 /** Expand a short model name (`luna`) to the one listed, allowed spec that contains it
- * (`openai-codex/gpt-5.6-luna`). Exactly one match expands; zero is unlisted; more than one
+ * (`<provider>/gpt-5.6-luna`). Exactly one match expands; zero is unlisted; more than one
  * is ambiguous and names them. A bare spec that is itself listed, or a harness that
  * enumerates nothing, passes through as listed. */
 export function expandModelSpec(
@@ -67,8 +67,8 @@ function correctedSpecHint(harness: AdapterId, candidates: readonly string[]): s
  * Reject a model the harness does not list.
  *
  * Membership in the adapter's OWN registry is the only honest check orch can make:
- * what a valid token looks like is the harness's vocabulary (pi wants `provider/id`,
- * codex wants `gpt-5.6-luna`, claude wants `sonnet`), so a format rule here would be
+ * what a valid token looks like is the harness's vocabulary (one wants `provider/id`,
+ * another a bare id, a third an alias), so a format rule here would be
  * one harness's grammar imposed on the rest. It is also the strongest check — it is
  * what stops a shorthand reaching a harness resolver that would fuzzy-match it onto
  * whatever registry entry shares a prefix. A harness that enumerates nothing cannot

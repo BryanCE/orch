@@ -2,6 +2,8 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
+import { ADAPTER_IDS } from "../src/types/adapter.ts";
+import { BACKEND_IDS, PLEXER_IDS } from "../src/types/backend.ts";
 
 const packageRoot = join(import.meta.dirname, "..");
 const repoRoot = join(packageRoot, "..", "..");
@@ -17,42 +19,9 @@ function relPathOf(file: string): string {
   return file.replace(/\\/g, "/");
 }
 
-/**
- * I2 — the plexer and harness ids every identity rule below branches on,
- * DERIVED from the tree rather than typed out beside it.
- *
- * A plexer owns a directory under `src/backends/` and a harness owns a
- * directory under `extensions/` (Rule 10), so the tree already answers "what
- * ids exist". The hand-kept copies that stood here had drifted in the way a
- * second list always does: `PROVIDER_IDS` never listed `omp`, so
- * `harness === "omp"` was exempt from the exact rule that exists to forbid it,
- * and a deleted backend would have kept its entry forever.
- *
- * Throws when a source yields nothing: an empty alternation matches nothing,
- * which would turn every rule built on it into a silent pass — the same failure
- * mode `scanDirectory`'s recursion guard (I5) exists to prevent.
- */
-function directoryIds(directory: string, label: string): readonly string[] {
-  let entries: string[];
-  try {
-    entries = readdirSync(directory, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory())
-      .map((entry) => entry.name);
-  } catch {
-    entries = [];
-  }
-  if (entries.length === 0) {
-    throw new Error(`check-bridge: found no ${label} directories under ${directory}/ - the tree layout changed under this rule`);
-  }
-  return entries.sort((left, right) => left.localeCompare(right));
-}
-
-/** Every plexer: one directory under `src/backends/`. */
-export const PLEXER_IDS: readonly string[] = directoryIds(join(packageRoot, "src/backends"), "plexer");
-/** Every harness: one directory under `extensions/` (Rule 10). */
-export const HARNESS_IDS: readonly string[] = directoryIds(join(packageRoot, "extensions"), "harness");
-/** The union both identity rules branch on. */
-export const ENVIRONMENT_IDS: readonly string[] = [...new Set([...HARNESS_IDS, ...PLEXER_IDS])].sort((left, right) => left.localeCompare(right));
+/** Every harness and every backend: the closed id sets the code itself imports, so no rule
+ *  here keeps a second list. A harness with no extension directory is still a harness. */
+export const ENVIRONMENT_IDS: readonly string[] = [...new Set([...ADAPTER_IDS, ...BACKEND_IDS])].sort((left, right) => left.localeCompare(right));
 
 function alternation(ids: readonly string[]): string {
   return ids.map((id) => id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
@@ -266,29 +235,98 @@ export const BACKEND_KIND_MAP_ALLOWLIST: ReadonlyMap<string, ReadonlySet<string>
   ],
 ]);
 
-/** The closed plexer-id set has to be spelled SOMEWHERE, and `src/types/backend.ts`
- *  is that place: `BACKEND_IDS` is what every other module imports instead of
- *  writing "herdr" itself, and it lives in types so importing it pulls no provider
- *  code. The exemption is the exact definition line and nothing else — any other
- *  quoted plexer id in that file still fails. */
-export const PLEXER_ID_SET_ALLOWLIST: ReadonlyMap<string, ReadonlySet<string>> = new Map([
-  [
-    "src/types/backend.ts",
-    new Set(['export const BACKEND_IDS = ["herdr", "tmux", "orca", "headless", "held"] as const;']),
-  ],
+/** The outside tools orch integrates: every plexer and every harness. */
+const PLEXER_NAMES: ReadonlySet<string> = new Set(PLEXER_IDS);
+const HARNESS_NAMES: ReadonlySet<string> = new Set(ADAPTER_IDS);
+const INTEGRATION_NAMES: ReadonlySet<string> = new Set([...PLEXER_NAMES, ...HARNESS_NAMES]);
+
+/** The provider factories. Each lists every provider of its kind, which is its one job. */
+const PROVIDER_REGISTRIES: ReadonlySet<string> = new Set([
+  "src/adapters/registry.ts",
+  "src/backends/registry.ts",
+  "src/backends/detect.ts",
+  "src/backends/hud.ts",
+  "src/bridge-bundles/metadata.ts",
+  "src/shared/session-env.ts",
 ]);
 
+/** The two lines that spell the id sets, in the two files that own them. */
+const ID_SET_DEFINITION = /^export const (?:PLEXER_IDS|ADAPTER_IDS) = \[/;
+const ID_SET_FILES: ReadonlySet<string> = new Set(["src/types/backend.ts", "src/types/adapter.ts"]);
+
+/** This repo's rule file shares a harness's name. Citing it names no harness. */
+const RULE_FILE = /CLAUDE\.md/g;
+
+/** The integration whose own code a path is: its backend or extension directory, or its adapter files. */
+function integrationOwner(relPath: string): string | undefined {
+  const owner = (/^(?:src\/backends|extensions)\/([^/]+)\//.exec(relPath) ?? /^src\/adapters\/([a-z]+)[.-]/.exec(relPath))?.[1];
+  return owner !== undefined && INTEGRATION_NAMES.has(owner) ? owner : undefined;
+}
+
+/** Every word of a line, split at each non-alphanumeric and each camelCase step, in lower case. */
+export function lineWords(line: string): string[] {
+  return line.replace(RULE_FILE, "")
+    .split(/[^A-Za-z0-9]+/)
+    .flatMap((part) => part.split(/(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])/))
+    .map((word) => word.toLowerCase());
+}
+
 /**
- * A plexer id written as a literal where it is not that plexer's own code to
- * write. `where` names the scope in the message so one rule serves both scans.
- *
- * The only exemption is {@link PLEXER_ID_SET_ALLOWLIST}: the line that DEFINES
- * the closed set, which every other module imports instead of spelling an id.
+ * An integration named outside its own code: in a literal, a key, an identifier, a type, a
+ * comment or a help page. Core speaks of plexers and harnesses and reads each one's facts
+ * through its port, so adding or removing an integration edits no core line.
  */
-export function checkPlexerLiteralLine(line: string, relPath: string, where: string): string | undefined {
-  if (!/["'](herdr|tmux|orca)["']/.test(line)) return undefined;
-  if (PLEXER_ID_SET_ALLOWLIST.get(relPath)?.has(line.trim())) return undefined;
-  return `quoted plexer id literals are forbidden ${where}`;
+export function checkIntegrationNameLine(line: string, relPath: string): string | undefined {
+  if (PROVIDER_REGISTRIES.has(relPath)) return undefined;
+  if (ID_SET_FILES.has(relPath) && ID_SET_DEFINITION.test(line.trim())) return undefined;
+  if (BACKEND_KIND_MAP_ALLOWLIST.get(relPath)?.has(line.trim())) return undefined;
+  const forbidden = forbiddenNames(integrationOwner(relPath));
+  const named = lineWords(line).find((word) => forbidden.has(word));
+  return named === undefined ? undefined : `"${named}" names an integration outside its own code`;
+}
+
+/** Core may name none. A plexer's own code may name no harness, and a harness's own code no plexer. */
+function forbiddenNames(owner: string | undefined): ReadonlySet<string> {
+  if (owner === undefined) return INTEGRATION_NAMES;
+  return PLEXER_NAMES.has(owner) ? HARNESS_NAMES : PLEXER_NAMES;
+}
+
+/** The trees an integration name may not appear in, and the file kinds read in each. */
+const INTEGRATION_NAME_ROOTS: readonly { readonly directory: string; readonly extensions: readonly string[] }[] = [
+  { directory: "src", extensions: [".ts"] },
+  { directory: "extensions", extensions: [".ts"] },
+  { directory: "bin", extensions: [".ts"] },
+  { directory: "help", extensions: [".md"] },
+  { directory: "skills", extensions: [".md", ".ts"] },
+  { directory: "../web/src", extensions: [".ts", ".tsx"] },
+];
+
+/** Skill evals are tooling that runs a harness by name, as `scripts/` is; a web test names one
+ *  to prove the page never shows it. */
+const INTEGRATION_NAME_SKIPPED = /^skills\/[^/]+\/evals\/|^\.\.\/web\/src\/.*\.test\.tsx?$/;
+
+function integrationNameFiles(directory: string, extensions: readonly string[]): string[] {
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) return integrationNameFiles(path, extensions);
+    return entry.isFile() && extensions.some((extension) => entry.name.endsWith(extension)) ? [relPathOf(path)] : [];
+  });
+}
+
+/** Every breach in one run, so one pass lists the whole job. */
+function scanIntegrationNames(): number {
+  const files = INTEGRATION_NAME_ROOTS
+    .flatMap(({ directory, extensions }) => integrationNameFiles(directory, extensions))
+    .filter((file) => !INTEGRATION_NAME_SKIPPED.test(file));
+  const breaches = files.flatMap((file) => readFileSync(file, "utf8").split(/\r?\n/).flatMap((line, index) => {
+    const reason = checkIntegrationNameLine(line, file);
+    return reason === undefined ? [] : [`check:bridge FAIL ${file}:${index + 1} ${reason}`];
+  }));
+  if (breaches.length > 0) {
+    console.log(breaches.join("\n"));
+    process.exit(1);
+  }
+  return files.length;
 }
 
 const launchEnvName = LAUNCH_ENV.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -310,7 +348,7 @@ const BACKEND_ENV_PREFIX_EXTRAS: ReadonlyMap<string, readonly string[]> = new Ma
 
 function backendEnvNames(): ReadonlyMap<string, string> {
   const owners = new Map<string, string>();
-  for (const backend of PLEXER_IDS) {
+  for (const backend of BACKEND_IDS) {
     const prefix = `${backend.toUpperCase()}_`;
     owners.set(prefix, backend);
     for (const extra of BACKEND_ENV_PREFIX_EXTRAS.get(backend) ?? []) owners.set(extra, backend);
@@ -398,7 +436,7 @@ export function checkFsWatchLine(line: string, relPath: string): string | undefi
  * parser leaves (`shared/harness.ts`, `shared/transcript.ts`) sit directly under
  * their dir (no `<id>/` subpath, not a bare harness id) and stay allowed.
  */
-const CONCRETE_ADAPTER_IMPORT = new RegExp(`adapters\\/(?:${alternation(HARNESS_IDS)})(?:\\.ts)?["']`);
+const CONCRETE_ADAPTER_IMPORT = new RegExp(`adapters\\/(?:${alternation(ADAPTER_IDS)})(?:\\.ts)?["']`);
 
 export function checkPackageImportLine(line: string): string | undefined {
   if (/backends\/[\w-]+\//.test(line)) {
@@ -663,11 +701,9 @@ export function checkEnvironmentCapabilityLine(line: string, relPath: string): s
   return undefined;
 }
 
-const CORE_ADAPTER_IMPORT = new RegExp(`from\\s+["'][^"']*\\/(?:${alternation(HARNESS_IDS)})(?:\\.ts)?["']`);
+const CORE_ADAPTER_IMPORT = new RegExp(`from\\s+["'][^"']*\\/(?:${alternation(ADAPTER_IDS)})(?:\\.ts)?["']`);
 const CORE_WORKTREE_PROVIDER_IMPORT = /from\s+["'][^"']*worktrees\/(?:git|worktrunk)(?:\.ts)?["']/;
-const CORE_BACKEND_IMPORT = new RegExp(`from\\s+["'][^"']*backends\\/(?:${alternation(PLEXER_IDS)})\\/`);
-/** Agent-id literals a backend must not spell (Eh13's kind map is the one exemption). */
-const HARNESS_ID_LITERAL = new RegExp(`["']\\b(?:${alternation(HARNESS_IDS)})\\b["']`);
+const CORE_BACKEND_IMPORT = new RegExp(`from\\s+["'][^"']*backends\\/(?:${alternation(BACKEND_IDS)})\\/`);
 
 export function checkCoreScopeLine(line: string, relPath: string): string | undefined {
   const stateFileViolation = checkStateFileLine(line, relPath);
@@ -700,11 +736,7 @@ export function checkCoreScopeLine(line: string, relPath: string): string | unde
       return `${owner} adapter wire literal ${JSON.stringify(literal)} is forbidden in core; keep it inside src/adapters/${owner}.ts`;
     }
   }
-  // The same rule extensions already answer to. A plexer's name in core is how every
-  // coupling here has started: a map keyed by it, a constant named after it, a docs
-  // URL for it. Prose explaining why code looks the way it does spells no literal
-  // and stays legal.
-  return checkPlexerLiteralLine(line, relPath, "in core");
+  return undefined;
 }
 
 /** Recursively scan src/** for port-boundary violations, excluding the adapter/backend port dirs. */
@@ -831,13 +863,6 @@ function runAllChecks(): void {
     const backendEnvViolation = checkBackendEnvLine(line, relPath);
     if (backendEnvViolation) return backendEnvViolation;
     if (/backends\/[\w-]+\//.test(line)) return "backend subpath imports are forbidden outside backends (boundary modules live directly under backends/)";
-    if (/\b(?:herdrBestEffort|herdrJSON|herdrExec|herdrPanes|herdrTabs|herdrNames|herdrReachable|HERDR_PANE_ID|TMUX_PANE)\b/.test(line)) {
-      return "backend-specific herdr/tmux identifiers are forbidden outside backends";
-    }
-    if (line.includes("process.env.HERDR")) return "process.env.HERDR is forbidden outside backends";
-    if (line.includes("process.env.TMUX")) return "process.env.TMUX is forbidden outside backends";
-    const plexerLiteralViolation = checkPlexerLiteralLine(line, relPath, "outside backends");
-    if (plexerLiteralViolation) return plexerLiteralViolation;
     return undefined;
   });
 
@@ -860,9 +885,6 @@ function runAllChecks(): void {
     const presenceViolation = checkPresenceFilenameLine(line, relPath);
     if (presenceViolation) return presenceViolation;
     if (/backends\/[\w-]+\//.test(line)) return "backend subpath imports are forbidden in extensions (boundary modules live directly under backends/)";
-    // Harness extensions may read the environment for their own harness integration.
-    const plexerLiteralViolation = checkPlexerLiteralLine(line, relPath, "in extensions");
-    if (plexerLiteralViolation) return plexerLiteralViolation;
     return undefined;
     // Recursive: each harness owns extensions/<harness>/, so every file is one level down.
   }, true);
@@ -916,17 +938,14 @@ function runAllChecks(): void {
     if (backendEnvViolation) return backendEnvViolation;
     const presenceViolation = checkPresenceFilenameLine(line, relPath);
     if (presenceViolation) return presenceViolation;
-    if (new RegExp(`from\\s+["']\\.\\.\\/adapters\\/(?:${alternation(HARNESS_IDS)})\\.ts["']`).test(line)) {
+    if (new RegExp(`from\\s+["']\\.\\.\\/adapters\\/(?:${alternation(ADAPTER_IDS)})\\.ts["']`).test(line)) {
       return "agent adapter imports are forbidden in backends";
-    }
-    if (HARNESS_ID_LITERAL.test(line)) {
-      if (BACKEND_KIND_MAP_ALLOWLIST.get(relPath)?.has(line.trim())) return undefined;
-      return "agent id literals are forbidden in backends";
     }
     return undefined;
   }, true);
 
   const coreScopeFiles = scanCoreScope();
+  const integrationNameFiles = scanIntegrationNames();
   // Rule 11's "Why" is a renderer that printed a plexer coordinate as a name and
   // bucketed every detached agent under `local`. A package is core's consumer,
   // not a concrete plexer, so the identity-branch rule governs it exactly as it
@@ -948,7 +967,7 @@ function runAllChecks(): void {
 
   const scanned =
     bridgeSourceFiles + extensionFiles + scriptFiles + adapterFiles + backendFiles +
-    coreScopeFiles + packageFiles + dispatcherScopeFiles + spawnerReplyFiles +
+    coreScopeFiles + integrationNameFiles + packageFiles + dispatcherScopeFiles + spawnerReplyFiles +
     identityConstructionFiles + commandParserFiles + leaseProvenanceFiles + acpScopeFiles;
   checkBundleStoreBoundary();
   console.log(`check:bridge OK (${scanned} files scanned)`);

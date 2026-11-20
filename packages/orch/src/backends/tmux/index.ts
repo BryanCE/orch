@@ -17,7 +17,7 @@ import { selectAgentStatus } from "../../store/status-rows.ts";
 import { bestEffortTmux, execTmux, noTmuxServer, orchPanes, windowPaneRects, type TmuxPane } from "./cli.ts";
 import { LocalProcessRole, placedShellPid } from "../process.ts";
 import type { AgentNamingRole, AgentStatusRole, Backend, BackendGroup, BackendGroupLayout, BackendId, BackendSpawnOpts, BackendSplit, CaptureRole, CommandPlacementRole, CreateGroupRequest, CreatedGroup, CreatedHome, EnvironmentIdentityRole, GroupHomeRole, GroupLayoutRole, HomeSubject, MoveRequest, ForegroundRole, PlacementRole, PlacementInventoryRole, LabelRole, ScreenRole, ZoomRole, PlexerHome, SpaceHomeRole } from "../../types/backend.ts";
-import type { AgentAdapter } from "../../types/adapter.ts";
+import type { AgentAdapter, Prerequisite } from "../../types/adapter.ts";
 import type { OrchDir } from "../../types/core.ts";
 
 /** Handle owned by one tmux pane. */
@@ -73,6 +73,7 @@ function groupPanesBy(panes: readonly TmuxPane[], key: (pane: TmuxPane) => strin
 export class TmuxBackend implements Backend<TmuxHandle> {
   readonly id = TMUX_BACKEND;
   readonly offers: readonly StdioKind[] = ["terminal"];
+  readonly install: Prerequisite = { docsUrl: "https://github.com/tmux/tmux/wiki/Installing" };
   readonly process = new LocalProcessRole<TmuxHandle>(placedShellPid(() => this.foreground));
   private readonly homeExec: (args: string[]) => string;
   private readonly orchDir: OrchDir | undefined;

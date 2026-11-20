@@ -7,8 +7,16 @@ import { readFileSync } from "node:fs";
 import { isRecord, textValue } from "orch/core/util.ts";
 import { contentText, visitJsonlValues } from "orch/core/shared/transcript.ts";
 import type { AgentState } from "orch/core/shared/harness.ts";
-import type { CodexResultExtractionInput, SessionView, StateDetectionInput } from "orch/core/types/adapter.ts";
+import type { ResultExtractionInput, SessionView, StateDetectionInput } from "orch/core/types/adapter.ts";
 import type { JsonRecord } from "orch/core/types/core.ts";
+
+/** Additional native files accepted by the Codex result extractor. */
+export interface CodexResultExtractionInput extends ResultExtractionInput {
+  /** File passed to `codex exec --output-last-message`, when available. */
+  readonly lastMessagePath?: string;
+  /** Descriptive alias accepted by callers that retain the CLI flag name. */
+  readonly outputLastMessagePath?: string;
+}
 
 /** Codex's notify hook event emitted after an agent turn has settled. */
 export const CODEX_TURN_COMPLETE = "agent-turn-complete";

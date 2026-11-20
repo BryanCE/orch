@@ -6,6 +6,7 @@ import type { OrchSettings } from "./settings.ts";
 import type { BridgeAction } from "../shared/bridge-message.ts";
 import type { HostOs } from "./host.ts";
 import type { HeldSessionDriver } from "./held-session.ts";
+import type { FormId } from "./form.ts";
 
 /** The closed adapter-id set, importable without pulling any provider code. */
 export const ADAPTER_IDS = ["pi", "omp", "claude", "codex", "opencode"] as const;
@@ -290,6 +291,14 @@ export interface HookReportRole {
 export interface AgentAdapter {
   /** Stable adapter id recorded in the spawn registry and presence status. */
   readonly id: AdapterId;
+  /** How setup installs this harness and signs it in. */
+  readonly install: Prerequisite;
+  /** The form this harness runs in when neither the spawn nor `defaults.forms` names one;
+   *  null lets the backend pick its native form. */
+  readonly preferredForm: FormId | null;
+  /** The directory this harness reads skills from when it does not read the shared store;
+   *  null when it reads the store. */
+  readonly skillsDir: string | null;
   /** Harness-specific thinking control, absent when that harness exposes none. */
   readonly thinking: ThinkingStrategy | null;
   /** Complete worker launch commands, absent when this harness cannot restrict workers. */
@@ -349,7 +358,7 @@ export interface AgentAdapter {
    * The same interactive launch as `interactiveCmd`, as RAW argv: the executable
    * first, then unquoted arguments. A plexer that starts the harness itself needs
    * the arguments without a shell's quoting, because it applies its own for the
-   * shell it is launching into — herdr does exactly this
+   * shell it is launching into — a plexer does exactly this
    * (`argv = [interactive_agent_executable(kind), ...args]`), and handing it a
    * pre-quoted string exports the quotes as part of the value.
    */
@@ -364,36 +373,9 @@ export interface AgentAdapter {
   extractResult(input: ResultExtractionInput, orchDir: OrchDir): string | undefined;
 }
 
-/** State input for pi, identified by its orch presence key. */
-export interface PiStateDetectionInput extends StateDetectionInput {
-  /** Presence key whose status.json is authoritative. */
-  readonly key: string;
-}
-
-/** Result input for pi, identified by its orch presence key. */
-export interface PiResultExtractionInput extends ResultExtractionInput {
-  /** Presence key whose results.jsonl is authoritative. */
-  readonly key: string;
-}
-
 /** How a builder renders the quicklist argument: verbatim in an argv array, quoted in a shell
  *  string so a glob pattern (`anthropic/*`) reaches the harness instead of the shell's expansion. */
 export type QuicklistForm = "argv" | "shell";
-
-/** Additional native files accepted by the Codex result extractor. */
-export interface CodexResultExtractionInput extends ResultExtractionInput {
-  /** File passed to `codex exec --output-last-message`, when available. */
-  readonly lastMessagePath?: string;
-  /** Descriptive alias accepted by callers that retain the CLI flag name. */
-  readonly outputLastMessagePath?: string;
-}
-
-/** Outcome of a targeted edit of the top-level `notify` key in a codex config.toml body. */
-export type CodexNotifyEdit =
-  | { readonly status: "inserted" | "replaced"; readonly text: string }
-  | { readonly status: "unchanged" }
-  | { readonly status: "foreign"; readonly foreignValue: string }
-  | { readonly status: "ambiguous" };
 
 /** One install command per host OS. Windows commands are PowerShell; the others are sh. */
 export type InstallCommands = Readonly<Partial<Record<HostOs, string>>>;

@@ -16,7 +16,7 @@ export function checkHarnessModels(settings: OrchSettings | null, harness: Adapt
 
   const offered = adapter.models.listModels(catalogue);
   if (!offered.length) {
-    return { id, label, status: "warn", detail: `${harness} lists no models - ${signedOutFix(harness)}` };
+    return { id, label, status: "warn", detail: `${harness} lists no models - ${signedOutFix(harness, adapter.install.signIn ?? null)}` };
   }
   const recorded = settings?.defaults.models[harness];
   if (!recorded) return { id, label, status: "warn", detail: `${harness} offers ${offered.length} models but orch records no default - run: ${repickCommand(harness)}` };

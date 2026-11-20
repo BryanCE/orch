@@ -1,7 +1,6 @@
 import { intro, outro } from "@clack/prompts";
 import { DEFAULT_RUNTIME, ORCH_RUNTIMES, type OrchRuntime } from "../runtimes.ts";
 import { splitThinkingSuffix } from "../policy/thinking.ts";
-import { isRecommended } from "../shared/prerequisites.ts";
 import { idOptions, promptAutocomplete, promptAutocompleteMultiselect, promptSelect, promptMultiselect } from "./io.ts";
 import type { HarnessModel } from "../types/adapter.ts";
 import type { NotifierChoice } from "../types/notify.ts";
@@ -46,18 +45,18 @@ export function selectDefaultAdapter<Id extends string>(selected: readonly Id[])
 /** Multi-select every backend to set up; null when the user cancels. */
 /** Multi-select the backends in use, pre-checking those orchd found on this machine and the
  *  recommended ones. Null when the user cancels. */
-export function selectBackends<Id extends string>(backends: readonly Id[], detected: ReadonlySet<string>): Promise<Id[] | null> {
+export function selectBackends<Id extends string>(backends: readonly Id[], detected: ReadonlySet<string>, recommended: ReadonlySet<string>): Promise<Id[] | null> {
   return promptMultiselect("Select the backends you use (space to toggle)", backends.map((id) => ({
     value: id,
     label: id,
-    hint: isRecommended(id) ? "recommended" : "",
-    checked: detected.has(id) || isRecommended(id),
+    hint: recommended.has(id) ? "recommended" : "",
+    checked: detected.has(id) || recommended.has(id),
   })));
 }
 
 /** Pick the default backend among the selected set; null when the user cancels. */
-export function selectDefaultBackend<Id extends string>(selected: readonly Id[]): Promise<Id | null> {
-  return promptSelect("Default backend for new spawns", idOptions(selected), selected.find(isRecommended));
+export function selectDefaultBackend<Id extends string>(selected: readonly Id[], recommended: ReadonlySet<string>): Promise<Id | null> {
+  return promptSelect("Default backend for new spawns", idOptions(selected), selected.find((id) => recommended.has(id)));
 }
 
 type ModelPicker = (

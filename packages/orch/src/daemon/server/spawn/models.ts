@@ -52,7 +52,7 @@ export function admitLaunchModel(settings: OrchSettings, adapterId: AdapterId, c
   }
 }
 
-/** The model as `harness` names it: `claude/haiku` is `haiku` to claude. */
+/** The model as `harness` names it: `<harness>/<model>` is `<model>` to that harness. */
 function modelOn(harness: AdapterId, model: string): string {
   return model.startsWith(`${harness}/`) ? model.slice(harness.length + 1) : model;
 }

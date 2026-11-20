@@ -5,7 +5,7 @@ the same short names, and `orch models` lists what each harness offers.
     orch model api-routes luna:high
 
 The agent keeps this model through later dispatch, reset, and restart until a command names
-another. Where the harness cannot switch a live session (Claude Code, for one), use
+another. Where the harness cannot switch a live session, use
 `orch reset <target> --model <model>`. Move up one model at a time, and only after the task
 failed on the current one.
 

@@ -1,6 +1,6 @@
-// The pi-facing surface of the bridge for this agent's own run: `orch_ask`, the
-// command-lock interception, every pi lifecycle event handler that keeps
-// presence in sync, and the pi-event payload guards those handlers consume. The
+// The host-facing surface of the bridge for this agent's own run: `orch_ask`, the
+// command-lock interception, every host lifecycle event handler that keeps
+// presence in sync, and the host-event payload guards those handlers consume. The
 // peer-facing commands and tools are registered by peers.ts.
 //
 // All presence I/O goes through the injected AgentPresence binding and all
@@ -300,7 +300,7 @@ export function registerAgentTools(
     const wrapped = lockedCommandLine(event.input.command, gatedPatterns(current));
     if (wrapped === undefined) return;
     event.input.command = wrapped;
-    // pi's bash timeout is in seconds and absent means none; the lock wait must not eat it.
+    // The host's bash timeout is in seconds and absent means none; the lock wait must not eat it.
     if (typeof event.input.timeout === "number") event.input.timeout += Math.ceil(current.timeouts.lock_wait_ms / 1000);
   });
 

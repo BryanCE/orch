@@ -37,7 +37,7 @@ import type {
   SpaceHomeRole,
   VersionRole,
 } from "../../types/backend.ts";
-import type { AgentAdapter } from "../../types/adapter.ts";
+import type { AgentAdapter, Prerequisite } from "../../types/adapter.ts";
 import type { OrchDir } from "../../types/core.ts";
 
 /** Handle owned by one Orca terminal: the runtime-scoped `handle` string. */
@@ -102,6 +102,7 @@ function keyBytes(key: string): string {
 export class OrcaBackend implements Backend<OrcaHandle> {
   readonly id = ORCA_BACKEND;
   readonly offers: readonly StdioKind[] = ["terminal"];
+  readonly install: Prerequisite = { docsUrl: "https://github.com/stablyai/orca#install" };
   readonly cli: OrcaCli;
   private readonly orchDir: OrchDir | undefined;
   readonly process = new LocalProcessRole<OrcaHandle>(placedShellPid(() => this.foreground));

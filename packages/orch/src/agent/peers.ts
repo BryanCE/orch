@@ -1,5 +1,5 @@
 // Peer discovery asks orchd for visible agents, resolves target keys, and
-// registers the pi surface built on top of that (`/peers`, `/tell`, `orch_agents`,
+// registers the extension surface built on top of that (`/peers`, `/tell`, `orch_agents`,
 // `orch_send`, `orch_read`).
 import { Type } from "typebox";
 import { term } from "../policy/vocabulary.ts";

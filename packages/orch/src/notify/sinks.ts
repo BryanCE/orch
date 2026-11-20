@@ -11,6 +11,7 @@ import { SETTINGS_DEFAULTS } from "../settings/schema.ts";
 import { notificationText, payload } from "./format.ts";
 import { playDing, soundAvailable } from "./ding.ts";
 import type { Notifier, NotifyEvent } from "../types/notify.ts";
+import type { OrchSettings } from "../types/settings.ts";
 
 const registeredNotifiers = new Map<string, Notifier>();
 
@@ -109,10 +110,26 @@ export function commandArgv(command: string | readonly string[]): string[] {
   return typeof command === "string" ? [...hostShell(), command] : [...command];
 }
 
+/** The plexer sink: each plexer that shows its own notifications registers one notifier, and the
+ *  sink delivers through every one that can deliver now. */
+function plexerNotifier(plexers: readonly Notifier[]): Notifier {
+  const ready = async (settings: OrchSettings | null): Promise<Notifier[]> =>
+    (await Promise.all(plexers.map(async (plexer) => (await plexer.available(settings)) ? [plexer] : []))).flat();
+  return {
+    id: "plexer",
+    label: "Plexer",
+    metadata: { description: "The plexer's own notifications", requiredConfig: [] },
+    remediation: plexers.flatMap((plexer) => plexer.remediation ?? []).join("; "),
+    available: async (settings) => (await ready(settings)).length > 0,
+    dormant: (settings) => plexers.map((plexer) => plexer.dormant?.(settings) ?? null).find((reason) => reason !== null) ?? null,
+    deliver: async (event, config, settings) => (await Promise.all((await ready(settings)).map((plexer) => plexer.deliver(event, config, settings)))).some(Boolean),
+  };
+}
+
 /** Built-in host integrations. Delivery always uses the canonical formatter above. */
 export function createBuiltinNotifiers(): Notifier[] {
   return [
-    ...registeredNotifiers.values(),
+    plexerNotifier([...registeredNotifiers.values()]),
     {
       id: "desktop",
       label: "Desktop",

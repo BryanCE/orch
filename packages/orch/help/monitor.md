@@ -13,12 +13,15 @@ Each line is one event. A message is `MESSAGE [space] <text>`, and the text open
 it and the command to reply with. A message longer than `monitor.summary_chars` is cut, and its
 line opens with the command that prints all of it. Read it before you act:
 
-    MESSAGE (read all: orch message read 42447aaf) [from orch claude-h16tjo02 ...] ...
+    MESSAGE (read all: orch message read 42447aaf) [from orch lead-h16tjo02 ...] ...
     orch message read 42447aaf
 
 Traps:
 - Arm it only through the Monitor tool. A stream behind `&`, `nohup`, or run_in_background
   never wakes you, and a finished fleet looks busy.
+- orch never ends the stream; only `orch close --stream` or the user does. A harness's
+  Monitor tool can stop it at its own time limit. Arm it with the tool's longest timeout, and
+  when the tool reports that it expired, arm it again in that same turn.
 - Arm one watch. `pgrep -fa "orch (monitor|events)"` printing a line means one is armed and
   survives a context compaction. If it names agents that are gone, kill that pid and arm fresh.
 - Default scope is the agents you spawned or lease, including ones you dispatch to later.

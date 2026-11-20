@@ -423,7 +423,7 @@ const MAINTENANCE: readonly CommandSpec[] = [
           { name: "--skills", arity: "none", help: "Write every packaged skill now." },
           { name: "--no-skills", arity: "none", help: "Record the refusal and leave files already there alone." },
           { name: "--store", arity: "one", placeholder: "<path>", help: "The one directory holding the real files. Default ~/.agents/skills." },
-          { name: "--link", arity: "one", placeholder: "<path>[,<path>...]", help: "Harness directories symlinked into the store. Default ~/.claude/skills." },
+          { name: "--link", arity: "one", placeholder: "<path>[,<path>...]", help: "Harness directories symlinked into the store. Default: the skills directory of each enabled harness that has its own." },
         ],
       },
       {

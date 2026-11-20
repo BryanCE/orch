@@ -1,5 +1,5 @@
-// Leaf module on purpose: the bundled writers (extensions/pi/index.ts,
-// extensions/claude/index.ts, extensions/codex/index.ts) inline their imports
+// Leaf module on purpose: the bundled writers (each extensions/<harness>/index.ts)
+// inline their imports
 // and must not drag store.ts's sqlite graph into their bundles. Keep this file
 // constants-only — no imports, no I/O.
 

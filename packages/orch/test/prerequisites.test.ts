@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { PREREQUISITES } from "../src/shared/prerequisites.ts";
+import { allBackends } from "../src/backends/registry.ts";
 import { setupPrerequisites } from "../src/daemon/server/setup.ts";
 import { HOST_OS_VALUES } from "../src/types/host.ts";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
@@ -134,16 +134,16 @@ describe("binding answers", () => {
 });
 
 describe("a recommended tool installs everywhere", () => {
-  const recommended = Object.entries(PREREQUISITES).filter(([, entry]) => entry.recommended === true);
+  const recommended = allBackends().filter((backend) => backend.install.recommended === true);
 
-  test("at least one tool is recommended", () => {
-    expect(recommended.map(([id]) => id)).toContain("herdr");
+  test("exactly one backend is recommended", () => {
+    expect(recommended).toHaveLength(1);
   });
 
-  for (const [id, entry] of recommended) {
+  for (const { id, install } of recommended) {
     test(`${id} has an install command for each host OS and a docs page for NixOS`, () => {
-      for (const os of HOST_OS_VALUES) expect(entry.install?.[os]).toBeString();
-      expect(entry.docsUrl).toBeString();
+      for (const os of HOST_OS_VALUES) expect(install.install?.[os]).toBeString();
+      expect(install.docsUrl).toBeString();
     });
   }
 });

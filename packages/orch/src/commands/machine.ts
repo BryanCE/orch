@@ -20,6 +20,9 @@ export function timeoutMs(services: Pick<DaemonClient, "settings">, key: keyof O
 export function setupProbes(services: DaemonClient): SetupProbes {
   return {
     offers: async (harnesses) => (await askDaemon(services, "harness-catalogues", { harnesses: [...harnesses] }, timeoutMs(services, "adapter_command_ms"))).catalogues,
-    availablePlexers: async () => new Set((await askDaemon(services, "plexers-available", undefined)).plexers),
+    plexers: async () => {
+      const answer = await askDaemon(services, "plexers-available", undefined);
+      return { available: new Set(answer.plexers), recommended: new Set(answer.recommended) };
+    },
   };
 }

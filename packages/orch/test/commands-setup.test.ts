@@ -77,8 +77,8 @@ describe("commands/setup", () => {
     writeSettingsFixture(orchDir, {});
     const settings = fileSettingsManager(orchDir);
     const probes: SetupProbes = {
-      offers: (harnesses) => Promise.resolve(harnesses.map((id) => ({ id, models: [], suggested: null, compaction: false, error: null }))),
-      availablePlexers: () => Promise.resolve(new Set<string>()),
+      offers: (harnesses) => Promise.resolve(harnesses.map((id) => ({ id, models: [], suggested: null, compaction: false, error: null, signIn: null }))),
+      plexers: () => Promise.resolve({ available: new Set<string>(), recommended: new Set<string>() }),
     };
     const options = parseSetupOptions(parseCommand("setup", ["--yes", "--no-install", "--no-skills", "--harness=pi", "--plexer=headless", "--runtime=node"]).flags);
     const composition = await resolveSetupComposition(settings.currentOrNull(), probes, options);

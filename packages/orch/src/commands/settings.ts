@@ -14,7 +14,7 @@ import { recordHarnessModels, resolveHarnessModels } from "../setup/composition.
 import { askDaemon } from "./daemon.ts";
 import { setupProbes, timeoutMs } from "./machine.ts";
 import { isAdapterId } from "../shared/harness.ts";
-import { ADAPTER_IDS } from "../types/adapter.ts";
+import { ADAPTER_IDS, type AdapterId } from "../types/adapter.ts";
 import { signedOutFix } from "../shared/prerequisites.ts";
 import { BACKEND_IDS } from "../types/backend.ts";
 import { isThinkingLevel } from "../policy/thinking.ts";
@@ -162,10 +162,17 @@ async function settingsModels(services: Services, { flags }: Invocation): Promis
   const chosen = await resolveHarnessModels(settings, setupProbes(services).offers, model, targets, interactive);
   if (chosen === null) return;
   recordHarnessModels(services.settings, settings, chosen);
+  printHarnessModels(targets, chosen);
+}
+
+type ChosenHarnessModels = NonNullable<Awaited<ReturnType<typeof resolveHarnessModels>>>;
+
+/** Print each harness's recorded default and model list, or why it is unchanged. */
+function printHarnessModels(targets: readonly AdapterId[], chosen: ChosenHarnessModels): void {
   for (const id of targets) {
     const recorded = chosen.defaults[id];
     if (!recorded) {
-      process.stdout.write(`  ${id}: unchanged - ${id} listed no models; ${signedOutFix(id)}\n`);
+      process.stdout.write(`  ${id}: unchanged - ${id} listed no models; ${signedOutFix(id, chosen.offers[id]?.signIn ?? null)}\n`);
       continue;
     }
     const allowed = allowlistWithDefault(chosen.allowed[id] ?? [], recorded);

@@ -2,6 +2,7 @@ import { confirm, isCancel } from "@clack/prompts";
 import { reapUnreadableSettings } from "../settings/read.ts";
 import { automaticSettingsRepair } from "../settings/auto-repair.ts";
 import { settingsPath } from "../settings/schema.ts";
+import { writeRegisteredSetting } from "../settings/registry.ts";
 import { writeSettingsNotify, writeSettingsSkills } from "../settings/write.ts";
 import { ORCH_RUNTIMES } from "../runtime.ts";
 import { ADAPTER_IDS } from "../types/adapter.ts";
@@ -128,7 +129,10 @@ async function installPrerequisites(services: Services, composition: SetupCompos
   const { adapters, backends } = composition;
   const probe = await askDaemon(services, "setup-prerequisites", { adapters, backends }, timeoutMs(services, "machine_ms"));
   printLines(probe.lines);
-  const { missing } = probe;
+  const { missing, skillDirs } = probe;
+  if (!services.settings.current().skills.link.length && skillDirs.length) {
+    writeRegisteredSetting(services.settings, "skills.link", skillDirs);
+  }
   let bins: string[];
   if (options.install === true) bins = missing.map(({ bin }) => bin);
   else if (missing.length && options.install === undefined && options.interactive) {

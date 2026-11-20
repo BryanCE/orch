@@ -3,4 +3,4 @@ It presses Escape twice to cancel the current turn, then steers with the text, s
 moves to the new instruction with no gap. That turn's work is lost; put what to keep in the
 text. Any caller may abort any agent, whoever holds its lease.
 
-    orch abort orca-cli "Stop the repo-wide grep. Write cli.ts from what you have read."
+    orch abort api-cli "Stop the repo-wide grep. Write cli.ts from what you have read."

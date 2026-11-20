@@ -193,7 +193,7 @@ export interface Recipient {
 export interface ShimScope {
   /** The resolved $ORCH_DIR — read AND written (presence records live here). */
   orchDir: OrchDir;
-  /** Additional read-only roots, e.g. the directory holding claude transcripts. */
+  /** Additional read-only roots, e.g. the directory holding a harness's transcripts. */
   readOnly?: readonly string[];
 }
 

@@ -2,12 +2,12 @@
  * The env vars a harness session exports, and the full allowlist an orch shim may
  * read.
  *
- * A LEAF on purpose: this module imports only the launch env constant. `src/runtime.ts` builds deno's
+ * This module does not import adapters. `src/runtime.ts` builds deno's
  * `--allow-env` list from it, which is the only reason `runtime.ts` used to import
  * `adapters/registry.ts` — the import that closed two module cycles
- * (`runtime -> registry -> claude -> claude-hooks -> runtime`, and the same shape
- * through `codex -> codex-notify`). Both sides now import this leaf instead, so
- * neither the registry nor any adapter is on the shim's import path.
+ * (through a harness adapter and its hooks module back to runtime). Both sides
+ * import this module instead, so neither the registry nor any adapter is on
+ * the shim's import path.
  *
  * Each adapter reads its own names from here, so a harness's env vocabulary still
  * has exactly ONE definition site — and adding a harness updates the allowlist by
@@ -20,17 +20,19 @@ import { optionalString } from "../util.ts";
 import type { AgentAdapter } from "../types/adapter.ts";
 import type { CallerSession } from "../types/core.ts";
 
+import { CLAUDE_SESSION_ENV } from "../../extensions/claude/session-env.ts";
+import { CODEX_SESSION_ENV } from "../../extensions/codex/session-env.ts";
+import { OMP_SESSION_ENV } from "../../extensions/omp/session-env.ts";
+import { OPENCODE_SESSION_ENV } from "../../extensions/opencode/session-env.ts";
+import { PI_SESSION_ENV } from "../../extensions/pi/session-env.ts";
+
+/** Each harness's session env vocabulary, declared in its own directory. */
 export const HARNESS_SESSION_ENV = {
-  /** pi exports these into every subprocess of an interactive session. */
-  pi: { marker: "PI_CODING_AGENT", sessionId: "PI_SESSION_ID" },
-  /** omp exports its session id into subprocesses; it is both marker and identity. */
-  omp: { marker: "OMP_SESSION_ID", sessionId: "OMP_SESSION_ID" },
-  /** Codex exports its session pid, which doubles as its session marker. */
-  codex: { marker: "CODEX_PID", sessionPid: "CODEX_PID" },
-  /** Claude Code exports CLAUDECODE=1, its per-session UUID, and its own pid. */
-  claude: { marker: "CLAUDECODE", sessionId: "CLAUDE_CODE_SESSION_ID", sessionPid: "CLAUDE_PID" },
-  /** opencode exports OPENCODE=1 and its per-session id into every shell its agent runs. */
-  opencode: { marker: "OPENCODE", sessionId: "OPENCODE_SESSION_ID" },
+  pi: PI_SESSION_ENV,
+  omp: OMP_SESSION_ENV,
+  codex: CODEX_SESSION_ENV,
+  claude: CLAUDE_SESSION_ENV,
+  opencode: OPENCODE_SESSION_ENV,
 } as const;
 
 /** Env vars orch's own shims read, independent of any harness. */

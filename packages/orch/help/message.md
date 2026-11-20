@@ -2,7 +2,7 @@ Send a message to another leading orch: a harness session a human started, not a
 spawned. Name it by its name, its id, or the project it works in (a path, or the directory's
 name). `orch orchs` lists who is live.
 
-    orch message claude-3f9a2c1d Is the auth refactor on main yet?
+    orch message lead-3f9a2c1d Is the auth refactor on main yet?
     orch message billing-api "I changed the invoice schema. Pull before you touch it."
 
 Both ends must be leading orchs, and the user must have turned peers on:
@@ -23,12 +23,12 @@ Keep `orch monitor` armed while peers are on, or a MESSAGE line waits unread.
 
 Every message opens with who sent it, where it works, and the command to reply with:
 
-    [from orch claude-h16tjo02 in /work/reports; reply with: orch message claude-h16tjo02 "<text>"] ...
+    [from orch lead-h16tjo02 in /work/reports; reply with: orch message lead-h16tjo02 "<text>"] ...
 
 A MESSAGE line holds `monitor.summary_chars` of the text. A longer one is cut, and its line opens
 with the command that prints all of it:
 
-    MESSAGE (read all: orch message read 42447aaf) [from orch claude-h16tjo02 ...] ...
+    MESSAGE (read all: orch message read 42447aaf) [from orch lead-h16tjo02 ...] ...
     orch message read 42447aaf
 
 Read the whole text before you act on a cut line. The code is the start of the message id; give

@@ -192,7 +192,7 @@ export async function applyFixesUntilSettled(initial: CheckResult[], rerun: () =
  *  Cheap when current (a live symlink resolves with two stats), so spawn and reload
  *  run it first — a freshly updated orch must never launch agents on the last
  *  version's bridge. `harnesses` is required and never widened to "every enabled
- *  adapter": reloading a pi agent has no business rewriting Claude's hooks. */
+ *  adapter": reloading one harness's agent has no business rewriting another harness's hooks. */
 export async function refreshStaleShims(orchDir: OrchDir, logger: Logger, harnesses: readonly string[], settings: OrchSettings | null): Promise<string[]> {
   const refreshed: string[] = [];
   const enabled = settings?.enabled.adapters ?? [];

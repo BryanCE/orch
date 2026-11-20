@@ -1,11 +1,11 @@
-// pi's model-delivery applier. Presence receives a model message from orchd;
+// The extension host's model-delivery applier. Presence receives a model message from orchd;
 // this module resolves the registry model, applies its optional thinking suffix,
 // and reports the control outcome.
-// What lives here is pi's registry resolution and nothing else. Whether a model
+// What lives here is the host's registry resolution and nothing else. Whether a model
 // is PERMITTED is orch policy, ruled on once in the control dispatcher;
 // a harness never re-litigates it. Orch's ladder token names a model and a
 // thinking effort; the registry keys on the bare id, so the suffix is split off
-// before lookup and applied through pi's own mechanism.
+// before lookup and applied through the host's own mechanism.
 import { modelSpec, splitThinkingSuffix } from "../policy/thinking.ts";
 import { retryingAsync } from "../retry.ts";
 import type { ControlOutcome, FindRegistryModel, ModelControlDeps, ResolvedModel } from "../types/agent.ts";
@@ -22,7 +22,7 @@ const DEFAULT_REGISTRY_RETRY: RetryPolicy = { attempts: 8, delayMs: 250, backoff
 /**
  * Resolve a requested model token to a concrete registry model plus any thinking
  * effort. The `:effort` suffix is split off before the registry lookup — the
- * registry keys on the bare id, so a suffixed token that `pi --list-models`
+ * registry keys on the bare id, so a suffixed token that the harness's model list
  * shows would otherwise never be found (task 12.7).
  *
  * Registry-find ONLY: a plain candidate object from getAvailable() passes setModel
@@ -52,7 +52,7 @@ export async function resolveRegistryModel(
   return { model, thinking };
 }
 
-/** pi's control-command applier: resolves+applies a model or thinking change and reports the outcome. */
+/** The host's control-command applier: resolves+applies a model or thinking change and reports the outcome. */
 export function createModelControl(deps: ModelControlDeps) {
   const { harness, context, reportOutcome, refreshPresence } = deps;
   const findModel: FindRegistryModel = (provider, id) => context()?.modelRegistry.find(provider, id);

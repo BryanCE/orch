@@ -58,7 +58,10 @@ export function machineHandlers(state: DaemonState): { readonly [M in MachineMet
     "setup-install": (params) => setupInstall(state.services.logger, params),
     "setup-integrate": (params) => setupIntegrate(state.services, params),
     "notifier-probe": async () => ({ choices: await probeNotifiers(state.services.settings.currentOrNull()) }),
-    "plexers-available": () => ({ plexers: allBackends().filter((backend) => backend.isAvailable()).map((backend) => backend.id) }),
+    "plexers-available": () => ({
+      plexers: allBackends().filter((backend) => backend.isAvailable()).map((backend) => backend.id),
+      recommended: allBackends().filter((backend) => backend.install.recommended === true).map((backend) => backend.id),
+    }),
     "notify-test": (params) => notifyTest(state, params),
   };
 }

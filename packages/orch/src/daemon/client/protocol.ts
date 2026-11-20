@@ -865,7 +865,7 @@ export const RPC_RESULTS = {
   "settings-reload": OK,
   /** `error` is why a harness could not list its models; its `models` are then empty. */
   /** `suggested` is the model the harness launches on by default; `compaction` is whether it takes a compaction point. */
-  "harness-catalogues": z.object({ catalogues: z.array(z.object({ id: z.enum(ADAPTER_IDS), models: z.array(HARNESS_MODEL), suggested: z.string().nullable(), compaction: z.boolean(), error: z.string().nullable() })) }),
+  "harness-catalogues": z.object({ catalogues: z.array(z.object({ id: z.enum(ADAPTER_IDS), models: z.array(HARNESS_MODEL), suggested: z.string().nullable(), compaction: z.boolean(), signIn: z.string().nullable(), error: z.string().nullable() })) }),
   "catalogue-refresh": OK,
   /** The spec the model runs as, and whether a running session of the harness can change model. */
   "admit-model": z.object({ model: z.string(), takesModel: z.boolean() }),
@@ -874,12 +874,12 @@ export const RPC_RESULTS = {
   /** `changes` are the fixes applied, in order. */
   doctor: z.object({ results: z.array(CHECK_FINDING), changes: z.array(z.string()) }),
   /** `lines` are what the probe found, one per binary, for the CLI to print. */
-  "setup-prerequisites": z.object({ lines: z.array(z.string()), missing: z.array(z.object({ bin: z.string(), cmd: z.string() })) }),
+  "setup-prerequisites": z.object({ lines: z.array(z.string()), missing: z.array(z.object({ bin: z.string(), cmd: z.string() })), skillDirs: z.array(z.string()) }),
   "setup-install": z.object({ lines: z.array(z.string()) }),
   /** `gaps` are integrations expected and not installed; `smokeBlocker` is why a smoke cannot run here. */
   "setup-integrate": z.object({ lines: z.array(z.string()), gaps: z.array(z.string()), smokeBlocker: z.string().nullable() }),
   "notifier-probe": z.object({ choices: z.array(NOTIFIER_CHOICE) }),
-  "plexers-available": z.object({ plexers: z.array(z.enum(BACKEND_IDS)) }),
+  "plexers-available": z.object({ plexers: z.array(z.enum(BACKEND_IDS)), recommended: z.array(z.enum(BACKEND_IDS)) }),
   /** One entry per configured sink, named as `orch settings notify` names it. */
   "notify-test": z.object({ results: z.array(z.object({ sink: z.string(), ok: z.boolean() })) }),
   "clear-session": OK,

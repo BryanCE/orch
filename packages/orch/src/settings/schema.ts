@@ -2,7 +2,7 @@ import * as path from "node:path";
 import { z } from "zod";
 import { FORM_IDS } from "../types/form.ts";
 import { ADAPTER_IDS } from "../types/adapter.ts";
-import { BACKEND_IDS, HERDR_SINK_ID, TILE_FIRST_SPLITS } from "../types/backend.ts";
+import { BACKEND_IDS, TILE_FIRST_SPLITS } from "../types/backend.ts";
 import { THINKING_LEVELS } from "../types/policy.ts";
 import { WORKTREE_PROVIDER_IDS } from "../types/worktree.ts";
 import { ORCH_RUNTIMES } from "../runtimes.ts";
@@ -73,7 +73,7 @@ export const NotifyEntrySchema = z.discriminatedUnion("id", [
     ]),
   }),
   z.strictObject({ id: z.literal("sound"), on: NotifyOnSchema }),
-  z.strictObject({ id: z.literal(HERDR_SINK_ID), on: NotifyOnSchema }),
+  z.strictObject({ id: z.literal("plexer"), on: NotifyOnSchema }),
 ]);
 
 /** Every sink id, read off the schema so nothing re-lists the union. A sink named
@@ -110,8 +110,7 @@ export const SETTINGS_DEFAULTS = {
   logging: { level: "info", slow_tool_ms: 1_000, stall_ms: 500, stall_poll_ms: 1_000 },
   timeouts: { dispatch_ack_ms: 10_000, wait_ms: 300_000, adapter_command_ms: 60_000, notify_ms: 3_000, spawn_attach_ms: 60_000, spawn_attach_poll_ms: 500, lock_wait_ms: 180_000, lock_poll_ms: 1_000, reset_ready_ms: 75_000, reset_poll_ms: 250, daemon_probe_ms: 10_000, acp_probe_ms: 5_000, server_ready_ms: 30_000, session_close_ms: 2_000, abort_gap_ms: 500, machine_ms: 600_000 },
   servers: { idle_ms: 30_000, silence_ms: 45_000, reconnect_ms: 1_000, backfill_messages: 50 },
-  // opencode runs natively: orchd starts its own server and drives it over the server API.
-  defaults: { worktree: false, thinking: "medium", thinking_by_harness: {}, forms: { opencode: "server" } },
+  defaults: { worktree: false, thinking: "medium", thinking_by_harness: {}, forms: {} },
   daemon: { tcp_port: 3716, outbox_drain_ms: 1_000, work_tick_ms: 5_000, liveness_poll_ms: 5_000, bridge_reconnect_ms: 1_000, outbox_max_attempts: 120, report_timeout_ms: 500, subscriber_queue_bytes: 8_388_608 },
   doctor: { unclaimed_after_ms: 120_000 },
   pty: { scrollback_lines: 10_000, cols: 120, rows: 40, term: "xterm-256color" },
@@ -124,9 +123,8 @@ export const SETTINGS_DEFAULTS = {
   tiling: { first_split: "rows" },
   worktrees: { provider: "git", branch_prefix: "orch/", directory: ".orch-worktrees", worktrunk_commands: ["wkt", "wt"], copy_ignored: true, timeout_ms: 300_000 },
   counts: { tail: 20, peek: 25 },
-  // `.agents/skills` is the cross-harness standard, so the real files live there once and
-  // a harness that reads its own directory instead gets a link into the store.
-  skills: { install: true, store: "~/.agents/skills", link: ["~/.claude/skills"] },
+  // `.agents/skills` is the cross-harness standard, so the real files live there once; setup links it into each enabled harness's own skills directory.
+  skills: { install: true, store: "~/.agents/skills", link: [] },
 } as const;
 
 /** The full contract for `$ORCH_DIR/settings.json` — user-editable, whole-file

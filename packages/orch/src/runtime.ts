@@ -38,7 +38,7 @@ export function entrypointArgs(runtime: OrchRuntime, script: string, args: reado
  * definition site, shared by every harness shim so the three can never drift.
  *
  * `bin` is an ABSOLUTE path when the runtime resolves on orch's PATH. The tool
- * that later spawns this command (claude, codex) may not share orch's PATH —
+ * that later spawns this command (a harness) may not share orch's PATH —
  * version managers (nvm, fnm, volta, asdf) and Windows-vs-WSL shells routinely
  * differ — so a bare name is a real portability hazard. The bare name is used
  * only as a fallback when resolution fails.
@@ -46,7 +46,7 @@ export function entrypointArgs(runtime: OrchRuntime, script: string, args: reado
  * Deno gets REAL permissions, derived from what the shims actually do, rather
  * than `--allow-all` (which would discard the only reason to run a shim under
  * deno at all). The shims read presence JSON under $ORCH_DIR, atomically rewrite
- * it, read the transcript file claude names in its hook payload, and read the env
+ * it, read the transcript file a harness names in its hook payload, and read the env
  * vars above. They open NO network connections — hence no `--allow-net`, and no
  * `--allow-run` or `--allow-ffi`. `--allow-sys=homedir` is needed only because
  * presence falls back to `~/.orch` when ORCH_DIR is unset.

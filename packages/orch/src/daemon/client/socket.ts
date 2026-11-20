@@ -1,4 +1,4 @@
-// One-shot socket transport shared by every orchd/herdr dial site. Node
+// One-shot socket transport shared by every orchd and plexer dial site. Node
 // built-ins + util.ts only, so shim bundles can pull it. Method vocabulary
 // (which JSON method/params to send) stays with each caller — this moves the
 // transport, not the protocol.

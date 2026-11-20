@@ -1,4 +1,4 @@
-// pi's binding to orch's live presence record and daemon link for THIS agent.
+// The extension host's binding to orch's live presence record and daemon link for THIS agent.
 // Orchd pushes dispatch, steer, model, and answer deliveries down that link;
 // this module applies them, acknowledges applied work, and writes status.
 // Peer agents are the subject of the companion module peers.ts.

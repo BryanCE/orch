@@ -18,7 +18,7 @@ import {
   checkLeaseProvenanceLine,
   checkEnvironmentCapabilityLine,
   checkLaunchEnvLine,
-  checkPlexerLiteralLine,
+  checkIntegrationNameLine,
   checkStateFileLine,
   checkFsWatchLine,
   ENVIRONMENT_ROLE_NAMES,
@@ -515,32 +515,54 @@ describe("launch env reads stay in identity/launch.ts (checkLaunchEnvLine)", () 
   });
 });
 
-describe("the closed plexer-id set is spelled in exactly one line", () => {
-  const DEFINITION = 'export const BACKEND_IDS = ["herdr", "tmux", "orca", "headless", "held"] as const;';
+describe("an integration is named only in its own code", () => {
+  const CORE = "src/daemon/server/fleet-rows.ts";
 
-  test("the definition line is allowed where it lives, and nowhere else", () => {
-    expect(checkPlexerLiteralLine(DEFINITION, "src/types/backend.ts", "outside backends")).toBeUndefined();
-    expect(checkPlexerLiteralLine(DEFINITION, "src/daemon/server/fleet-rows.ts", "outside backends"))
-      .toBe("quoted plexer id literals are forbidden outside backends");
+  test("every spelling fails in core: literal, key, identifier, type, constant, comment", () => {
+    for (const line of [
+      'const id = "herdr";',
+      "  tmux: { docsUrl: url },",
+      "const sink = HERDR_SINK_ID;",
+      "export interface HerdrPane {",
+      "function readOrcaTerminal() {}",
+      "// the pi bridge reports it",
+      "/** Plexer id: herdr, tmux. */",
+    ]) expect(checkIntegrationNameLine(line, CORE)).toBeDefined();
   });
 
-  test("any other quoted plexer id in that same file still fails", () => {
-    expect(checkPlexerLiteralLine('if (backend === "herdr") return true;', "src/types/backend.ts", "outside backends"))
-      .toBe("quoted plexer id literals are forbidden outside backends");
-    expect(checkPlexerLiteralLine('const fallback = "tmux";', "src/types/backend.ts", "outside backends"))
-      .toBe("quoted plexer id literals are forbidden outside backends");
+  test("help pages are core", () => {
+    expect(checkIntegrationNameLine("    orch setup --harness claude", "help/setup.md")).toBe('"claude" names an integration outside its own code');
   });
 
-  test("the line src/types/backend.ts actually carries is the allowed one", () => {
-    const source = readRepoLines("src/types/backend.ts");
-    const spelled = source.flatMap((line, index) =>
-      checkPlexerLiteralLine(line, "src/types/backend.ts", "outside backends") ? [`src/types/backend.ts:${index + 1}`] : []);
-    expect(spelled).toEqual([]);
-    expect(source.map((line) => line.trim())).toContain(DEFINITION);
+  test("a word that only contains a name passes; a hyphen still splits words", () => {
+    expect(checkIntegrationNameLine("const pipeline = spinner;", CORE)).toBeUndefined();
+    expect(checkIntegrationNameLine("const omphalos = 1;", CORE)).toBeUndefined();
+    expect(checkIntegrationNameLine("an orca-like pane", CORE)).toBe('"orca" names an integration outside its own code');
   });
 
-  test("extensions get the same rule with their own scope named", () => {
-    expect(checkPlexerLiteralLine('const id = "herdr";', "extensions/pi/bridge.ts", "in extensions"))
-      .toBe("quoted plexer id literals are forbidden in extensions");
+  test("citing the rule file names no harness", () => {
+    expect(checkIntegrationNameLine("// CLAUDE.md Rule 9 forbids it.", CORE)).toBeUndefined();
+  });
+
+  test("an integration's own code names itself and its own kind", () => {
+    expect(checkIntegrationNameLine('const id = "herdr"; // unlike tmux', "src/backends/herdr/index.ts")).toBeUndefined();
+    expect(checkIntegrationNameLine("import { seat } from '../pi/seat/index.ts';", "extensions/omp/index.ts")).toBeUndefined();
+    expect(checkIntegrationNameLine("const kind = codexKind;", "src/adapters/claude-hooks.ts")).toBeUndefined();
+  });
+
+  test("an integration's own code names no integration of the other kind", () => {
+    expect(checkIntegrationNameLine("const kind = piKind;", "src/backends/tmux/index.ts")).toBe('"pi" names an integration outside its own code');
+    expect(checkIntegrationNameLine('const id = "herdr";', "extensions/pi/bridge.ts")).toBe('"herdr" names an integration outside its own code');
+  });
+
+  test("the id sets are spelled once each, in their own definition line", () => {
+    const backends = readRepoLines("src/types/backend.ts");
+    const adapters = readRepoLines("src/types/adapter.ts");
+    const definitions = [...backends, ...adapters].filter((line) => /^export const (?:PLEXER_IDS|ADAPTER_IDS) = \[/.test(line.trim()));
+    expect(definitions).toHaveLength(2);
+    for (const line of definitions) {
+      expect(checkIntegrationNameLine(line, "src/types/backend.ts")).toBeUndefined();
+      expect(checkIntegrationNameLine(line, CORE)).toBeDefined();
+    }
   });
 });

@@ -4,11 +4,11 @@ import { errnoCode, errorMessage, isRecord, packageRoot, reinstallCommand, shell
 import { declaredRuntime } from "../settings/read.ts";
 
 import { codexNotifyArgv, codexNotifyShimPath, editCodexNotifyConfig } from "./codex-notify.ts";
-import { detectCodexState, extractCodexResult, readCodexSessionView } from "../../extensions/codex/events.ts";
+import { detectCodexState, extractCodexResult, readCodexSessionView, type CodexResultExtractionInput } from "../../extensions/codex/events.ts";
 import { buildHeadlessArgv, buildInteractiveArgv, launchCompaction, shimRole, type AgentState } from "../shared/harness.ts";
 import { HARNESS_SESSION_ENV } from "../shared/session-env.ts";
 import { compactionArgs } from "../policy/workers.ts";
-import type { AdapterCommand, AgentAdapter, CodexResultExtractionInput, HarnessModel, SessionView, SessionViewInput, ShimInstallOpts, SpawnOpts, StateDetectionInput, SteerRequest } from "../types/adapter.ts";
+import type { AdapterCommand, AgentAdapter, HarnessModel, Prerequisite, SessionView, SessionViewInput, ShimInstallOpts, SpawnOpts, StateDetectionInput, SteerRequest } from "../types/adapter.ts";
 import type { CheckResult, FixDescriptor } from "../types/doctor.ts";
 import type { Logger, OrchDir } from "../types/core.ts";
 import type { OrchSettings } from "../types/settings.ts";
@@ -93,6 +93,9 @@ function installCodexNotifyShim(orchDir: OrchDir, settings: OrchSettings, logger
 /** Codex CLI adapter using notify completion events and resume-based steering. */
 export class CodexAdapter implements AgentAdapter {
   readonly id = "codex" as const;
+  readonly install: Prerequisite = { docsUrl: "https://github.com/openai/codex", signIn: "codex login" };
+  readonly preferredForm = null;
+  readonly skillsDir = null;
 
   /** Codex exports its session pid, which doubles as its session marker. */
   readonly sessionEnvMarker = HARNESS_SESSION_ENV.codex.marker;

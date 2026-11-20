@@ -28,6 +28,37 @@ function handlesByKey(fleet: Fleet, backend: Backend): Map<string, string> {
   return keyByHandle;
 }
 
+/** The fields orch's own registry owns for a listed pane. */
+function registryFields(view: AgentView | undefined, target: BackendTarget): Pick<Entity, "managed" | "ended" | "name" | "space" | "host"> {
+  return {
+    managed: view !== undefined,
+    ended: view?.endedAt != null,
+    // Orch's registry owns the name; the backend's own pane label is only a
+    // fallback for panes orch never spawned.
+    name: view?.name ?? target.name,
+    // ADR 0001: `target.workspace` is the PLEXER's own grouping — a plexer's workspace id
+    // or session. It is environment, never orch's space, and preferring it
+    // here is exactly how a plexer id got shown as a name the user had chosen. orch's
+    // space is read from orch's own record or it is absent.
+    space: view?.environment.space ?? null,
+    host: entityHost(view === undefined ? { kind: "pane" } : { kind: "agent", view }),
+  };
+}
+
+/** The fields the agent's captured presence owns. */
+function presenceFields(pres: PresenceEntry | null): Pick<Entity, "backendStatus" | "presence" | "sessionPath"> {
+  return {
+    // Captured orch presence is authoritative; plexer-reported status is
+    // inventory metadata only and never becomes agent truth.
+    backendStatus: pres?.status?.state ?? null,
+    presence: pres,
+    // Bridge-first: the adapter's own presence status tracks the LIVE session
+    // and follows a `/new` reset; the backend's agent_session is launch-time
+    // and goes stale, which is what makes mid-run `tail` read an empty session.
+    sessionPath: pres?.status?.sessionPath ?? null,
+  };
+}
+
 function entityFromBackendTarget(
   backend: Backend,
   target: BackendTarget,
@@ -43,30 +74,13 @@ function entityFromBackendTarget(
   return {
     key,
     paneId,
-    managed: view !== undefined,
-    ended: view?.endedAt != null,
-    // Orch's registry owns the name; the backend's own pane label is only a
-    // fallback for panes orch never spawned.
-    name: view?.name ?? target.name,
+    ...registryFields(view, target),
     tabLabel: target.groupLabel,
     agent: target.agent,
     focused: target.focused,
-    // Captured orch presence is authoritative; plexer-reported status is
-    // inventory metadata only and never becomes agent truth.
-    backendStatus: pres?.status?.state ?? null,
+    ...presenceFields(pres),
     backend: backend.id,
-    presence: pres,
-    // Bridge-first: the adapter's own presence status tracks the LIVE session
-    // and follows a `/new` reset; the backend's agent_session is launch-time
-    // and goes stale, which is what makes mid-run `tail` read an empty session.
-    sessionPath: pres?.status?.sessionPath ?? null,
     presenceOnly: false,
-    // ADR 0001: `target.workspace` is the PLEXER's own grouping — herdr's `wF`,
-    // a tmux session. It is environment, never orch's space, and preferring it
-    // here is exactly how `wF` got shown as a name the user had chosen. orch's
-    // space is read from orch's own record or it is absent.
-    space: view?.environment.space ?? null,
-    host: entityHost(view === undefined ? { kind: "pane" } : { kind: "agent", view }),
   };
 }
 

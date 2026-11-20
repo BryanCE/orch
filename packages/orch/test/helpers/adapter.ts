@@ -29,6 +29,9 @@ export function fakeAdapter(overrides: Partial<AgentAdapter> = {}): AgentAdapter
     detectState: () => "unknown",
     steer: () => undefined,
     extractResult: () => undefined,
+    install: {},
+    preferredForm: null,
+    skillsDir: null,
     ...overrides,
   };
 }

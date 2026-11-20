@@ -141,7 +141,7 @@ export function storeRebuildRemedy(orchDir: OrchDir): string {
 /** The generated migrations, shipped beside the package. Resolved from the
  *  package root rather than this file's own location: the extension bundles are
  *  symlinked into each harness's extension directory, and a walk relative to the
- *  link lands beside the harness (`~/.pi/drizzle`), not beside the package. */
+ *  link lands beside the harness (`~/.<harness>/drizzle`), not beside the package. */
 function migrationsFolder(): string {
   return join(packageRoot(), "drizzle");
 }

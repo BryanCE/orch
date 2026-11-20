@@ -1,5 +1,4 @@
 import { NOTIFY_STATES } from "../types/settings.ts";
-import { HERDR_SINK_ID } from "../types/backend.ts";
 import type { NotifierConfigField } from "../types/notify.ts";
 import type { NotifyEntry, NotifyState } from "../types/settings.ts";
 
@@ -67,8 +66,8 @@ export function renderNotifyEntry(id: string, config: Record<string, unknown>): 
       return { id: "desktop", ...notifyOn(config) };
     case "sound":
       return { id: "sound", ...notifyOn(config) };
-    case HERDR_SINK_ID:
-      return { id: HERDR_SINK_ID, ...notifyOn(config) };
+    case "plexer":
+      return { id: "plexer", ...notifyOn(config) };
     case "webhook":
       if (typeof config.url !== "string" || !validFieldValue("url", config.url)) throw new Error("webhook notifier requires an http/https URL");
       return { id: "webhook", url: config.url, ...notifyOn(config) };

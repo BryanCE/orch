@@ -87,7 +87,7 @@ export interface NotifierChoice {
 }
 
 /** The transport a delivery needs, injected so the retry loop is testable without
- *  a running herdr and without sleeping on the real clock. */
+ *  a running plexer and without sleeping on the real clock. */
 export interface NotificationIo {
   send: (args: readonly string[]) => string;
   wait: (ms: number) => void;

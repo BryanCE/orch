@@ -13,7 +13,7 @@ import type { BackendVersionObservation, CheckResult, DoctorBackendReport } from
  *  and reports arrive in registry order, so the precedence matches too. */
 function activeBackend(reports: readonly DoctorBackendReport[], configured?: string | null): DoctorBackendReport | null {
   // A configured id resolves through a registry lookup, never an equality branch:
-  // core may key a map by id, it may not ask "is this the herdr one?".
+  // core may key a map by id, it may not ask "is this that one plexer?".
   if (configured) {
     const report = new Map(reports.map((entry) => [entry.id, entry])).get(configured);
     if (!report) return null;
@@ -27,8 +27,8 @@ function activeBackend(reports: readonly DoctorBackendReport[], configured?: str
 
 /** Every enabled backend must be detected; only the active one must be inside
  *  a live session. Requiring insideSession of all of them is unsatisfiable the
- *  moment two placing environments are enabled — you cannot be inside both a herdr
- *  and a tmux session at once, so the check could never pass (design D6).
+ *  moment two placing environments are enabled — you cannot be inside two plexers'
+ *  sessions at once, so the check could never pass (design D6).
  *
  *  Severity separates a broken install from situational context (11.3): a missing
  *  binary is a FAIL, but an available session-scoped active backend that merely
@@ -76,7 +76,7 @@ function serverRow(server: ServerReport | null | undefined): string {
   return `, server ${server.version ?? "unknown"} (${compatibility})`;
 }
 
-/** A server the installed client cannot fully drive. Since herdr 0.9.0 a client
+/** A server the installed client cannot fully drive. A plexer's newer client
  *  still connects to a server it outgrew and loses individual actions instead,
  *  so the mismatch has to be named here or it surfaces as one unexplained
  *  command failure later. */

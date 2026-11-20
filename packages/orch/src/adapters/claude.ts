@@ -10,7 +10,8 @@ import { agentStateFrom } from "../agent-state.ts";
 import { buildHeadlessArgv, buildInteractiveArgv, launchCompaction, shimRole, type AgentState } from "../shared/harness.ts";
 import { lastAssistantFromJsonl } from "../shared/transcript.ts";
 import { HARNESS_SESSION_ENV } from "../shared/session-env.ts";
-import type { AdapterCommand, AgentAdapter, HarnessModel, HookReportRole, LifecycleVerb, ModelCatalogue, ResultExtractionInput, SessionView, SessionViewInput, ShimInstallOpts, SpawnOpts, StateDetectionInput, SteerRequest, ThinkingStrategy } from "../types/adapter.ts";
+import { posix } from "../shared/prerequisites.ts";
+import type { AdapterCommand, AgentAdapter, HarnessModel, HookReportRole, LifecycleVerb, ModelCatalogue, Prerequisite, ResultExtractionInput, SessionView, SessionViewInput, ShimInstallOpts, SpawnOpts, StateDetectionInput, SteerRequest, ThinkingStrategy } from "../types/adapter.ts";
 import type { CheckResult } from "../types/doctor.ts";
 import type { Logger, OrchDir } from "../types/core.ts";
 import type { OrchSettings } from "../types/settings.ts";
@@ -215,6 +216,12 @@ export function diagnoseClaudeShim(root: string, orchDir: OrchDir, settings: Orc
  */
 class ClaudeAdapter implements AgentAdapter {
   readonly id = "claude" as const;
+  readonly install: Prerequisite = {
+    install: { ...posix("curl -fsSL https://claude.ai/install.sh | bash"), windows: "irm https://claude.ai/install.ps1 | iex" },
+    signIn: "claude auth",
+  };
+  readonly preferredForm = null;
+  readonly skillsDir = "~/.claude/skills";
 
   readonly thinking: ThinkingStrategy = {
     launchArgs: (level: ThinkingLevel): readonly string[] => ["--effort", CLAUDE_EFFORT_LEVELS[level]],

@@ -80,8 +80,8 @@ export function reinstallCommand(): string {
 /**
  * Absolute path of an executable named `bin` on PATH, or null when absent
  * (node-compatible). Callers that write a command into a THIRD-PARTY config file
- * should prefer this over the bare name: the tool spawning that command (claude,
- * codex) may run with a different PATH than orch did — version managers (nvm,
+ * should prefer this over the bare name: the tool spawning that command (a harness)
+ * may run with a different PATH than orch did — version managers (nvm,
  * fnm, volta, asdf) and Windows-vs-WSL shells routinely differ — so a bare name
  * can resolve to a different binary, or to none at all.
  */
@@ -151,7 +151,7 @@ export function errorTrace(error: unknown): string {
  * an array they will then index by string key.
  *
  * Imported by the harness shims too. This module is node built-ins only, so it
- * is safe to pull into the standalone claude/codex/pi bundles (Rule 6 constrains
+ * is safe to pull into the standalone harness bundles (Rule 6 constrains
  * which APIs runtime code may call, not whether it may import orch core).
  */
 export { isRecord } from "./json.ts";
@@ -336,7 +336,7 @@ export function createFileExclusively(path: string, content: string, mode = 0o60
  * because of it.
  *
  * One decision, imported: it is made where a harness context is read (the
- * presence writer) and where a pane reports to herdr, and those two must never
+ * presence writer) and where a pane reports to its plexer, and those two must never
  * disagree about whether a given string is a path.
  */
 export function sessionFilePath(value: unknown): string | undefined {

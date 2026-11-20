@@ -1,5 +1,5 @@
 import type { OrchDir } from "../types/core.ts";
-// The in-agent wiring every pi-shaped harness gets: pane HUD state, the presence
+// The in-agent wiring every harness with an extension host gets: pane HUD state, the presence
 // binding, and the tool layer. The orchestrator seat is the composition root's.
 //
 // This file names no harness. What a harness calls itself and which event means

@@ -16,7 +16,7 @@ import { hostedHere } from "../../local-process.ts";
 import { createBackendCaptureRole } from "../../presence/roles.ts";
 import type { Backend, BackendId, BackendSpawnOpts, CaptureRole, ForegroundRole, HandleLookupRole, LogPruningRole, ProcessRole, LocalProcess } from "../../types/backend.ts";
 import type { StdioKind } from "../../types/form.ts";
-import type { AgentAdapter, SpawnOpts } from "../../types/adapter.ts";
+import type { AgentAdapter, Prerequisite, SpawnOpts } from "../../types/adapter.ts";
 import type { Logger, OrchDir } from "../../types/core.ts";
 import type { HeadlessHandle } from "../../types/plexer.ts";
 import type { HereAgent } from "../../types/agent-place.ts";
@@ -95,6 +95,7 @@ function headlessPid(handle: HeadlessHandle | string): number | null {
 export class HeadlessBackend implements Backend<HeadlessHandle> {
   readonly id = HEADLESS_BACKEND;
   readonly offers: readonly StdioKind[] = ["none"];
+  readonly install: Prerequisite = {};
   // A detached agent is in no space, so `current` has no answer to give and the
   // role is composed only for the half it CAN do — which means the whole role is
   // absent, and `handleFor` moves to where callers already reach for it.
@@ -209,7 +210,7 @@ export class HeadlessBackend implements Backend<HeadlessHandle> {
         // writer running inside the child, so its own status.json can stamp
         // the same sessionPath as this backend's log.
         env: { ...process.env, ...agentLaunchEnv({ ...opts, key, orchDir: directory }, { ORCH_AGENT_LOG: logPath, ...HEADLESS_ENVIRONMENT_STAMP }) },
-        // stdin MUST reach EOF: a pi-shaped harness reads its prompt from an open
+        // stdin MUST reach EOF: a harness reads its prompt from an open
         // stdin and blocks there before starting a session, so it never registers.
         stdio: ["ignore", logFd, logFd],
       });

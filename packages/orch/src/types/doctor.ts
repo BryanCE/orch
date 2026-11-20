@@ -95,7 +95,7 @@ export interface DeclaredVsRealityDependencies {
  *     so a mismatched entrypoint cannot hide behind a lucky invocation.
  *
  * A declared runtime missing from PATH is also a failure: the harness shims are
- * spawned by claude/codex using that runtime, so an absent binary means every
+ * spawned by a harness using that runtime, so an absent binary means every
  * shim invocation fails silently at agent runtime rather than here.
  */
 /**

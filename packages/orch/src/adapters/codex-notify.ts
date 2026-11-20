@@ -1,12 +1,18 @@
 import * as path from "node:path";
 import { runtimeArgv, type OrchRuntime } from "../runtime.ts";
-import type { CodexNotifyEdit } from "../types/adapter.ts";
 import type { ShimScope } from "../types/core.ts";
 
 // Codex's notify wire format lives here, in the codex adapter family (law #2:
 // one adapter module owns a foreign tool's entire wire surface). Leaf on
 // purpose — imported by both the adapter's installShim() and the bundled
 // extensions/codex/index.ts shim without pulling either's graph into the other.
+
+/** Outcome of a targeted edit of the top-level `notify` key in a codex config.toml body. */
+type CodexNotifyEdit =
+  | { readonly status: "inserted" | "replaced"; readonly text: string }
+  | { readonly status: "unchanged" }
+  | { readonly status: "foreign"; readonly foreignValue: string }
+  | { readonly status: "ambiguous" };
 
 /** Built notify shim inside a package root (source: extensions/codex/index.ts); plain ESM JS any runtime can run. */
 export function codexNotifyShimPath(root: string): string {

@@ -55,8 +55,8 @@ function writeSpawnedAgent(directory: OrchDir, input: SpawnRegistration): string
   // space silently succeed.
   if (input.space !== undefined) requireSpace(directory, input.space);
   // The plexer is STATED, never derived from whether a pane exists: a headless
-  // agent runs in the headless plexer just as truly as a herdr agent runs in
-  // herdr, and a capless agent states none. Deriving it from `pane` is what
+  // agent runs in the headless plexer just as truly as a pane agent runs in
+  // its plexer, and a capless agent states none. Deriving it from `pane` is what
   // forced a SECOND writer to come along behind this one and fill it in (2.1).
   if (input.backendId !== undefined) ensurePlexer(directory, input.backendId, input.backendId, now);
   const spawnerId = insertSpawnedRow(directory, input, host, now);

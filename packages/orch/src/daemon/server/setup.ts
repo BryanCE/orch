@@ -83,23 +83,29 @@ interface PrerequisiteProbe {
   readonly manual: ManualPrerequisite[];
 }
 
-/** Probe each selected provider's prerequisite binaries, reporting each, and queue what is missing.
- *  Prerequisites are scoped to the selected providers only. Each selected provider id is probed
- *  under the id-is-binary invariant; install-only dependencies are resolved from the provider's
- *  declared needs and are never probed as an unconditional requirement. */
-function probePrerequisites(adapters: readonly AdapterId[], backends: readonly BackendId[], say: Say): PrerequisiteProbe {
-  const bins = binaryStatus([...adapters, ...backends]);
-  const selected = adapters.map((id) => resolveAdapter(id));
+/** Format a provider's presence and include its binary path when known. */
+function presenceLine(found: boolean, id: string, binPath: string): string {
+  return `  ${found ? "ok      " : "MISSING "}${id}${binPath ? `  (${binPath})` : ""}`;
+}
+
+/** Queue missing dependencies before the provider that needs them. */
+function queueNeeds(entry: Prerequisite | undefined, missing: MissingPrerequisite[]): void {
+  for (const need of entry?.needs ?? []) {
+    if (binaryOnPath(need)) continue;
+    const needCmd = installCommand(PREREQUISITES[need], isNixOs(), hostOs());
+    if (needCmd && !missing.some((candidate) => candidate.bin === need)) missing.push({ bin: need, cmd: needCmd });
+  }
+}
+
+/** Collect install commands and manual instructions for missing prerequisites. */
+function createInstallQueue(): PrerequisiteProbe & { readonly queue: (id: string, entry: Prerequisite | undefined) => void } {
   const missing: MissingPrerequisite[] = [];
   const manual: ManualPrerequisite[] = [];
-  const queueInstall = (id: string, entry: Prerequisite | undefined): void => {
+  /** Queue one missing prerequisite or record how to install it manually. */
+  const queue = (id: string, entry: Prerequisite | undefined): void => {
     const cmd = installCommand(entry, isNixOs(), hostOs());
     if (cmd) {
-      for (const need of entry?.needs ?? []) {
-        if (binaryOnPath(need)) continue;
-        const needCmd = installCommand(PREREQUISITES[need], isNixOs(), hostOs());
-        if (needCmd && !missing.some((candidate) => candidate.bin === need)) missing.push({ bin: need, cmd: needCmd });
-      }
+      queueNeeds(entry, missing);
       if (!missing.some((candidate) => candidate.bin === id)) missing.push({ bin: id, cmd });
     } else if (entry?.docsUrl) {
       manual.push({ id, url: entry.docsUrl });
@@ -107,24 +113,48 @@ function probePrerequisites(adapters: readonly AdapterId[], backends: readonly B
       manual.push({ id, url: "(no installer known - install manually)" });
     }
   };
-  for (const id of adapters) {
+  return { missing, manual, queue };
+}
+
+type InstallQueue = ReturnType<typeof createInstallQueue>;
+
+/** Report selected adapters and their bindings, queuing missing binaries. */
+function probeAdapters(selected: readonly AgentAdapter[], bins: ReturnType<typeof binaryStatus>, say: Say, queue: InstallQueue["queue"]): void {
+  for (const { id, install } of selected) {
     const binPath = bins[id] ? binaryPath(id) ?? "" : "";
-    say(`  ${binPath ? "ok      " : "MISSING "}${id}${binPath ? `  (${binPath})` : ""}`);
-    if (!bins[id]) queueInstall(id, PREREQUISITES[id]);
+    say(presenceLine(Boolean(binPath), id, binPath));
+    if (!bins[id]) queue(id, install);
   }
   for (const binding of checkBindingPrerequisites(selected)) {
     say(`  ${binding.status === "ok" ? "ok      " : "MISSING "}${binding.detail}`);
   }
   for (const { command, acp } of bindingPrerequisites(selected)) {
-    if (!binaryOnPath(command)) queueInstall(command, acp.install);
+    if (!binaryOnPath(command)) queue(command, acp.install);
   }
+}
+
+/** Report selected backends and queue those that are unavailable. */
+function probeBackends(backends: readonly BackendId[], bins: ReturnType<typeof binaryStatus>, say: Say, queue: InstallQueue["queue"]): void {
   for (const id of backends) {
-    const available = getBackend(id)!.isAvailable();
+    const backend = getBackend(id)!;
+    const available = backend.isAvailable();
     const binPath = available && bins[id] ? binaryPath(id) ?? "" : "";
-    say(`  ${available ? "ok      " : "MISSING "}${id}${binPath ? `  (${binPath})` : ""}`);
-    if (!available) queueInstall(id, PREREQUISITES[id]);
+    say(presenceLine(available, id, binPath));
+    if (!available) queue(id, backend.install);
   }
-  return { missing, manual };
+}
+
+/** Probe each selected provider's prerequisite binaries, reporting each, and queue what is missing.
+ *  Prerequisites are scoped to the selected providers only. Each selected provider id is probed
+ *  under the id-is-binary invariant; install-only dependencies are resolved from the provider's
+ *  declared needs and are never probed as an unconditional requirement. */
+function probePrerequisites(adapters: readonly AdapterId[], backends: readonly BackendId[], say: Say): PrerequisiteProbe {
+  const bins = binaryStatus([...adapters, ...backends]);
+  const selected = adapters.map((id) => resolveAdapter(id));
+  const installs = createInstallQueue();
+  probeAdapters(selected, bins, say, installs.queue);
+  probeBackends(backends, bins, say, installs.queue);
+  return { missing: installs.missing, manual: installs.manual };
 }
 
 /** `setup-prerequisites`: what is here, and what is missing with the command that installs it. */
@@ -132,11 +162,16 @@ export function setupPrerequisites(params: ParamsOf<"setup-prerequisites">): Res
   const { lines, say } = collector();
   const { missing, manual } = probePrerequisites(params.adapters, params.backends, say);
   for (const { id, url } of manual) say(`  install ${id} manually: ${url}`);
-  return { lines, missing };
+  const skillDirs = new Set<string>();
+  for (const id of params.adapters) {
+    const { skillsDir } = resolveAdapter(id);
+    if (skillsDir !== null) skillDirs.add(skillsDir);
+  }
+  return { lines, missing, skillDirs: [...skillDirs] };
 }
 
 /** `setup-install`: install the named missing prerequisites, in the probe's order, so a
- *  provider's `needs` (bun before pi) land first. */
+ *  provider's `needs` (a runtime before the harness that needs it) land first. */
 export function setupInstall(logger: Logger, params: ParamsOf<"setup-install">): ResultOf<"setup-install"> {
   const { lines, say } = collector();
   // The probe's own report was the `setup-prerequisites` answer; only what is missing counts here.
@@ -273,8 +308,8 @@ async function diagnoseAdapters(orchDir: OrchDir, settings: OrchSettings, logger
  * Why a headless smoke round-trip cannot run here, or null when it can.
  *
  * The smoke launches the DEFAULT ADAPTER's binary, so a missing harness is as
- * disqualifying as a missing backend — setup used to report `MISSING pi` and
- * then try to spawn pi anyway, turning a known-absent prerequisite into a
+ * disqualifying as a missing backend — setup used to report a harness MISSING
+ * and then try to spawn it anyway, turning a known-absent prerequisite into a
  * spawn failure that read like a broken install.
  */
 function smokeBlocker(settings: OrchSettings): string | null {

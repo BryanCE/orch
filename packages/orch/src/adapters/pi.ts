@@ -9,11 +9,24 @@ import { packageRoot, reinstallCommand } from "../util.ts";
 import { agentStateFrom } from "../agent-state.ts";
 import { NO_COMPACTION, type AgentState } from "../shared/harness.ts";
 import { HARNESS_SESSION_ENV } from "../shared/session-env.ts";
-import type { AdapterCommand, AdapterId, AgentAdapter, BridgeRole, CompactionLaunch, HarnessModel, LifecycleVerb, ModelCatalogue, ModelRequest, PiResultExtractionInput, PiStateDetectionInput, QuicklistForm, SessionView, SessionViewEntry, SessionViewInput, ShimInstallOpts, SpawnOpts, SteerRequest, ThinkingStrategy } from "../types/adapter.ts";
+import { everywhere } from "../shared/prerequisites.ts";
+import type { AdapterCommand, AdapterId, AgentAdapter, BridgeRole, CompactionLaunch, HarnessModel, LifecycleVerb, ModelCatalogue, ModelRequest, Prerequisite, QuicklistForm, ResultExtractionInput, SessionView, SessionViewEntry, SessionViewInput, ShimInstallOpts, SpawnOpts, StateDetectionInput, SteerRequest, ThinkingStrategy } from "../types/adapter.ts";
 import type { ThinkingLevel, WorkerPolicy } from "../types/policy.ts";
 import type { OrchSettings } from "../types/settings.ts";
 import type { CheckResult, FixDescriptor } from "../types/doctor.ts";
 import type { ExtensionName, Logger, OrchDir, SessionEntry, ToolCallContentBlock } from "../types/core.ts";
+
+/** State input for pi, identified by its orch presence key. */
+export interface PiStateDetectionInput extends StateDetectionInput {
+  /** Presence key whose status.json is authoritative. */
+  readonly key: string;
+}
+
+/** Result input for pi, identified by its orch presence key. */
+export interface PiResultExtractionInput extends ResultExtractionInput {
+  /** Presence key whose results.jsonl is authoritative. */
+  readonly key: string;
+}
 
 /** pi's own config root, and the files under it orch reads or writes. */
 function piAgentDir(): string {
@@ -393,6 +406,9 @@ export abstract class PiBridgeAdapter {
 export class PiAdapter extends PiBridgeAdapter implements AgentAdapter {
   protected readonly resumeFlag = "--session";
   readonly id = "pi" as const;
+  readonly install: Prerequisite = { install: everywhere("bun add -g @earendil-works/pi-coding-agent"), needs: ["bun"], signIn: "pi auth" };
+  readonly preferredForm = null;
+  readonly skillsDir = null;
 
   /** pi exposes a neutral CLI flag for launch-time thinking effort. */
   readonly thinking: ThinkingStrategy = {

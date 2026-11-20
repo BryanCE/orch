@@ -4,9 +4,8 @@
 import { Type } from "typebox";
 import { createLocalBashOperations, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { toolResult } from "orch/core/agent/peers.ts";
-import { isDashboardContext } from "../seat/index.ts";
 import { Watches } from "./watches.ts";
-import { MONITOR_MESSAGE, endText, monitorMessageComponent, openMonitorBoard, showRunningWatches } from "./ui.ts";
+import { MONITOR_MESSAGE, attachMonitorFooter, endText, isMonitorUi, monitorMessageComponent, openMonitorPanel } from "./ui.ts";
 import type { HarnessApi, HarnessContext } from "orch/core/types/agent.ts";
 import type { SettingsManager } from "orch/core/types/services.ts";
 import type { Watch, WatchEnd, WatchLimits } from "./watch.ts";
@@ -44,6 +43,16 @@ export function registerMonitor(harness: HarnessApi, settings: SettingsManager):
     return { batchMs: tool.batch_ms, maxEventsPerMinute: tool.max_events_per_minute, tailLines: tool.tail_lines };
   };
 
+  // The footer is bound to the UI of the latest context that reached this extension: the harness
+  // builds a new one per event and clears extension UI when it replaces a session.
+  let detachFooter: (() => void) | undefined;
+  const attachFooter = (ctx: HarnessContext): void => {
+    const ui: unknown = ctx.ui;
+    if (!ctx.hasUI || !isMonitorUi(ui)) return;
+    detachFooter?.();
+    detachFooter = attachMonitorFooter(ui, watches);
+  };
+
   const ports = {
     onEvent: (watch: Watch, lines: readonly string[]): void => {
       harness.sendMessage(
@@ -75,7 +84,8 @@ export function registerMonitor(harness: HarnessApi, settings: SettingsManager):
       description: Type.String({ description: "Short name for what this watches; it heads every message." }),
       timeout_ms: Type.Optional(Type.Integer({ minimum: 1000, description: "Stop the watch after this many milliseconds. Leave it out to watch until the command exits or you stop it." })),
     }),
-    execute(_toolCallId, params: MonitorParams) {
+    execute(_toolCallId, params: MonitorParams, _signal, _onUpdate, ctx: HarnessContext) {
+      attachFooter(ctx);
       const watch = watches.start(
         { description: params.description, command: params.command, cwd: process.cwd(), timeoutMs: params.timeout_ms ?? null },
         limits(),
@@ -106,22 +116,19 @@ export function registerMonitor(harness: HarnessApi, settings: SettingsManager):
     return monitorMessageComponent(content, options.expanded, options.outputPad, theme);
   });
 
-  let hideWidget: (() => void) | undefined;
-  harness.on("session_start", (_event: unknown, ctx: HarnessContext) => {
-    hideWidget?.();
-    hideWidget = showRunningWatches(ctx, watches);
-  });
+  harness.on("session_start", (_event: unknown, ctx: HarnessContext) => attachFooter(ctx));
   harness.on("session_shutdown", () => {
     closing = true;
-    hideWidget?.();
-    hideWidget = undefined;
+    detachFooter?.();
+    detachFooter = undefined;
     watches.stopAll();
   });
 
   harness.registerCommand("monitors", {
     description: "View the commands this session watches with the monitor tool, their output, and stop them",
     handler: async (_args: string | undefined, ctx: HarnessContext) => {
-      if (isDashboardContext(ctx)) await openMonitorBoard(ctx, watches);
+      const ui: unknown = ctx.ui;
+      if (isMonitorUi(ui)) await openMonitorPanel(ui, watches);
     },
   });
 }

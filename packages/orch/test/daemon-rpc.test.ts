@@ -482,6 +482,20 @@ describe("daemon RPC", () => {
     subscription.close();
   });
 
+  test("knows which agent watches through an open stream, and forgets it when the stream closes", async () => {
+    const dir = tempOrchDir();
+    const server = await start(dir);
+    const watcher = mintAgentId();
+    const subscription = subscribeEvents(dir, { stream: process.pid, caller: { launch: watcher, session: null, pid: process.pid } }, () => undefined);
+    const deadline = Date.now() + 2_000;
+    while (!server.watching(watcher) && Date.now() < deadline) await Bun.sleep(5);
+    expect(server.watching(watcher)).toBe(true);
+    expect(server.watching(mintAgentId())).toBe(false);
+    subscription.close();
+    while (server.watching(watcher) && Date.now() < deadline) await Bun.sleep(5);
+    expect(server.watching(watcher)).toBe(false);
+  });
+
   test("reports the oldest sequence when replay starts before the pruned window", () => {
     const dir = tempOrchDir();
     appendEvent(dir, Date.parse("2024-01-01T00:00:00.000Z"), transitionEvent({ key: "one" }));

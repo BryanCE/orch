@@ -384,8 +384,9 @@ export function startEventsTransport(context: EventsContext, services: Pick<Serv
   const pending = rpcCall(services.orchDir, "questions", { caller: callerCredential() });
   subscription = subscribeEvents(
     services.orchDir,
-    // Named as a stream, so `orch close --stream` can end this process.
-    context.options.sinceSeq === undefined ? { logger: services.logger, stream: process.pid } : { since: context.options.sinceSeq, logger: services.logger, stream: process.pid },
+    // Named as a stream, so `orch close --stream` can end this process, and with its caller,
+    // so orchd sends that caller's mail here only while this watch is open.
+    { since: context.options.sinceSeq, logger: services.logger, stream: process.pid, caller: callerCredential() },
     (value, streamSeq) => {
       if (!isNotifyEvent(value) || !context.accepts(value)) return;
       if (context.emit(value, streamSeq) && context.options.once) transport.close();

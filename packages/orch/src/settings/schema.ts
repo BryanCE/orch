@@ -2,7 +2,7 @@ import * as path from "node:path";
 import { z } from "zod";
 import { FORM_IDS } from "../types/form.ts";
 import { ADAPTER_IDS } from "../types/adapter.ts";
-import { BACKEND_IDS, TILE_FIRST_SPLITS } from "../types/backend.ts";
+import { BACKEND_IDS, PLEXER_IDS, TILE_FIRST_SPLITS } from "../types/backend.ts";
 import { THINKING_LEVELS } from "../types/policy.ts";
 import { WORKTREE_PROVIDER_IDS } from "../types/worktree.ts";
 import { ORCH_RUNTIMES } from "../runtimes.ts";
@@ -73,7 +73,7 @@ export const NotifyEntrySchema = z.discriminatedUnion("id", [
     ]),
   }),
   z.strictObject({ id: z.literal("sound"), on: NotifyOnSchema }),
-  z.strictObject({ id: z.literal("plexer"), on: NotifyOnSchema }),
+  ...PLEXER_IDS.map((id) => z.strictObject({ id: z.literal(id), on: NotifyOnSchema })),
 ]);
 
 /** Every sink id, read off the schema so nothing re-lists the union. A sink named
@@ -100,6 +100,7 @@ export const SETTINGS_DEFAULTS = {
   lock: { retries: 50, interval_ms: 100, stale_ms: 10_000 },
   questions: { renag_ms: 120_000, renag_limit: 5 },
   monitor: { on: MONITOR_DEFAULT_ON, summary_chars: 400 },
+  monitor_tool: { batch_ms: 200, max_events_per_minute: 120, tail_lines: 500 },
   notification: { position: "top-left", title_chars: 60 },
   locked_commands: { applies_to: ROLES },
   denied_commands: { applies_to: ROLES.filter((role) => role !== "orch") },
@@ -257,6 +258,12 @@ export const SETTINGS_FILE_SCHEMA = z.strictObject({
     on: NotifyOnSchema,
     /** Characters of an agent's report an `orch monitor` or `orch events` line keeps. */
     summary_chars: PositiveInt.optional(),
+  }).optional(),
+  /** The monitor tool a harness gets from orch's extension: a watch on any command's output. */
+  monitor_tool: z.strictObject({
+    batch_ms: PositiveInt.optional(),
+    max_events_per_minute: PositiveInt.optional(),
+    tail_lines: PositiveInt.optional(),
   }).optional(),
   timeouts: z.strictObject({
     dispatch_ack_ms: PositiveInt.optional(),

@@ -8,7 +8,6 @@
  * are orch-owned panes, not in-process subagent runs.
  */
 import { Data } from "effect";
-import type { PackSnapshot } from "./types.ts";
 import type { NotifyEvent } from "orch/core/types/notify.ts";
 
 /** The name an event's agent goes by on the board: its label, else its harness, else its key. */
@@ -23,8 +22,9 @@ export const ALERT_STATES: ReadonlySet<string> = new Set(["blocked", "asking", "
 /** States meaning the agent is not currently running a turn. */
 export const SETTLED_STATES: ReadonlySet<string> = new Set(["done", "idle", "error", "aborted", "exited"]);
 
-export function formatElapsed(snapshot: PackSnapshot): string {
-  const totalSeconds = Math.max(0, Math.round((Date.now() - snapshot.lastTransitionAt) / 1000));
+/** The time since an instant in epoch millis, as `4m05s` or `12s`. */
+export function formatElapsed(since: number): string {
+  const totalSeconds = Math.max(0, Math.round((Date.now() - since) / 1000));
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
   return minutes > 0 ? `${minutes}m${seconds.toString().padStart(2, "0")}s` : `${seconds}s`;

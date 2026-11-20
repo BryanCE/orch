@@ -19,6 +19,7 @@ import type { IdentityMethod, ParamsOf, RpcMethod } from "../client/protocol.ts"
 import { RpcError, encodeLine, endpointPaths, errorResponse, framedLineReader, lineResponse, parseRequest, writeEncodedLine, type RpcRequest } from "../client/wire.ts";
 import { ReplayBuffer } from "./replay.ts";
 import { originOf } from "../../store/agent-rows.ts";
+import { selfIdentityOf } from "../../identity/self.ts";
 import { isRegisterSessionResponse } from "../client/registration.ts";
 import { registerSession, claimIdentity } from "./session-registry.ts";
 import { screenConnection } from "./screens.ts";
@@ -33,14 +34,20 @@ interface ConnectionState {
   readonly screens: ScreenConnection;
 }
 
+/** A CLI stream: its process on this machine, and the agent watching through it, when known. */
+interface CliStream {
+  readonly pid: number;
+  readonly watcher: string | null;
+}
+
 /** What every connection on this server shares. */
 interface ServerShared {
   readonly subscriptions: Set<Socket>;
   readonly replayBuffer: ReplayBuffer;
   /** Every peer connection, with the host it speaks for. */
   readonly peers: Map<Socket, HostId>;
-  /** Every subscription a CLI stream holds, with that stream's process on this machine. */
-  readonly streams: Map<Socket, number>;
+  /** Every subscription a CLI stream holds. */
+  readonly streams: Map<Socket, CliStream>;
   readonly greeting: () => HostGreeting;
 }
 
@@ -206,7 +213,10 @@ function handleLine(
       for (const buffered of replay.events) lineResponse(socket, { kind: "event", ...buffered });
     }
     shared.subscriptions.add(socket);
-    if (request.params.stream !== undefined) shared.streams.set(socket, request.params.stream);
+    const { stream, caller } = request.params;
+    if (stream !== undefined) {
+      shared.streams.set(socket, { pid: stream, watcher: caller === undefined ? null : selfIdentityOf(orchDir, caller)?.id ?? null });
+    }
   }
   const attach: AttachOutcome = request.method === "attach"
     ? attachRequest(orchDir, socket, request, state, transport, onBridgeAttached, logger)
@@ -301,7 +311,7 @@ export async function startRpcServer(
   const paths = endpointPaths(orchDir);
   const subscriptions = new Set<Socket>();
   const peers = new Map<Socket, HostId>();
-  const streams = new Map<Socket, number>();
+  const streams = new Map<Socket, CliStream>();
   const sockets = new Set<Socket>();
   const connectionCleanups = new Set<() => void>();
   const replayBuffer = new ReplayBuffer(orchDir);
@@ -442,7 +452,7 @@ function makeRpcServer(
   connectionCleanups: Set<() => void>,
   subscriptions: Set<Socket>,
   peers: Map<Socket, HostId>,
-  streams: Map<Socket, number>,
+  streams: Map<Socket, CliStream>,
   bus: EventBus,
   unsubscribeBus: () => void,
   paths: { socket: string; port: string; token: string },
@@ -468,7 +478,8 @@ function makeRpcServer(
     close,
     emit: (event) => bus.emit(event),
     subscriberCount: () => subscriptions.size,
-    streamPids: () => [...new Set(streams.values())],
+    streamPids: () => [...new Set([...streams.values()].map((stream) => stream.pid))],
+    watching: (agentId) => [...streams.values()].some((stream) => stream.watcher === agentId),
     attachedBridgeCount: () => attachedBridgeKeys().length,
     transport,
     socketPath: paths.socket,

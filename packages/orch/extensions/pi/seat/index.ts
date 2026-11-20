@@ -84,7 +84,7 @@ interface SeatRegistrationApi {
   registerCommand: HarnessApi["registerCommand"];
 }
 
-function isDashboardContext(value: unknown): value is ExtensionCommandContext {
+export function isDashboardContext(value: unknown): value is ExtensionCommandContext {
   if (typeof value !== "object" || value === null || !("ui" in value)) return false;
   const ui = value.ui;
   return typeof ui === "object" && ui !== null && "custom" in ui && typeof ui.custom === "function";

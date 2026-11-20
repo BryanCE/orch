@@ -82,16 +82,17 @@ orch dispatch api-types --rename api-auth "Do section T4 of tasks/W2-api.md. Onl
 
 - Refill an agent the moment it lands, renamed for its new task; dispatch clears its context.
   Close an agent when the task list has nothing left for it.
-- The Monitor command is exactly `orch monitor`, bare. Arm it with its longest timeout, and arm
-  it again in the same turn when it expires.
+- The Monitor command is exactly `orch monitor`, bare. Arm it with no timeout when your Monitor
+  tool allows that, or with its longest. When it expires and an agent you wait on still works,
+  arm it again in that turn. When you wait on nothing, let it lapse: an expired watch wakes you
+  for nothing. The next spawn or dispatch arms it.
 - A command that exits with `orch grant <id>` (a spawn into a new space, a gated command):
   give the user that line, wait until they say it ran, then run the same command again.
 - Talk to another leading orch only when the user tells you to. `orch orchs` lists them;
   `orch message <name|project> <text>` sends. A refusal that says peers are off: give the
   user `orch settings fleet.orch_peers true` and wait.
-- While peers are on, keep `orch monitor` armed, even with no agents of your own. A message
-  that arrives while the user is in your pane skips your input and comes as a monitor line;
-  otherwise it arrives as a prompt that opens `[from orch <name>; reply: ...]`.
+- A message from another orch arrives as a prompt that opens `[from orch <name>; reply: ...]`.
+  While the user is in your pane and your monitor is armed, it comes as a monitor line instead.
   Answer it with `orch message <name> "<text>"`.
 
 ## While agents run

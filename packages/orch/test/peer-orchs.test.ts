@@ -138,23 +138,32 @@ describe("where mail between two leading orchs lands", () => {
     const directory = fixture();
     const { web, api } = orchInPane(directory, false);
 
-    expect(mailDelivery(directory, mail("events"), web, placeHere(directory, api))).toBe("events");
+    expect(mailDelivery(directory, mail("events"), web, placeHere(directory, api), true)).toBe("events");
   });
 
-  test("goes to the monitor while the human is in the other orch's pane", () => {
+  test("goes to the monitor while the human is in the other orch's pane and it watches", () => {
     const directory = fixture();
     const { web, api, backend } = orchInPane(directory, true);
 
-    const landing = withRegisteredBackend(backend, () => mailDelivery(directory, mail("prompt-unless-focused"), web, placeHere(directory, api)));
+    const landing = withRegisteredBackend(backend, () => mailDelivery(directory, mail("prompt-unless-focused"), web, placeHere(directory, api), true));
 
     expect(landing).toBe("events");
+  });
+
+  test("types into the other orch's input while the human is in its pane and it watches nothing", () => {
+    const directory = fixture();
+    const { web, api, backend } = orchInPane(directory, true);
+
+    const landing = withRegisteredBackend(backend, () => mailDelivery(directory, mail("prompt-unless-focused"), web, placeHere(directory, api), false));
+
+    expect(landing).toBe("prompt");
   });
 
   test("types into the other orch's input while its pane is not in view", () => {
     const directory = fixture();
     const { web, api, backend } = orchInPane(directory, false);
 
-    const landing = withRegisteredBackend(backend, () => mailDelivery(directory, mail("prompt-unless-focused"), web, placeHere(directory, api)));
+    const landing = withRegisteredBackend(backend, () => mailDelivery(directory, mail("prompt-unless-focused"), web, placeHere(directory, api), true));
 
     expect(landing).toBe("prompt");
   });

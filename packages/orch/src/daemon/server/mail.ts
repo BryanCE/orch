@@ -23,11 +23,12 @@ function mailDirection(directory: OrchDir, mail: OrchSettings["mail"], from: str
 }
 
 /** The landing one mail gets. `prompt-unless-focused` resolves here: the stream while the human
- *  is in the recipient's pane, because keys typed there go out with whatever the human types. */
-export function mailDelivery(directory: OrchDir, mail: OrchSettings["mail"], from: string, target: HereAgent): Exclude<MailDelivery, "prompt-unless-focused"> {
+ *  is in the recipient's pane and the recipient watches it, because keys typed there go out with
+ *  whatever the human types. With no watch open, the stream reaches no one, so the input does. */
+export function mailDelivery(directory: OrchDir, mail: OrchSettings["mail"], from: string, target: HereAgent, watched: boolean): Exclude<MailDelivery, "prompt-unless-focused"> {
   const direction = mailDirection(directory, mail, from, target);
   if (direction !== "prompt-unless-focused") return direction;
-  return targetPaneFocused(directory, target) ? "events" : "prompt";
+  return watched && targetPaneFocused(directory, target) ? "events" : "prompt";
 }
 
 /** Whether the human is in the target's pane now, as the plexer reports it. */

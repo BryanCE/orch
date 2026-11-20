@@ -11,7 +11,7 @@ import { recordAgentStatus } from "../src/presence/store.ts";
 import { upsertRun } from "../src/store/run-rows.ts";
 import { insertOutboxMessage, markOutboxDelivered, outboxMessageState } from "../src/store/outbox-rows.ts";
 import { deliverOutboxMessage } from "../src/daemon/server/outbox.ts";
-import type { OutboxDeps } from "../src/types/daemon.ts";
+import type { OutboxDeps, RpcServer } from "../src/types/daemon.ts";
 import { removeTempDir } from "./helpers/tempdir.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { placeAgent, seedAgent, seedLiveProcess } from "./helpers/agent.ts";
@@ -27,10 +27,27 @@ const dirs: OrchDir[] = [];
 const links: { readonly key: string; readonly link: AgentLink }[] = [];
 const saved = process.env.ORCH_DIR;
 
-function outboxDeps(orchDir: OrchDir, settings: Record<string, unknown> = {}): OutboxDeps {
-  const services = testServices({ orchDir, settings });
+/** A server that holds a watch open for each agent named, and nothing else. */
+function watchingServer(watchers: readonly string[]): RpcServer {
   return {
-    deliver: (target, payload, id) => deliverWrite(idleDaemonState(services, orchDir), placeHere(orchDir, target), payload, id),
+    close: () => Promise.resolve(),
+    emit: () => undefined,
+    subscriberCount: () => watchers.length,
+    streamPids: () => [],
+    watching: (agentId) => watchers.includes(agentId),
+    attachedBridgeCount: () => 0,
+    transport: "unix",
+    socketPath: "",
+    portFile: "",
+  };
+}
+
+function outboxDeps(orchDir: OrchDir, settings: Record<string, unknown> = {}, watchers: readonly string[] = []): OutboxDeps {
+  const services = testServices({ orchDir, settings });
+  const state = idleDaemonState(services, orchDir);
+  state.server = watchingServer(watchers);
+  return {
+    deliver: (target, payload, id) => deliverWrite(state, placeHere(orchDir, target), payload, id),
     maxAttempts: 3,
     now: () => 0,
   };
@@ -139,7 +156,7 @@ describe("orch bridge links and capture roles", () => {
     expect(outboxMessageState(orchDir, id)).toBe("delivered");
   });
 
-  test("worker mail to a spawner whose pane the human is in settles on the stream under prompt-unless-focused", async () => {
+  test("worker mail to a spawner whose pane the human is in settles on the stream it watches under prompt-unless-focused", async () => {
     const orchDir = tempOrchDir();
     seedMailPack(orchDir);
     placeAgent("orch1", { backend: "headless", handle: "pane-orch1" }, orchDir);
@@ -147,9 +164,61 @@ describe("orch bridge links and capture roles", () => {
     const id = "mail-up-focused";
     insertOutboxMessage(orchDir, { id, target: "orch1", payload: { action: "mail", from: "w1", text: "[from w1] done" } });
 
-    await withRegisteredBackend(backend, () => deliverOutboxMessage(orchDir, id, outboxDeps(orchDir, { mail: { to_spawner: "prompt-unless-focused", to_worker: "events" } })));
+    await withRegisteredBackend(backend, () => deliverOutboxMessage(orchDir, id, outboxDeps(orchDir, { mail: { to_spawner: "prompt-unless-focused", to_worker: "events" } }, ["orch1"])));
 
     expect(outboxMessageState(orchDir, id)).toBe("delivered");
+  });
+
+  test("worker mail to a spawner whose pane the human is in waits for the bridge when it watches nothing", async () => {
+    const orchDir = tempOrchDir();
+    seedMailPack(orchDir);
+    placeAgent("orch1", { backend: "headless", handle: "pane-orch1" }, orchDir);
+    const backend = new FakePanedBackend({ panes: [fakePane("pane-orch1", { focused: true })] });
+    const id = "mail-up-focused-unwatched";
+    insertOutboxMessage(orchDir, { id, target: "orch1", payload: { action: "mail", from: "w1", text: "[from w1] done" } });
+
+    await withRegisteredBackend(backend, () => deliverOutboxMessage(orchDir, id, outboxDeps(orchDir, { mail: { to_spawner: "prompt-unless-focused", to_worker: "events" } })));
+
+    expect(outboxMessageState(orchDir, id)).toBe("pending");
+  });
+
+  /** Two leading orchs, each a registered session; `api` takes mail over the link returned. */
+  function seedPeerOrchs(orchDir: OrchDir): { web: string; api: string; deliveries: BridgeDelivery[] } {
+    writeSettingsFixture(orchDir);
+    const startToken = processStartToken(process.pid);
+    if (startToken === undefined) throw new Error("no start token for the runner");
+    const session = (sessionToken: string): string => getOrCreateSessionAgent(orchDir, {
+      pid: process.pid, startToken, sessionToken, harnessId: "pi", cwd: process.cwd(),
+      label: "pi session", host: hostIdentity(), now: Date.now(),
+    }).id;
+    const web = session("tok-web");
+    const api = session("tok-api");
+    const deliveries: BridgeDelivery[] = [];
+    const link: AgentLink = { takes: ["dispatch", "steer", "answer", "model"], abort: null, reset: null, push: (delivery) => deliveries.push(delivery), close: () => undefined };
+    attachLink(orchDir, api, link);
+    links.push({ key: api, link });
+    return { web, api, deliveries };
+  }
+
+  test("peer mail typed into an orch that watches nothing says how to keep talking", async () => {
+    const orchDir = tempOrchDir();
+    const { web, api, deliveries } = seedPeerOrchs(orchDir);
+    insertOutboxMessage(orchDir, { id: "peer-unwatched", target: api, payload: { action: "mail", from: web, text: "hi" } });
+
+    await deliverOutboxMessage(orchDir, "peer-unwatched", outboxDeps(orchDir, { mail: { to_orch: "prompt" } }));
+
+    expect(JSON.stringify(deliveries)).toContain("to keep talking, arm orch monitor");
+  });
+
+  test("peer mail typed into an orch that watches says only how to reply", async () => {
+    const orchDir = tempOrchDir();
+    const { web, api, deliveries } = seedPeerOrchs(orchDir);
+    insertOutboxMessage(orchDir, { id: "peer-watched", target: api, payload: { action: "mail", from: web, text: "hi" } });
+
+    await deliverOutboxMessage(orchDir, "peer-watched", outboxDeps(orchDir, { mail: { to_orch: "prompt" } }, [api]));
+
+    expect(deliveries).toHaveLength(1);
+    expect(JSON.stringify(deliveries)).not.toContain("to keep talking");
   });
 
   test("worker mail to a spawner whose pane the human is in still waits for the bridge under prompt", async () => {

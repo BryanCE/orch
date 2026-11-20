@@ -1,4 +1,4 @@
-import type { Logger, OrchDir } from "../../types/core.ts";
+import type { CallerCredential, Logger, OrchDir } from "../../types/core.ts";
 import { createConnection, type Socket } from "node:net";
 import { existsSync } from "node:fs";
 import { readPortPath } from "./runtime-files.ts";
@@ -168,7 +168,7 @@ export async function rpcCall<M extends RpcMethod>(
  */
 export function subscribeEvents(
   orchDir: OrchDir,
-  opts: { since?: number; logger?: Logger; stream?: number },
+  opts: { since?: number; logger?: Logger; stream?: number; caller?: CallerCredential },
   onEvent: (event: NotifyEvent, seq: number) => void,
   onGap?: (oldestSeq: number) => void,
 ): EventSubscription {
@@ -243,7 +243,11 @@ export function subscribeEvents(
         // from the last sequence delivered instead of replaying an unrelated window.
         const since = connectedBefore ? last : opts.since;
         connectedBefore = true;
-        connected.write(encodeRequest(nextId(), "subscribe-events", opts.stream === undefined ? { since } : { since, stream: opts.stream }));
+        connected.write(encodeRequest(nextId(), "subscribe-events", {
+          since,
+          ...(opts.stream === undefined ? {} : { stream: opts.stream }),
+          ...(opts.caller === undefined ? {} : { caller: opts.caller }),
+        }));
       })
       .catch(() => {
         // Daemon absent or the dial failed; keep retrying — it may return.

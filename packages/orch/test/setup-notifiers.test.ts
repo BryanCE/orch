@@ -21,7 +21,7 @@ const COMMAND_FIELD = { name: "command", label: "Command" };
 describe("notifier setup logic", () => {
   test("probes the built-in adapters", async () => {
     const choices = await probeNotifiers(null);
-    expect(choices.map((choice) => choice.id)).toEqual(["plexer", "desktop", "webhook", "sound", "command"]);
+    expect(choices.map((choice) => choice.id)).toEqual(["herdr", "desktop", "webhook", "sound", "command"]);
     expect(choices.every((choice) => typeof choice.available === "boolean")).toBe(true);
     expect(choices.find((choice) => choice.id === "webhook")?.requiredFields.map((field) => field.name)).toEqual(["url"]);
   });
@@ -87,5 +87,10 @@ describe("notifier setup logic", () => {
     ]);
     expect(result.errors).toEqual([{ id: "webhook", missing: ["url"] }]);
     expect(result.entries).toEqual([{ id: "command", command: ["sh"] }]);
+  });
+
+  test("renders a sink for one plexer by its id, and refuses an id no sink has", () => {
+    expect(renderNotifyEntry("tmux", { on: ["done"] })).toEqual({ id: "tmux", on: ["done"] });
+    expect(() => renderNotifyEntry("nowhere", {})).toThrow("unknown notifier: nowhere");
   });
 });

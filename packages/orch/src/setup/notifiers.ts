@@ -1,4 +1,5 @@
 import { NOTIFY_STATES } from "../types/settings.ts";
+import { PLEXER_IDS } from "../types/backend.ts";
 import type { NotifierConfigField } from "../types/notify.ts";
 import type { NotifyEntry, NotifyState } from "../types/settings.ts";
 
@@ -66,8 +67,6 @@ export function renderNotifyEntry(id: string, config: Record<string, unknown>): 
       return { id: "desktop", ...notifyOn(config) };
     case "sound":
       return { id: "sound", ...notifyOn(config) };
-    case "plexer":
-      return { id: "plexer", ...notifyOn(config) };
     case "webhook":
       if (typeof config.url !== "string" || !validFieldValue("url", config.url)) throw new Error("webhook notifier requires an http/https URL");
       return { id: "webhook", url: config.url, ...notifyOn(config) };
@@ -78,8 +77,11 @@ export function renderNotifyEntry(id: string, config: Record<string, unknown>): 
       }
       return { id: "command", command, ...notifyOn(config) };
     }
-    default:
-      throw new Error(`unknown notifier: ${id}`);
+    default: {
+      const plexer = PLEXER_IDS.find((candidate) => candidate === id);
+      if (plexer === undefined) throw new Error(`unknown notifier: ${id}`);
+      return { id: plexer, ...notifyOn(config) };
+    }
   }
 }
 

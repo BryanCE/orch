@@ -13,7 +13,7 @@ peers on:
 
 Turn them off with `orch settings fleet.orch_peers false`.
 
-While peers are on, each orch keeps `orch monitor` armed, even with no agents of its own. A
-message from another orch lands as `mail.to_orch` says: by default typed into the input when
-the user is not in that orch's pane, and a MESSAGE line on `orch monitor` when the user is.
+A message from another orch lands as `mail.to_orch` says: by default typed into the input,
+and a MESSAGE line on `orch monitor` while the user is in that orch's pane and its monitor is
+open. An orch needs no monitor only to get mail.
 `orch help message` has the whole route, and `orch message read <code>` for a cut line.

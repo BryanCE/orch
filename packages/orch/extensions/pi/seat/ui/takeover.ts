@@ -13,6 +13,7 @@ import type { Component, Focusable } from "@earendil-works/pi-tui";
 import { Input, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { ALERT_STATES, formatElapsed } from "../domain.ts";
 import { transcriptLines } from "./transcript.ts";
+import { LiveRender } from "../../ui/live-render.ts";
 import type { PackReadView, PackSnapshot, TranscriptCache } from "../types.ts";
 
 const SQUARE = "■";
@@ -103,9 +104,7 @@ class PackDashboard implements Component {
   private selection: DashboardSelection;
   private done: (value: string | null) => void;
 
-  private closed = false;
-  private ticker: ReturnType<typeof setInterval>;
-  private unsubChange: () => void;
+  private readonly live: LiveRender;
 
   constructor(
     tui: TUI,
@@ -122,28 +121,19 @@ class PackDashboard implements Component {
     this.selection = selection;
     this.done = done;
     // Elapsed times, costs, and states tick along at 1Hz.
-    this.ticker = setInterval(() => this.tui.requestRender(), 1000);
-    this.unsubChange = view.subscribe(() => this.tui.requestRender());
+    this.live = new LiveRender(() => this.tui.requestRender(), view.subscribe(() => this.tui.requestRender()));
   }
 
   private agents(): readonly PackSnapshot[] {
     return this.view.list();
   }
 
-  private cleanup(): boolean {
-    if (this.closed) return false;
-    this.closed = true;
-    clearInterval(this.ticker);
-    this.unsubChange();
-    return true;
-  }
-
   private close(result: string | null): void {
-    if (this.cleanup()) this.done(result);
+    if (this.live.stop()) this.done(result);
   }
 
   dispose(): void {
-    this.cleanup();
+    this.live.stop();
   }
 
   private moveSelection(step: number, agents: readonly PackSnapshot[]): void {
@@ -258,7 +248,7 @@ class PackDashboard implements Component {
         ...(snapshot.model ? [theme.fg("muted", snapshot.model)] : []),
         ...(percent !== undefined ? [theme.fg("muted", `${Math.round(percent)}%`)] : []),
         ...(snapshot.cost !== undefined ? [theme.fg("muted", `$${snapshot.cost.toFixed(2)}`)] : []),
-        theme.fg("muted", formatElapsed(snapshot)),
+        theme.fg("muted", formatElapsed(snapshot.lastTransitionAt)),
         stateWord(snapshot, theme),
       ];
       const right = `${rightParts.join(dot)} `;
@@ -298,10 +288,8 @@ class AgentView implements Component, Focusable {
   /** Scroll offset in lines from the bottom of the transcript. 0 = pinned to bottom. */
   private scrollOffset = 0;
   private cache: TranscriptCache = { lines: [], readAt: 0, reading: false, width: 0 };
-  private unsubscribe: () => void;
   private renderTimer?: ReturnType<typeof setTimeout>;
-  private ticker: ReturnType<typeof setInterval>;
-  private closed = false;
+  private readonly live: LiveRender;
 
   private _focused = false;
   get focused(): boolean {
@@ -326,9 +314,8 @@ class AgentView implements Component, Focusable {
     this.key = key;
     this.view = view;
     this.done = done;
-    this.unsubscribe = view.subscribeTo(key, () => this.scheduleRender());
     // The session grows without transitions; poll-render at 1Hz.
-    this.ticker = setInterval(() => this.tui.requestRender(), 1000);
+    this.live = new LiveRender(() => this.tui.requestRender(), view.subscribeTo(key, () => this.scheduleRender()));
     this.input.onSubmit = (value: string) => {
       const text = value.trim();
       if (!text) return;
@@ -348,15 +335,12 @@ class AgentView implements Component, Focusable {
     // Bound repaint frequency so a chatty agent cannot starve input handling.
     this.renderTimer = setTimeout(() => {
       this.renderTimer = undefined;
-      if (!this.closed) this.tui.requestRender();
+      if (this.live.running) this.tui.requestRender();
     }, 50);
   }
 
   private cleanup(): boolean {
-    if (this.closed) return false;
-    this.closed = true;
-    this.unsubscribe();
-    clearInterval(this.ticker);
+    if (!this.live.stop()) return false;
     if (this.renderTimer) clearTimeout(this.renderTimer);
     this.renderTimer = undefined;
     return true;
@@ -430,7 +414,7 @@ class AgentView implements Component, Focusable {
     const header =
       `${stateGlyph(snapshot, theme)} ` +
       theme.fg("accent", theme.bold(snapshot.name)) +
-      theme.fg("muted", ` · ${snapshot.state} · ${formatElapsed(snapshot)}`) +
+      theme.fg("muted", ` · ${snapshot.state} · ${formatElapsed(snapshot.lastTransitionAt)}`) +
       (snapshot.model ? theme.fg("muted", ` · ${snapshot.model}`) : "") +
       (percent !== undefined ? theme.fg("muted", ` · ${Math.round(percent)}%`) : "") +
       (snapshot.cost !== undefined ? theme.fg("muted", ` · $${snapshot.cost.toFixed(2)}`) : "");

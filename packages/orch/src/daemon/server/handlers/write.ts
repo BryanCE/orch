@@ -109,8 +109,9 @@ export async function deliverWrite(state: DaemonState, agent: HereAgent, payload
     log.warn("dispatch.malformed", { target: canonicalTarget });
     return "gone";
   }
-  const { stream, text } = writeForms(directory, payload, canonicalTarget);
-  if (payload.action === "mail" && mailDelivery(directory, state.services.settings.current().mail, payload.from, agent) === "events") {
+  const watched = state.server?.watching(canonicalTarget) ?? false;
+  const { stream, text } = writeForms(directory, payload, canonicalTarget, watched);
+  if (payload.action === "mail" && mailDelivery(directory, state.services.settings.current().mail, payload.from, agent, watched) === "events") {
     return deliverToSessionStream(state, agent, payload.action, id, stream, log);
   }
   const kind = payload.action === "dispatch" ? "run" : "steer";
@@ -336,19 +337,21 @@ function senderName(directory: OrchDir, from: string): string {
 type TextWrite = Exclude<OutboxPayload, { readonly action: "answer" | "model" }>;
 
 /** A write as a stream shows it, sender apart, and as a prompt types it, sender in front. */
-function writeForms(directory: OrchDir, payload: TextWrite, target: string): { stream: SessionMail; text: string } {
+function writeForms(directory: OrchDir, payload: TextWrite, target: string, watched: boolean): { stream: SessionMail; text: string } {
   if (payload.action !== "mail") return { stream: { from: null, text: payload.text }, text: payload.text };
   return {
     stream: { from: senderName(directory, payload.from), text: payload.text },
-    text: mailHeader(directory, payload.from, target) + payload.text,
+    text: mailHeader(directory, payload.from, target, watched) + payload.text,
   };
 }
 
-/** What mail typed into a prompt opens with: who sent it, and for a leading orch, how to answer. */
-function mailHeader(directory: OrchDir, from: string, target: string): string {
+/** What mail typed into a prompt opens with: who sent it, and for a leading orch, how to answer
+ *  and, while it watches nothing, how to keep hearing replies. */
+function mailHeader(directory: OrchDir, from: string, target: string, watched: boolean): string {
   const name = senderName(directory, from);
   if (!joinsLeadingOrchs(directory, from, target)) return `[from ${name}] `;
-  return `[from orch ${name}; reply: orch message ${name} "<text>"] `;
+  const keepTalking = watched ? "" : "; to keep talking, arm orch monitor";
+  return `[from orch ${name}; reply: orch message ${name} "<text>"${keepTalking}] `;
 }
 
 export async function message(state: DaemonState, params: ParamsOf<"message">): Promise<Accepted> {

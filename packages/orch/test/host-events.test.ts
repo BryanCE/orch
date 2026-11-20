@@ -22,6 +22,7 @@ function recordingServer(published: NotifyEvent[]): RpcServer {
     emit: (event) => { published.push(event); },
     subscriberCount: () => 0,
     streamPids: () => [],
+    watching: () => false,
     attachedBridgeCount: () => 0,
     transport: "unix",
     socketPath: "",

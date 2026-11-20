@@ -14,12 +14,12 @@ target that names several orchs is refused with the list; name one.
 
 Where it lands is `mail.to_orch`:
 - prompt-unless-focused, the default: typed into the other orch's input through its plexer
-  pane or bridge, unless the user is in that pane. In that pane means the plexer reports it
-  focused on a screen now. Then it skips the input, so it never mixes with a line the user is
-  typing, and comes to that orch's `orch monitor` as a MESSAGE line.
+  pane or bridge, unless the user is in that pane and that orch has `orch monitor` open. In
+  that pane means the plexer reports it focused on a screen now. Then it skips the input, so
+  it never mixes with a line the user is typing, and comes to the monitor as a MESSAGE line.
+  With no monitor open, the input gets it, so no message waits unread.
 - prompt: always typed into the input.
 - events: always a MESSAGE line on `orch monitor`, never the input.
-Keep `orch monitor` armed while peers are on, or a MESSAGE line waits unread.
 
 Every message opens with who sent it, where it works, and the command to reply with:
 

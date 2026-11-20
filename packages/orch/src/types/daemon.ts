@@ -103,6 +103,8 @@ export interface RpcServer {
   subscriberCount(): number;
   /** The processes on this machine of the CLI streams (`orch events`, `orch monitor`) subscribed now. */
   streamPids(): number[];
+  /** Whether the agent has a CLI stream open now, so a message event sent to it is seen. */
+  watching(agentId: string): boolean;
   /** How many bridge keys currently have an attached connection. */
   attachedBridgeCount(): number;
   readonly transport: "unix" | "tcp";

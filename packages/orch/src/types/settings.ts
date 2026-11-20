@@ -23,8 +23,8 @@ export type NotifyEntry = z.infer<typeof NotifyEntrySchema>;
 export type HostSettings = z.infer<typeof HostSchema>;
 
 /** Where mail lands: `prompt` types it into the recipient's input whoever is in the pane,
- *  `prompt-unless-focused` types it in unless the human is in that pane and then publishes
- *  it instead, `events` publishes it as a `message` event on the recipient's stream and
+ *  `prompt-unless-focused` types it in unless the human is in that pane and the recipient has a
+ *  stream open, and then publishes it instead, `events` publishes it as a `message` event on the recipient's stream and
  *  leaves the input alone. */
 export const MAIL_DELIVERIES = ["prompt", "prompt-unless-focused", "events"] as const;
 
@@ -59,6 +59,7 @@ export interface OrchSettings {
   lock: { retries: number; interval_ms: number; stale_ms: number };
   questions?: { renag_ms: number; renag_limit: number };
   monitor: { on: readonly NotifyState[]; summary_chars: number };
+  monitor_tool: { batch_ms: number; max_events_per_minute: number; tail_lines: number };
   logging: { level: LogLevel; slow_tool_ms: number; stall_ms: number; stall_poll_ms: number };
   timeouts: { dispatch_ack_ms: number; wait_ms: number; adapter_command_ms: number; notify_ms: number; spawn_attach_ms: number; spawn_attach_poll_ms: number; lock_wait_ms: number; lock_poll_ms: number; reset_ready_ms: number; reset_poll_ms: number; daemon_probe_ms: number; acp_probe_ms: number; server_ready_ms: number; session_close_ms: number; abort_gap_ms: number; machine_ms: number };
   servers: { idle_ms: number; silence_ms: number; reconnect_ms: number; backfill_messages: number };

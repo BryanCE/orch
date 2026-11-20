@@ -606,7 +606,8 @@ export const RPC_PARAMS = {
   /** `stream` is the pid, on this machine, of a CLI stream (`orch events`, `orch monitor`) that
    *  `orch close --stream` ends; a subscriber that is not one leaves it out. */
   // `log` is the event log `since` was read from: a linked host's orchd sends both to resume.
-  "subscribe-events": z.object({ since: z.number().int().optional(), log: z.string().optional(), stream: z.number().int().positive().optional() }),
+  // `caller` names who watches, so orchd knows which agent has a stream open.
+  "subscribe-events": z.object({ since: z.number().int().optional(), log: z.string().optional(), stream: z.number().int().positive().optional(), caller: CALLER.optional() }),
   "environment-labels": z.object({ id: nonBlank }),
   "peer-view": z.object({
     ownKey: nonBlank,

@@ -72,10 +72,9 @@ export function formatSeatStatus(theme: Theme, agents: readonly PackSnapshot[]):
   return `${theme.fg("muted", "orch:")} ${parts.join(theme.fg("dim", " · "))}`;
 }
 
+/** pi's theme is a Proxy with only a get trap, so `"fg" in theme` is false; read the method instead. */
 export function hasTheme(ui: unknown): ui is { theme: Theme } {
-  if (typeof ui !== "object" || ui === null || !("theme" in ui)) return false;
-  const theme = ui.theme;
-  return typeof theme === "object" && theme !== null && "fg" in theme && typeof theme.fg === "function";
+  return isRecord(ui) && hasMethod(ui.theme, "fg");
 }
 
 /** Register the orchestrator seat on a pi session. */

@@ -60,6 +60,12 @@ describe("seat pure seams", () => {
     expect(hasTheme({ theme })).toBe(true);
   });
 
+  test("hasTheme accepts pi's theme, a Proxy with only a get trap", () => {
+    const real = plainTheme();
+    const proxied = new Proxy({}, { get: (_target, prop): unknown => Reflect.get(real, prop) });
+    expect(hasTheme({ theme: proxied })).toBe(true);
+  });
+
   test("countStates groups active, blocked, failed, and settled states", () => {
     expect(countStates([
       snapshot("working"),

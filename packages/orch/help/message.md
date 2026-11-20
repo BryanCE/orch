@@ -14,12 +14,9 @@ target that names several orchs is refused with the list; name one.
 
 Where it lands is `mail.to_orch`:
 - prompt-unless-focused, the default: typed into the other orch's input through its plexer
-  pane or bridge, unless the user is in that pane. In that pane means the plexer shows it now.
-  Under herdr it is the pane its workspace shows, the focused pane of the active tab; herdr
-  does not say which workspace each attached window shows, so every workspace's shown pane
-  counts. Under tmux it is the active pane of an attached session's active window. Then it
-  skips the input, so it never mixes with a line the user is typing, and comes to that orch's
-  `orch monitor` as a MESSAGE line.
+  pane or bridge, unless the user is in that pane. In that pane means the plexer reports it
+  focused on a screen now. Then it skips the input, so it never mixes with a line the user is
+  typing, and comes to that orch's `orch monitor` as a MESSAGE line.
 - prompt: always typed into the input.
 - events: always a MESSAGE line on `orch monitor`, never the input.
 Keep `orch monitor` armed while peers are on, or a MESSAGE line waits unread.

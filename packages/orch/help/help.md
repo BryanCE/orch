@@ -10,8 +10,9 @@ Name the one you mean by its key, then `orch rename` one of them.
 Words orch uses:
 - agent: one coding session orch drives. An orchestrator is an agent too.
 - target: how a command names an agent: its name, its identity key, or a unique handle suffix.
-- harness: the coding tool an agent runs in: pi, omp, claude, or codex.
-- plexer: the terminal multiplexer that shows agents: herdr, tmux, orca, or headless.
+- harness: the coding tool an agent runs in. `orch spawn -h` lists the ids under `--harness`.
+- plexer: what holds an agent's process: a terminal multiplexer, orchd, or nothing.
+  `orch spawn -h` lists the ids under `--plexer`.
 - pane: one agent's area on screen.
 - tab: a group of panes in the plexer, named by id or label.
 - space: orch's grouping of related work. Commands reach agents in your own space.

@@ -121,7 +121,7 @@ function prepareTaskDispatch(options: WorkOptions, entry: PresenceEntry, task: T
   return { prompt, dispatchId, log };
 }
 
-function reportTaskDelivery(options: WorkOptions, entry: PresenceEntry, task: TaskRec, status: string | null, retried: boolean, ackMs: number, orchDir: OrchDir): void {
+function reportTaskDelivery(options: WorkOptions, entry: PresenceEntry, task: TaskRec, status: string | null, retried: boolean, orchDir: OrchDir): void {
   writeDelivery({
     target: entry.key,
     name: displayName(agentView(orchDir, entry.key)?.name, entry.key),
@@ -130,7 +130,6 @@ function reportTaskDelivery(options: WorkOptions, entry: PresenceEntry, task: Ta
     ack: status === "working" ? "acknowledged" : "unavailable",
   }, {
     json: options.json === true,
-    ackMs,
     suffix: ` ${ARROW} status: ${status ?? "unknown"}${retried ? " (retried)" : ""}`,
   });
 }
@@ -156,7 +155,7 @@ async function dispatchTask(options: WorkOptions, entry: PresenceEntry, task: Ta
       await sendPrompt();
       status = await waitForWorking(options, entry, task, dispatchAckTimeoutMs);
     }
-    reportTaskDelivery(options, entry, task, status, retried, dispatchAckTimeoutMs, orchDir);
+    reportTaskDelivery(options, entry, task, status, retried, orchDir);
   } catch (error) {
     log.error("dispatch.failed", { target: entry.key, error: errorMessage(error) });
   }

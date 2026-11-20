@@ -1,5 +1,5 @@
 // What a person sees of the monitor tool, laid out as Claude Code lays out its own monitors:
-// a footer item counting the running watches, ↓ from an empty editor to select it, and a panel
+// an item under the editor counting the running watches, ↓ from an empty editor to select it, and a panel
 // in place of the editor that lists the watches and shows one's status, script and output.
 // Each event also shows in the transcript as one compact line.
 import type { ExtensionUIContext, Theme } from "@earendil-works/pi-coding-agent";
@@ -14,10 +14,10 @@ import type { Watches } from "./watches.ts";
 type TUI = Parameters<Parameters<ExtensionUIContext["custom"]>[0]>[0];
 
 /** The UI surface the monitor's views need from the harness. */
-export type MonitorUi = Pick<ExtensionUIContext, "setStatus" | "onTerminalInput" | "getEditorText" | "custom" | "notify" | "theme">;
+export type MonitorUi = Pick<ExtensionUIContext, "setWidget" | "onTerminalInput" | "getEditorText" | "custom" | "notify" | "theme">;
 
 export const MONITOR_MESSAGE = "monitor";
-const STATUS_ID = "monitor";
+const WIDGET_ID = "monitor";
 const RUNNING = "◉";
 const ENDED = "○";
 /** Rows of the panel that are not the output box: title, kind, facts, labels, hints. */
@@ -27,7 +27,7 @@ const LABEL_WIDTH = 10;
 
 export function isMonitorUi(ui: unknown): ui is MonitorUi {
   if (!hasTheme(ui)) return false;
-  return ["setStatus", "onTerminalInput", "getEditorText", "custom", "notify"].every((name) => typeof Reflect.get(ui, name) === "function");
+  return ["setWidget", "onTerminalInput", "getEditorText", "custom", "notify"].every((name) => typeof Reflect.get(ui, name) === "function");
 }
 
 /** How a watch ended, in words the agent and the panel both read. */
@@ -70,10 +70,11 @@ export function monitorMessageComponent(content: string, expanded: boolean, outp
 }
 
 /**
- * The footer item: `◉ 2 monitors · ↓ to manage` while any watch runs. ↓ from an empty editor
- * selects it; enter or space opens the panel; escape, ↑ or any other key lets go of it.
+ * The item under the editor: `◉ 2 monitors · ↓ to manage` while any watch runs. ↓ from an empty
+ * editor selects it; enter or space opens the panel; escape, ↑ or any other key lets go of it.
+ * It is a widget, not a footer status, so a custom footer cannot hide it.
  */
-export function attachMonitorFooter(ui: MonitorUi, watches: Watches): () => void {
+export function attachMonitorItem(ui: MonitorUi, watches: Watches): () => void {
   let selected = false;
   let panelOpen = false;
 
@@ -82,11 +83,10 @@ export function attachMonitorFooter(ui: MonitorUi, watches: Watches): () => void
     if (running === 0) selected = false;
     const label = plural(running, "monitor");
     const theme = ui.theme;
-    ui.setStatus(STATUS_ID, running === 0
-      ? undefined
-      : selected
-        ? `${theme.inverse(` ${label} `)}${theme.fg("dim", " · enter to view · esc to cancel")}`
-        : `${theme.fg("accent", RUNNING)} ${label}${theme.fg("dim", " · ↓ to manage")}`);
+    const line = selected
+      ? `${theme.inverse(` ${label} `)}${theme.fg("dim", " · enter to view · esc to cancel")}`
+      : `${theme.fg("accent", RUNNING)} ${label}${theme.fg("dim", " · ↓ to manage")}`;
+    ui.setWidget(WIDGET_ID, running === 0 ? undefined : [line], { placement: "belowEditor" });
   };
 
   const release = (): void => {
@@ -117,7 +117,7 @@ export function attachMonitorFooter(ui: MonitorUi, watches: Watches): () => void
   return () => {
     stopInput();
     unsubscribe();
-    ui.setStatus(STATUS_ID, undefined);
+    ui.setWidget(WIDGET_ID, undefined);
   };
 }
 

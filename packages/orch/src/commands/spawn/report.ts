@@ -161,10 +161,7 @@ async function dispatchSpawnPrompts(services: Pick<Services, "orchDir" | "settin
         context: { maySpawn, cwd: agent.cwd, ...(agent.branch === null ? {} : { worktreeBranch: agent.branch }), spawnerRepliable: self.id !== null, ...workerRules(settingsFile) },
       });
       dispatches.push({ name: agent.name, key: agent.key, id, ack });
-      if (!request.json) writeDelivery({ target: agent.key, name: agent.name, action: "dispatch", id, ack }, {
-        json: false,
-        ackMs: settingsFile.timeouts.dispatch_ack_ms,
-      });
+      if (!request.json) writeDelivery({ target: agent.key, name: agent.name, action: "dispatch", id, ack }, { json: false });
     } catch (error: unknown) {
       const message = errorMessage(error);
       spawnLogger(logger, agent.key).error("spawn.dispatch-failed", { name: agent.name, error: message });

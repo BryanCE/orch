@@ -74,6 +74,5 @@ export async function cmdMessage(services: Services, args: string[]): Promise<vo
   const from = await callerId(services);
   const orch = onlyOrch(await readOrchs(services), target);
   const sent = await writeRpc(services, "message", { from, target: orch.id, text });
-  const ackMs = services.settings.current().timeouts.dispatch_ack_ms;
-  writeDelivery({ target: orch.id, name: orch.name, action: "message", id: sent.id, ack: sent.ack }, { json, ackMs });
+  writeDelivery({ target: orch.id, name: orch.name, action: "message", id: sent.id, ack: sent.ack }, { json });
 }

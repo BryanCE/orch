@@ -10,12 +10,12 @@ export interface Delivery {
   readonly ack: "acknowledged" | "unavailable";
 }
 
-export function deliveryLine(delivery: Delivery, ackMs: number, suffix = ""): string {
+export function deliveryLine(delivery: Delivery, suffix = ""): string {
   if (delivery.ack === "acknowledged") return `Delivered to ${delivery.name} (${delivery.action} ${delivery.id})${suffix}`;
-  return `Queued for ${delivery.name} (${delivery.action} ${delivery.id}): no ack within ${ackMs}ms${suffix}`;
+  return `Queued for ${delivery.name} (${delivery.action} ${delivery.id}): orchd delivers it when ${delivery.name} takes input; nothing to do${suffix}`;
 }
 
-export function writeDelivery(delivery: Delivery, options: { json: boolean; ackMs: number; suffix?: string }): void {
+export function writeDelivery(delivery: Delivery, options: { json: boolean; suffix?: string }): void {
   if (options.json) {
     const record: JsonRecord = {
       target: delivery.target,
@@ -27,5 +27,5 @@ export function writeDelivery(delivery: Delivery, options: { json: boolean; ackM
     process.stdout.write(`${JSON.stringify(record)}\n`);
     return;
   }
-  process.stdout.write(`${deliveryLine(delivery, options.ackMs, options.suffix)}\n`);
+  process.stdout.write(`${deliveryLine(delivery, options.suffix)}\n`);
 }

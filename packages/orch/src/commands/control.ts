@@ -88,7 +88,7 @@ export async function cmdSteer(services: Services, args: string[]): Promise<void
   const { json, gov, target, text } = command;
   const resolved = await resolveDriveTarget(services, self, target, gov);
   const result = await writeRpc(services, "steer", { target: resolved.entity.key, text }, gov);
-  reportDelivery(services, result, { target: resolved.entity.key, name: targetName(resolved), action: "steer" }, { json, suffix: ` ${ARROW} ${truncate(collapse(text), 60)}` });
+  reportDelivery(result, { target: resolved.entity.key, name: targetName(resolved), action: "steer" }, { json, suffix: ` ${ARROW} ${truncate(collapse(text), 60)}` });
 }
 
 export function pipedText(sourceName: string, instruction: string, result: string): string {
@@ -102,8 +102,8 @@ function deliveryResult(result: unknown, identity: Pick<Delivery, "target" | "na
   return { ...identity, id: result.id, ack: result.ack };
 }
 
-function reportDelivery(services: Pick<Services, "settings">, result: unknown, identity: Pick<Delivery, "target" | "name" | "action">, options: { json: boolean; suffix?: string }): void {
-  writeDelivery(deliveryResult(result, identity), { ...options, ackMs: services.settings.current().timeouts.dispatch_ack_ms });
+function reportDelivery(result: unknown, identity: Pick<Delivery, "target" | "name" | "action">, options: { json: boolean; suffix?: string }): void {
+  writeDelivery(deliveryResult(result, identity), options);
 }
 
 export async function cmdBroadcast(services: Services, args: string[]) {
@@ -162,7 +162,7 @@ function reportBroadcast(services: Services, outcomes: readonly BroadcastOutcome
   for (const outcome of outcomes) {
     const name = nameOf(outcome.key);
     if (outcome.kind === "delivered") {
-      reportDelivery(services, outcome.result, { target: outcome.key, name, action: "broadcast" }, { json });
+      reportDelivery(outcome.result, { target: outcome.key, name, action: "broadcast" }, { json });
       continue;
     }
     const log = services.logger.forAgent(outcome.key);
@@ -194,7 +194,7 @@ export async function cmdPipe(services: Services, args: string[]) {
   const sourceName = targetName(resolvedSource);
   const text = pipedText(sourceName, instruction, resultTextValue);
   const result = await writeRpc(services, "steer", { target: destinationKey, text });
-  reportDelivery(services, result, { target: destinationKey, name: targetName(resolvedDestination), action: "pipe" }, { json, suffix: ` from ${sourceName}` });
+  reportDelivery(result, { target: destinationKey, name: targetName(resolvedDestination), action: "pipe" }, { json, suffix: ` from ${sourceName}` });
 }
 
 export async function cmdAnswer(services: Services, args: string[]): Promise<void> {
@@ -205,7 +205,7 @@ export async function cmdAnswer(services: Services, args: string[]): Promise<voi
   // The daemon's control dispatcher applies the answer (wall + ownership + capabilities.ask gate);
   // the CLI never invokes the adapter's answer strategy directly.
   const result = await writeRpc(services, "answer", { target: resolved.entity.key, text }, gov);
-  reportDelivery(services, result, { target: resolved.entity.key, name: targetName(resolved), action: "answer" }, { json });
+  reportDelivery(result, { target: resolved.entity.key, name: targetName(resolved), action: "answer" }, { json });
 }
 
 export async function cmdModel(services: Services, args: string[]): Promise<void> {
@@ -346,7 +346,7 @@ export async function cmdDispatch(services: Services, args: string[]) {
   if (dispatchSettings.view === null) await recordAdoptedAgent(services, self, key, dispatchSettings, { model, thinking });
   // The id names this dispatch in `orch status` (.dispatchId): matching the two
   // proves the agent runs the prompt this command sent, not some other delivery.
-  reportDelivery(services, result, { target: key, name: effectiveName, action: "dispatch" }, { json: dispatchSettings.json });
+  reportDelivery(result, { target: key, name: effectiveName, action: "dispatch" }, { json: dispatchSettings.json });
 }
 
 /** The dispatch spec's flags as the resolvers read them. Exported for tests. */

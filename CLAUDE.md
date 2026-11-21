@@ -5,9 +5,9 @@ Main orch code and CLI commands never depend on a specific plexer or harness. Th
 
 Layout: the repo root is a private bun workspace. The orch package (`@bryance/orch`) is `packages/orch/`, holding `src/`, `test/`, `bin/`, `extensions/`, `scripts/`, `skills/`, `drizzle/`. The web UI is `packages/web/`. Relative paths in the rules below are inside `packages/orch/` unless they start with `packages/`.
 
-Root scripts: every verb runs from the root and delegates through `bun --filter`. A bare verb covers the whole workspace (`bun check`, `bun run build`). `:orch` or `:web` scopes it to one package (`bun run check:web`, `bun run build:orch:dev`). Verbs with no counterpart in the other package (`db:*`, `reset`, `reinstall`, `fallow:*`) stay unsuffixed. A package owns its own verbs. The root only fans out, one explicit entry per package, so a missing script fails loudly instead of matching nothing.
+A rule that names a file under `docs/rules/` continues in that file, and the file binds like the rule. Read it before the work the rule names.
 
-Never call a bare `orch` from a package.json script. The workspace links `node_modules/.bin/orch` to the repo-local `packages/orch/dist/bin/orch.js`, which shadows the installed CLI inside every `bun run`. The repo build's `packageRoot()` then points harness shims and shebangs at the checkout instead of `~/.local/lib/node_modules/@bryance/orch`. Scripts resolve `ORCH=$(npm prefix -g)/bin/orch` and invoke that.
+Scripts: every verb runs from the root. A bare verb covers the whole workspace (`bun check`), and `:orch` or `:web` scopes it to one package (`bun run check:web`). Read `docs/rules/scripts.md` before adding or editing a `package.json` script.
 
 # RULE #1. NEVER BUILD. NEVER MIGRATE. NEVER GENERATE. NEVER RELOAD. ASK BRYAN.
 User-only, no exceptions, not through a worker or subagent or orch verb, not "just to test":
@@ -56,31 +56,14 @@ Nothing has published. There is exactly one current shape for every record, conf
 
 # RULE 9. THE HARNESS x PLEXER ARCHITECTURE IS BINDING.
 `learnings/2026-07-16-harness-plexer-architecture.md` is law. Hexagonal ports, then Bridge, then per-tool Adapter, then capability-negotiated Strategy, then Provider factory, then one control dispatcher, then static enforcement. No pair code. Wire formats live in exactly one adapter. Branch on caps, never on adapter or backend id. All control traffic goes through the one dispatcher. Composition lives in `$ORCH_DIR/settings.json`, JSON, never TOML. Doctor verifies declared against reality. Read `learnings/` before touching adapters, backends, daemon, or setup. Deviating gets you fired.
-- The axes, each varying on its own. A harness is the agent program. A backend is what holds the agent's process and its stdio: a plexer's pane, orchd itself (`held`), or nothing (`headless`). "Backend" in code and settings and "plexer" in the CLI and the store name that one slot. A form is one way a harness runs: `tui` needs a terminal, `acp` needs pipes, `oneshot` needs nothing. A backend states the stdio it offers, and spawn and restart match form to backend on that alone.
-- A protocol several harnesses speak, like ACP, is not a harness, not a backend and not a plexer. Its wire format lives in one module of its own (`src/acp/`). What one harness's binding needs (argv, env, session sharing) lives on that harness's adapter as a nullable role.
-- A channel is a live link orchd drives an agent through: keys, a bridge, an ACP session. The dispatcher picks one per action from what the agent's form declares. A channel is never stored.
-- Adding a form, a protocol or a channel edits no command, no renderer and no policy.
+Read `docs/rules/harness-plexer.md` before adding or changing a harness, backend, form, protocol or channel. It defines each one.
 
 # RULE 10. PER-HARNESS CODE LIVES IN `extensions/<harness>/`.
 `extensions/pi/`, `extensions/claude/`, `extensions/codex/`. Never a generic name (`bridge`, `shim`), never in `scripts/`. `scripts/` is build tooling.
-- Harness is not backend. Code gated on a plexer (`backend === "herdr"`, `HERDR_SOCKET_PATH`, tmux panes) goes in `src/backends/<plexer>/`, never `extensions/`.
-- A protocol is neither. Code that speaks a protocol several harnesses share goes in `src/<protocol>/` (`src/acp/`), never `extensions/`, never `src/backends/`, never an adapter. `scripts/check-bridge.ts` fails on its method names or its SDK import anywhere else.
-- The presence protocol is orch's, and it is the daemon socket. A harness reports state, results, and control outcomes over RPC (`report-status`, `report-result`, `control-outcome`) and never touches `$ORCH_DIR/agents/`. orchd owns that directory and appends `status.jsonl`, `results.jsonl`, `outcomes.jsonl` there as history. Nothing reads those files to make a decision. `rm -rf $ORCH_DIR/agents/*` loses history and nothing else. The one history appender lives in `src/presence/`.
-- Bundle output names are decoupled from source dirs in `src/bridge-bundles/metadata.ts`. Renaming a source dir must not rename a shipped artifact. The `build:*` scripts in `packages/orch/package.json` are the only bundler; runtime `src/**` never bundles.
-- `scripts/check-bridge.ts` enforces this. Its `extensions` scan must stay recursive or it scans nothing and passes.
+Read `docs/rules/harness-plexer.md` before editing `extensions/`, `src/backends/`, `src/acp/`, `src/presence/`, `src/bridge-bundles/` or a `build:*` script. It says where plexer-gated code and protocol code go, how a harness reports presence, how bundles are named, and what `scripts/check-bridge.ts` enforces.
 
 # RULE 11. ORCH OWNS EVERY AGENT. AN ORCHESTRATOR IS AN AGENT. ENVIRONMENT IS NEVER IDENTITY.
-The agent model below is law, same standing as Rule 9. It binds identity, keys, registration, spawn, ownership, environment, reaping, and the backend port. The code is the documentation. A job in flight keeps its plan, findings and task list in one directory at the repo root named for the job (`acp/`), and the directory goes when the job lands. `learnings/` holds outside research only, never plans, never task lists.
-- One entity. Orchestrator, worker, and a Claude session driving orch are all agents. No second id space, no second liveness mechanism.
-- Five facts, never welded. Identity is a minted id and nothing else. Provenance is who spawned it, immutable. Ownership is a lease. Environment is where it is (host, cwd, repo, worktree, branch, space, plexer, handle, OS side), mutable. Program is what it runs (harness, form, model, thinking), mutable. No lifetime column, and no fact that welds two of these together.
-- A change of form is the same agent. A restart from `tui` to `acp` or back closes one `agent_forms` row and opens the next, and keeps the id, the lease and the conversation. This applies to form only.
-- Everything has an environment. orch's grouping is a space. "Workspace" is a plexer's word and never appears in orch's model, CLI, or UI.
-- Never encode environment into identity. No `<backend>~<workspace>~<handle>` key. `"local"` is a missing value with a name. `wF` is herdr's id. Both become columns.
-- Delivery and read are orch's mechanism, over the daemon socket. A pane is a shortcut. An outbox row pushed down the agent's link (a bridge, an ACP session) and acked back needs no screen.
-- Branch on declared capabilities, never on an environment id. Adding an environment edits zero renderers, commands, or policy.
-- Ownership is mutual exclusion, not authorization. `dispatch`, `steer`, `model`, `reset` are gated against a live foreign holder. `abort`, `close`, `reap` are never gated. The human can always kill.
-- Work survives its spawner. No lifetime, no `--detached`, no fate-sharing, no grace timer. `detach` means release the lease.
-- Normalize. No wide agent row. Instants are INTEGER epoch millis. Prefer a nullable instant over a boolean. `NULL` means not applicable, never a sentinel string.
+The agent model in `docs/rules/agent-model.md` is law, same standing as Rule 9. It binds identity, keys, registration, spawn, ownership, environment, reaping, and the backend port. Read it before touching any of them or an agent table in `src/db/schema.ts`. The code is the documentation. A job in flight keeps its plan, findings and task list in one directory at the repo root named for the job (`acp/`), and the directory goes when the job lands. `learnings/` holds outside research only, never plans, never task lists.
 
 # RULE 12. PUBLISHING IS USER-ONLY. NEVER WRITE INTO THE INSTALLED TREE.
 Only Bryan's `bun run build:orch:dev` writes to `~/.local/lib/node_modules/@bryance/orch/`, `~/.pi/agent/extensions/`, or any global location. Not `bun build --outfile`, not `npm install -g`, not a symlink, not an orch verb, not a worker, not "just to test". Builds go to `dist/` or a temp dir and stop.
@@ -105,12 +88,7 @@ State, control, results, and liveness travel over the daemon socket and live in 
 
 # RULE 19. `--all` AND WHO MAY TOUCH WHAT IS DECIDED. THE CODE IS THE RULING. NEVER ASK BRYAN AGAIN.
 Asking this question again is a firing offence. Read `src/policy/close-authority.ts`, `src/policy/caller.ts`, `src/policy/orphan.ts`, `src/identity/self.ts`, and `src/commands/target.ts`. They are the ruling. A test that disagrees with them is the test being wrong.
-- Who the caller is: `selfIdentity()`. A spawned agent is the id in its launch credential. A harness session is the row `register-session` minted for its session token. A raw terminal is the row registered for its parent process. Every command that dials orchd registers its caller first (`registerCaller`, gated by `REGISTRATION_EXEMPT` in `src/commands/index.ts`). There is no env var that names an owner. `ORCH_OWNER` is gone and never comes back.
-- Every caller is an agent in one tree. Provenance is who started it: a spawn's spawner, or the nearest ancestor process with a row for a harness session (the terminal it was typed into). Whoever started an agent holds its lease. A terminal, or a harness started outside one, is a root.
-- Kill verbs (`close`, `abort`, `reap`) are never gated by a lease. The human is the operator: a raw terminal, with no harness marker and no launch credential (`callerKindOf`), registered or not. `close --all` from any caller, the human included, sweeps only the caller's own tree: what it spawned at any depth and what it adopted, never itself (`sweeps`). A named close from the human is never refused. A named target outside an agent's tree is refused, and the refusal names the owner.
-- An orphan has a spawner and no live holder (`isOrphan`). A root is never one. Bare `orch adopt` lists orphans; `orch adopt <name>...` and `--all` take only orphans, or one named agent with `--steal`.
-- Drive verbs (`dispatch`, `steer`, `model`, `reset`, `reload`, `restart`, `broadcast`) are gated on a live foreign holder. `--all` on a drive verb is every agent the caller holds an OPEN lease on (`ownedAgentKeys`) and is operator-only (`forbidNonOperatorOverride`): a spawned agent or a harness session is refused. A raw terminal holds nothing until it spawns or adopts.
-- Tests make the runner an operator with `seedOperator()` (`test/helpers/agent.ts`): it registers the runner's parent process the way `register-session` does. A fixture's holder is seeded with `seedOrch()` before it holds. Never through an env var.
+Read `docs/rules/authority.md` before touching `--all`, a kill verb, a drive verb, `adopt`, caller identity or registration, or a test that needs an operator or a holder. It states the ruling in words.
 
 # RULE 20. AN AGENT'S LOGS ARE READ THROUGH ORCH, FROM ANY HOST, AND SAY WHICH HOST.
 An agent's output stays on the host its process runs on. orch never copies it and never asks anyone to log in there to read it.
@@ -122,10 +100,6 @@ An agent's output stays on the host its process runs on. orch never copies it an
 
 # RULE 21. THE CLI IS A CLIENT. ORCHD DOES THE WORK.
 The CLI talks to this machine's orchd and nothing else. Everything that touches an agent, a plexer, a process, the store or an agent's files is server code, and it runs in orchd. An agent can run on any host, so the CLI never knows where an agent is and never acts on one itself: every agent verb and read is CLI → this orchd → the orchd where the agent runs.
-- Client: the CLI (`src/commands/`, `src/cli/`, `bin/orch.ts`), the web UI (`packages/web/src/`), and the harness bridge (`extensions/`, the bridge code in `src/agent/`). A client parses or collects input, calls orchd over RPC, and shows the answer.
-- Server: `src/daemon/server/`, `src/store/`, `src/presence/`, `src/backends/`, `src/adapters/`, `src/control/`, `src/pty/`, `src/hosts/`, `src/worktrees/`, `src/entities/`, process identity and placement, and `node:child_process`. Only orchd imports it. The exact list is `SERVER` in `scripts/check-layers.ts`.
-- Shared: types, the wire protocol (`src/daemon/client/`), settings, and pure helpers with no I/O. Shared never imports server code.
-- Inside orchd, an agent's machine-specific state (process, PTY, pane, session file, log, worktree, delivery) is reached only through its placement. Code that has not proved the agent runs here cannot touch it.
-- Location is never implied. Every agent's host is stored, this machine included. No null, no missing row and no default means "here".
+- Read `docs/rules/layers.md` before adding a module, importing across `src/` directories, or reaching an agent's process, pane, log or worktree. It lists which directories are client, server and shared, and how placement and location work.
 - `scripts/check-layers.ts` enforces the import boundary in `bun check`, transitively, for value imports. A failure there is the design telling you the code belongs in orchd. Move it behind an RPC. Never add an exception to get past it.
 - `packages/orch/layers-baseline.json` lists the loads that existed when this rule landed. It only shrinks. Never add a line to it. When you remove a load, delete its line. When it is empty, the three layers become three workspace packages and a client import of server code stops resolving.

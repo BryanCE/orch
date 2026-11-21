@@ -6,6 +6,7 @@ import type { OutboxPayload } from "../shared/bridge-message.ts";
 import type { CallerKind, ThinkingLevel } from "./policy.ts";
 import type { AgentOrigin, HostId, HostIdentity } from "./host.ts";
 import type { FormId } from "./form.ts";
+import type { ReadOnly } from "../policy/read-only.ts";
 
 export interface AgentInput {
   id: string;
@@ -267,6 +268,8 @@ export interface SpawnRegistration {
    */
   owner?: string;
   worktree?: AgentWorktree;
+  /** Set for an agent launched read-only, with its output directory. */
+  readOnly?: ReadOnly;
   /**
    * Environment: the OS process this agent runs in, on the host it runs on. That host is
    * the agent's host: orchd registers only an agent that runs on its own host.

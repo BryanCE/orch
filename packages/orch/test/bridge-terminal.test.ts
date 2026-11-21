@@ -122,7 +122,7 @@ describe("bridge terminal turn seam", () => {
       identity: PI_IDENTITY,
       notify: () => undefined,
       refreshLabels: () => Promise.resolve(),
-      writeRoot: null,
+      readOnly: null,
     }, testServices({ orchDir: root, settings: null }).settings);
     const ctx = harnessContext();
     harness.fire("session_start", {}, ctx);

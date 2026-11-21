@@ -331,41 +331,45 @@ describe("commands/spawn", () => {
     expect(ompAdapter.headlessCmd("go", {})[0]).toBe("omp");
     expect(workerPrompt("hello", true, undefined)).toBe("hello");
   });
-});
 
-describe("--write-root", () => {
-  const settingsFor = (dir: OrchDir) => testServices({
-    orchDir: dir,
-    settings: { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless", models: { pi: "openrouter/openai/gpt-5.6-luna" } } },
-  }).settings.current();
+  describe("--read-only and --out", () => {
+    const readOnlyOf = (args: string[], dir: OrchDir): unknown[] => resolveSpawnSettings(parseSpawnFlags(args), settingsFor(dir)).params.agents.map((agent) => agent.readOnly);
 
-  test("defaults to null", () => {
-    const dir = tempOrchDir("orch-spawn-write-root-");
-    tempDirs.push(dir);
-    expect(resolveSpawnSettings(parseSpawnFlags(["a", "b"]), settingsFor(dir)).params.agents.map((agent) => agent.writeRoot)).toEqual([null, null]);
-  });
+    test("an ordinary spawn asks for no read-only agent", () => {
+      const dir = tempOrchDir("orch-spawn-read-only-");
+      tempDirs.push(dir);
+      expect(readOnlyOf(["a", "b"], dir)).toEqual([null, null]);
+    });
 
-  test("resolves a name token against --dir", () => {
-    const dir = tempOrchDir("orch-spawn-write-root-");
-    tempDirs.push(dir);
-    expect(resolveSpawnSettings(parseSpawnFlags(["a", "b", "--dir", "/repo", "--write-root", "out/{name}"]), settingsFor(dir)).params.agents.map((agent) => agent.writeRoot)).toEqual(["/repo/out/a", "/repo/out/b"]);
-  });
+    test("--read-only alone gives each agent no output directory", () => {
+      const dir = tempOrchDir("orch-spawn-read-only-");
+      tempDirs.push(dir);
+      expect(readOnlyOf(["a", "b", "--read-only"], dir)).toEqual([{ out: null }, { out: null }]);
+    });
 
-  test("resolves roots per agent", () => {
-    const dir = tempOrchDir("orch-spawn-write-root-");
-    tempDirs.push(dir);
-    expect(resolveSpawnSettings(parseSpawnFlags(["a", "b", "--dir", "/repo", "--write-root", "/x/one", "--write-root", "two"]), settingsFor(dir)).params.agents.map((agent) => agent.writeRoot)).toEqual(["/x/one", "/repo/two"]);
-  });
+    test("--out is one directory for all, or one per name, taken from --dir", () => {
+      const dir = tempOrchDir("orch-spawn-read-only-");
+      tempDirs.push(dir);
+      expect(readOnlyOf(["a", "b", "--read-only", "--dir", "/repo", "--out", "findings"], dir)).toEqual([{ out: "/repo/findings" }, { out: "/repo/findings" }]);
+      expect(readOnlyOf(["a", "b", "--read-only", "--dir", "/repo", "--out", "/x/one", "--out", "two"], dir)).toEqual([{ out: "/x/one" }, { out: "/repo/two" }]);
+    });
 
-  test("refuses an incorrect number of roots", () => {
-    const dir = tempOrchDir("orch-spawn-write-root-");
-    tempDirs.push(dir);
-    expect(() => resolveSpawnSettings(parseSpawnFlags(["a", "b", "c", "--write-root", "x", "--write-root", "y"]), settingsFor(dir))).toThrow(/--write-root accepts one value for all agents or exactly 3 values/);
-  });
+    test("--out without --read-only, a wrong count, and --cmd are refused", () => {
+      const dir = tempOrchDir("orch-spawn-read-only-");
+      tempDirs.push(dir);
+      expect(() => readOnlyOf(["a", "--out", "x"], dir)).toThrow(/--out names where a read-only agent may write; add --read-only/);
+      expect(() => readOnlyOf(["a", "b", "c", "--read-only", "--out", "x", "--out", "y"], dir)).toThrow(/--out accepts one value for all agents or exactly 3 values/);
+      expect(() => readOnlyOf(["a", "--read-only", "--cmd", "pi"], dir)).toThrow(/--read-only is held by the harness's own launch/);
+    });
 
-  test("refuses --cmd with a write root", () => {
-    const dir = tempOrchDir("orch-spawn-write-root-");
-    tempDirs.push(dir);
-    expect(() => resolveSpawnSettings(parseSpawnFlags(["a", "--write-root", "x", "--cmd", "pi"]), settingsFor(dir))).toThrow(/--write-root confines the harness's own launch/);
+    test("a read-only agent is planned under a policy of its own", () => {
+      const dir = tempOrchDir("orch-spawn-read-only-");
+      tempDirs.push(dir);
+      const plan = planned(parseSpawnFlags(["a", "b", "--harness", "pi", "--read-only", "--dir", "/repo", "--out", "out/a", "--out", "out/b"]), settingsFor(dir));
+      expect(plan.agents.map((agent) => agent.workers.readOnly)).toEqual([{ out: "/repo/out/a" }, { out: "/repo/out/b" }]);
+      expect(plan.agents[0]?.workers.allowTools).toEqual(["read", "grep", "find", "ls", "edit", "write", "orch_ask"]);
+      expect(planned(parseSpawnFlags(["a", "--harness", "pi", "--read-only"]), settingsFor(dir)).agents[0]?.workers.allowTools).toEqual(["read", "grep", "find", "ls", "orch_ask"]);
+      expect(planned(parseSpawnFlags(["a", "--harness", "pi"]), settingsFor(dir)).agents[0]?.workers.readOnly).toBeNull();
+    });
   });
 });

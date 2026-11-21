@@ -10,10 +10,9 @@ import { agentStateFrom } from "../agent-state.ts";
 import { NO_COMPACTION, type AgentState } from "../shared/harness.ts";
 import { HARNESS_SESSION_ENV } from "../shared/session-env.ts";
 import { everywhere } from "../shared/prerequisites.ts";
-import type { AdapterCommand, AdapterId, AgentAdapter, BridgeRole, CompactionLaunch, HarnessModel, LifecycleVerb, ModelCatalogue, ModelRequest, Prerequisite, QuicklistForm, ResultExtractionInput, SessionView, SessionViewEntry, SessionViewInput, ShimInstallOpts, SpawnOpts, StateDetectionInput, SteerRequest, ThinkingStrategy } from "../types/adapter.ts";
+import type { AdapterCommand, AdapterId, AgentAdapter, BridgeRole, CompactionLaunch, HarnessModel, LifecycleVerb, ModelCatalogue, ModelRequest, Prerequisite, QuicklistForm, ReadOnlyRole, ResultExtractionInput, SessionView, SessionViewEntry, SessionViewInput, ShimInstallOpts, SpawnOpts, StateDetectionInput, SteerRequest, ThinkingStrategy } from "../types/adapter.ts";
 import type { ThinkingLevel, WorkerPolicy } from "../types/policy.ts";
 import { PI_TOOLS } from "../../extensions/pi/vocabulary.ts";
-import type { ToolVocabulary } from "../policy/write-root.ts";
 import type { OrchSettings } from "../types/settings.ts";
 import type { CheckResult, FixDescriptor } from "../types/doctor.ts";
 import type { ExtensionName, Logger, OrchDir, SessionEntry, ToolCallContentBlock } from "../types/core.ts";
@@ -372,7 +371,7 @@ export abstract class PiBridgeAdapter {
   };
   readonly settingsFile = null;
   readonly commandGate = true;
-  abstract readonly toolVocabulary: ToolVocabulary;
+  abstract readonly readOnly: ReadOnlyRole;
 
   /** The presence state the bridge last wrote for this agent. */
   detectState(input: PiStateDetectionInput, orchDir: OrchDir): AgentState {
@@ -409,7 +408,7 @@ export abstract class PiBridgeAdapter {
 export class PiAdapter extends PiBridgeAdapter implements AgentAdapter {
   protected readonly resumeFlag = "--session";
   readonly id = "pi" as const;
-  readonly toolVocabulary = PI_TOOLS;
+  readonly readOnly = { tools: PI_TOOLS };
   readonly install: Prerequisite = { install: everywhere("bun add -g @earendil-works/pi-coding-agent"), needs: ["bun"], signIn: "pi auth" };
   readonly preferredForm = null;
   readonly skillsDir = null;

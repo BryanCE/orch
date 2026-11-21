@@ -6,7 +6,7 @@
 import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { setImmediate } from "node:timers";
-import { OUTCOMES_FILE, RESULTS_FILE, STATUS_LOG_FILE } from "./schema.ts";
+import { OUTCOMES_FILE, RESULTS_FILE, SCORES_FILE, STATUS_LOG_FILE } from "./schema.ts";
 import type { PresenceRecord } from "../types/presence.ts";
 import type { OrchDir } from "../types/core.ts";
 
@@ -89,3 +89,7 @@ export function appendStatusHistory(key: string, root: OrchDir, record: Presence
   queuePresenceLine(key, root, STATUS_LOG_FILE, record);
 }
 
+/** Append one council review orchd scored for the agent. */
+export function appendScore(key: string, root: OrchDir, score: PresenceRecord): void {
+  queuePresenceLine(key, root, SCORES_FILE, score);
+}

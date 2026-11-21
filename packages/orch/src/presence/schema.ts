@@ -21,3 +21,6 @@ export const RESULTS_FILE = "results.jsonl";
 /** Agent-appended outcome of each control command (model/thinking), one line
  * each. History for a human; the live reply travels over the daemon. */
 export const OUTCOMES_FILE = "outcomes.jsonl";
+/** orchd-appended council scores, one line per review it scored. History for a human, and
+ * what a lost store's scores are rebuilt from; nothing reads it back to decide anything. */
+export const SCORES_FILE = "scores.jsonl";

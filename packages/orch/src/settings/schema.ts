@@ -124,6 +124,7 @@ export const SETTINGS_DEFAULTS = {
   tiling: { first_split: "rows" },
   worktrees: { provider: "git", branch_prefix: "orch/", directory: ".orch-worktrees", worktrunk_commands: ["wkt", "wt"], copy_ignored: true, timeout_ms: 300_000 },
   counts: { tail: 20, peek: 25 },
+  council: { directory: ".orch/councils", scale: 10 },
   // `.agents/skills` is the cross-harness standard, so the real files live there once; setup links it into each enabled harness's own skills directory.
   skills: { install: true, store: "~/.agents/skills", link: [] },
 } as const;
@@ -375,6 +376,11 @@ export const SETTINGS_FILE_SCHEMA = z.strictObject({
   counts: z.strictObject({
     tail: PositiveInt.optional(),
     peek: PositiveInt.optional(),
+  }).optional(),
+  /** Where a council keeps its files, and what its members score out of. */
+  council: z.strictObject({
+    directory: z.string().min(1).optional(),
+    scale: PositiveInt.optional(),
   }).optional(),
   /** Whether orch may install its packaged skills, the one store holding the real files,
    * and the harness directories linked into it. Setup asks before the first install and

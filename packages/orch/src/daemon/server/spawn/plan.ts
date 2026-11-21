@@ -1,11 +1,12 @@
 // What one spawn launches, planned by orchd from what the CLI asked for and orchd's own settings:
 // the plexer, each agent's harness command, the worker policy, and the worktree intent.
 import { heldBackend, resolveBackend } from "../../../backends/registry.ts";
-import { workerPolicyFrom, workerTools } from "../../../policy/workers.ts";
+import { readOnlyPolicy, workerPolicyFrom } from "../../../policy/workers.ts";
 import { SpawnRefusalError } from "../../../refusal.ts";
 import { errorMessage } from "../../../util.ts";
-import { adapterCommand, resolveAdapterOrDie } from "./models.ts";
+import { policyCommand, resolveAdapterOrDie } from "./models.ts";
 import { nativeForm, offersForm, type FormId } from "../../../types/form.ts";
+import { ADAPTER_IDS } from "../../../types/adapter.ts";
 import type { AgentAdapter, AdapterId } from "../../../types/adapter.ts";
 import type { Backend } from "../../../types/backend.ts";
 import type { ThinkingLevel, WorkerPolicy } from "../../../types/policy.ts";
@@ -27,6 +28,8 @@ interface SpawnAgentCommon {
   readonly thinking: ThinkingLevel;
   /** The initial task, or null when the fleet starts idle. All agents have one or none have one. */
   readonly prompt: string | null;
+  /** What this agent may load. A read-only agent's policy says so. */
+  readonly workers: WorkerPolicy;
 }
 
 /** An agent launched here: its form and the backend that holds it are resolved. */
@@ -43,8 +46,6 @@ export type SpawnAgentPlan = LocalSpawnAgentPlan | FarSpawnAgentPlan;
 
 export interface SpawnSettings {
   readonly backend: string;
-  readonly tools: string | undefined;
-  readonly workers: WorkerPolicy;
   /** The tab --tab named: an existing match is joined, not recreated. Null rolls a free label. */
   readonly tab: string | null;
   /** True when the human chose the plexer: `--plexer` or the default in `settings.json`. A
@@ -97,6 +98,15 @@ export function plexerRequest(params: Pick<ParamsOf<"spawn">, "plexer" | "host">
   };
 }
 
+/** The policy one agent launches under. A read-only agent needs a harness whose integration can refuse a tool call. */
+function agentPolicy(settings: OrchSettings, agent: ParamsOf<"spawn">["agents"][number]): WorkerPolicy {
+  if (agent.readOnly === null) return workerPolicyFrom(settings);
+  const role = resolveAdapterOrDie(agent.harness).readOnly;
+  if (role !== null) return readOnlyPolicy(settings, agent.readOnly, role.tools);
+  const able = ADAPTER_IDS.filter((id) => resolveAdapterOrDie(id).readOnly !== null);
+  throw new SpawnRefusalError(`${agent.harness} cannot run ${agent.name} read-only: orch has no way to refuse its tool calls. Launch it on one of: ${able.join(", ")}.`);
+}
+
 /** The local plan of one agent. Its form was resolved here, so a far agent's plan is refused. */
 export function localAgentPlan(plan: SpawnAgentPlan): LocalSpawnAgentPlan {
   if (plan.form === null) throw new SpawnRefusalError(`agent ${plan.name} has no form resolved here`);
@@ -114,9 +124,10 @@ export function planSpawn(params: ParamsOf<"spawn">, settings: OrchSettings, cho
   const requested = plexerRequest(params, settings);
   const backend = chosen ?? requested.backend;
   const agents = params.agents.map((agent): SpawnAgentPlan => {
+    const workers = agentPolicy(settings, agent);
     const preferredModels = settings.models.preferred[agent.harness] ?? [];
-    const cmd = params.cmd ?? adapterCommand(agent.harness, settings, { model: agent.model, thinking: agent.thinking, preferredModels });
-    const common = { requestedForm: params.form, name: agent.name, adapter: agent.harness, cmd, preferredModels, model: agent.model, thinking: agent.thinking, prompt: agent.prompt, backend };
+    const cmd = params.cmd ?? policyCommand(agent.harness, workers, { model: agent.model, thinking: agent.thinking, preferredModels });
+    const common = { requestedForm: params.form, name: agent.name, adapter: agent.harness, cmd, preferredModels, model: agent.model, thinking: agent.thinking, prompt: agent.prompt, backend, workers };
     if (params.host !== null) return { ...common, form: null };
     return { ...common, ...selectSpawnForm(params.form, settings.defaults.forms, resolveAdapterOrDie(agent.harness), backend, heldBackend) };
   });
@@ -124,8 +135,6 @@ export function planSpawn(params: ParamsOf<"spawn">, settings: OrchSettings, cho
   if (first === undefined) throw new SpawnRefusalError("spawn requires at least one agent");
   return {
     backend: backend.id,
-    tools: workerTools(settings),
-    workers: workerPolicyFrom(settings),
     tab: params.tab,
     backendChosen: requested.backendChosen,
     cwd: params.cwd,

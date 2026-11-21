@@ -22,7 +22,8 @@ function formatRunDuration(run: Pick<RunRecord, "startedAt" | "finishedAt">): st
   return `${minutes}m ${String(remainder).padStart(2, "0")}s`;
 }
 
-function formatCost(cost: number | undefined): string {
+/** A cost in dollars, or a dash when the harness reported none. */
+export function formatCost(cost: number | undefined): string {
   return cost === undefined ? "-" : `$${cost.toFixed(2)}`;
 }
 

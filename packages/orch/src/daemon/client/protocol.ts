@@ -20,6 +20,7 @@ import type { NotifierChoice } from "../../types/notify.ts";
 import { ORCH_RUNTIMES } from "../../runtimes.ts";
 import { ADAPTER_IDS, type HarnessModel, type SessionView, type SessionViewEntry } from "../../types/adapter.ts";
 import { FORM_IDS } from "../../types/form.ts";
+import { COUNCIL_NAME } from "../../council/layout.ts";
 import { RESULT_SOURCES, type AgentRead, type AgentReading } from "../../types/agent-read.ts";
 import type { FleetStatus, PeerFleetStatus, PeerView, PendingQuestionView } from "../../types/daemon.ts";
 import { QUESTION_OPTION_KINDS } from "../../types/question.ts";
@@ -117,7 +118,7 @@ const workerPolicy = z.object({
   builtinTools: z.boolean(),
   allowTools: z.array(z.string()).readonly(),
   compactAtTokens: CompactionTableSchema,
-  writeRoot: z.string().nullable(),
+  readOnly: z.object({ out: z.string().nullable() }).nullable(),
 }) satisfies z.ZodType<WorkerPolicy>;
 /** The harness and tuning a restart relaunches an agent on. */
 const RELAUNCH = z.object({
@@ -212,8 +213,8 @@ const SPAWN_REGISTRATION = z.object({
 
 const LEASE_RESULT = z.object({ id: z.string(), name: z.string() });
 
-/** One agent a spawn launches. `writeRoot` is the one directory it may write in, absolute, or null when it writes wherever its harness does. */
-const SPAWN_AGENT = z.object({ name: nonBlank, harness: z.enum(ADAPTER_IDS), model: nonBlank, thinking: z.custom<ThinkingLevel>(isThinkingLevel), prompt: z.string().nullable(), writeRoot: nonBlank.nullable() });
+/** One agent a spawn launches. `readOnly` is set for a read-only agent, with the one directory it may write in, absolute, or null for none. */
+const SPAWN_AGENT = z.object({ name: nonBlank, harness: z.enum(ADAPTER_IDS), model: nonBlank, thinking: z.custom<ThinkingLevel>(isThinkingLevel), prompt: z.string().nullable(), readOnly: z.object({ out: nonBlank.nullable() }).nullable() });
 /** The worktree a launch asked for: the provider that makes it. orchd adds its own worktree settings. */
 const SPAWN_WORKTREE = z.object({ provider: z.enum(WORKTREE_PROVIDER_IDS) }).nullable();
 /** One agent a spawn or tile started: where it landed and the tuning it launched on. */
@@ -254,6 +255,35 @@ const TAB_ACTION = z.discriminatedUnion("kind", [
 export type TabAction = z.infer<typeof TAB_ACTION>;
 /** Why a launch does not apply in the caller's environment. */
 const ENVIRONMENT_ANSWER = z.object({ outcome: z.literal("answer"), reason: z.literal("no-environment-role"), text: z.string() });
+
+/** A fleet a spawn launched. `headless`: placed nowhere, so each agent's key is its handle.
+ *  `notes` are the lines the launch reports in order. `panes` are this machine's panes showing
+ *  agents on `host`. */
+const SPAWNED = z.object({
+  outcome: z.literal("spawned"),
+  backend: z.string(),
+  headless: z.boolean(),
+  host: z.string().nullable(),
+  tab: z.string().nullable(),
+  requested: z.number().int().positive(),
+  agents: z.array(SPAWNED_AGENT),
+  panes: z.array(z.object({ key: z.string(), handle: z.string() })),
+  harnesses: z.array(HARNESS_TRAITS),
+  notes: z.array(z.string()),
+});
+
+/** A council, by the name it was convened under and the directory it was convened from. */
+const COUNCIL = { name: z.string().regex(COUNCIL_NAME, "a council's name is letters, digits, - and _"), cwd: nonBlank };
+/** One member's review of one round, with what its run cost. A review still running has no score and no problem. */
+const COUNCIL_REVIEW = z.object({
+  round: z.number().int().positive(),
+  member: z.string(),
+  score: z.number().int().nullable(),
+  problem: z.string().nullable(),
+  scoredAt: z.number().nullable(),
+  model: z.string().nullable(),
+  cost: z.number().nullable(),
+});
 
 /** What a rename did to the pane showing the agent, apart from the name orch records: the
  *  border relabelled, no border to relabel, or a relabel that failed and why. */
@@ -700,10 +730,26 @@ export const RPC_PARAMS = {
     host: nonBlank.nullable(),
     worktree: SPAWN_WORKTREE,
   }),
+  /** Convene a council: launch each member read-only, with its own directory under the council's
+   *  as the one place it writes. `tab` is the members' tab; none takes the council's name. */
+  "council-convene": GOVERNANCE.extend({
+    ...COUNCIL,
+    members: z.array(SPAWN_AGENT.omit({ prompt: true, readOnly: true })).min(1),
+    form: SPAWN_REGISTRATION.shape.form.nullable(),
+    plexer: nonBlank.nullable(),
+    tab: nonBlank.nullable(),
+    space: nonBlank.nullable(),
+  }),
+  /** Send a council's next round onto each member's conversation. `subject` is what the convener
+   *  tells them: the subject, and from the second round what changed. */
+  "council-round": GOVERNANCE.extend({ ...COUNCIL, subject: nonBlank }),
+  /** Close a council and every member still running. */
+  "council-close": GOVERNANCE.extend(COUNCIL),
+  "council-scores": z.object(COUNCIL),
   /** Add one agent to an open tab of the caller's plexer, where the tiling planner puts it. */
   tile: GOVERNANCE.extend({
     tab: nonBlank,
-    agent: SPAWN_AGENT.omit({ prompt: true, writeRoot: true }),
+    agent: SPAWN_AGENT.omit({ prompt: true, readOnly: true }),
     cmd: nonBlank.nullable(),
     plexer: nonBlank.nullable(),
     cwd: nonBlank,
@@ -886,23 +932,14 @@ export const RPC_RESULTS = {
   "notify-test": z.object({ results: z.array(z.object({ sink: z.string(), ok: z.boolean() })) }),
   "clear-session": OK,
   abort: ABORTED,
-  /** `headless`: placed nowhere, so each agent's key is its handle. `notes` are the lines the
-   *  launch reports in order. `panes` are this machine's panes showing agents on `host`. */
-  spawn: z.discriminatedUnion("outcome", [
+  spawn: z.discriminatedUnion("outcome", [ENVIRONMENT_ANSWER, SPAWNED]),
+  "council-convene": z.discriminatedUnion("outcome", [
     ENVIRONMENT_ANSWER,
-    z.object({
-      outcome: z.literal("spawned"),
-      backend: z.string(),
-      headless: z.boolean(),
-      host: z.string().nullable(),
-      tab: z.string().nullable(),
-      requested: z.number().int().positive(),
-      agents: z.array(SPAWNED_AGENT),
-      panes: z.array(z.object({ key: z.string(), handle: z.string() })),
-      harnesses: z.array(HARNESS_TRAITS),
-      notes: z.array(z.string()),
-    }),
+    z.object({ outcome: z.literal("convened"), directory: z.string(), scale: z.number().int().positive(), spawned: SPAWNED }),
   ]),
+  "council-round": z.object({ round: z.number().int().positive(), deliveries: z.array(z.object({ member: z.string(), key: z.string(), id: z.string(), ack: ACCEPTED.shape.ack })) }),
+  "council-close": z.object({ closed: z.array(z.string()) }),
+  "council-scores": z.object({ name: z.string(), directory: z.string(), scale: z.number().int().positive(), closedAt: z.number().nullable(), members: z.array(z.string()), reviews: z.array(COUNCIL_REVIEW) }),
   /** The tab's tiling after the agent landed: each place, the name it shows, and its size. */
   tile: z.discriminatedUnion("outcome", [
     ENVIRONMENT_ANSWER,
@@ -1019,7 +1056,7 @@ export function isRpcMethod(value: unknown): value is RpcMethod {
 }
 
 export type GovernedMethod =
-  | "dispatch" | "steer" | "message" | "answer" | "set-model" | "lifecycle" | "clear-session" | "abort" | "spawn-headless" | "spawn" | "tile" | "tab"
+  | "dispatch" | "steer" | "message" | "answer" | "set-model" | "lifecycle" | "clear-session" | "abort" | "spawn-headless" | "spawn" | "tile" | "tab" | "council-convene" | "council-round" | "council-close"
   | "agent-closed" | "agent-pane" | "agent-worktree" | "adopt-agent" | "detach" | "adopt" | "rename" | "reap" | "reap-candidates" | "reclaim" | "set-handle"
   | "space-create" | "space-rename" | "space-delete" | "grant"
   | "queue-cancel" | "queue-edit" | "queue-take-on" | "queue-reap" | "queue-intake" | "clean";

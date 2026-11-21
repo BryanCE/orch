@@ -156,7 +156,7 @@ async function setup(): Promise<{
     identity: PI_IDENTITY,
     notify: () => undefined,
     refreshLabels: () => Promise.resolve(),
-    writeRoot: null,
+    readOnly: null,
   }, settings);
   return { harness, daemon, presence };
 }

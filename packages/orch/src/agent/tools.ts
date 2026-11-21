@@ -8,7 +8,7 @@
 // backend-agnostic.
 import { Type } from "typebox";
 import { isThinkingLevel } from "../policy/thinking.ts";
-import { writeRootRefusal } from "../policy/write-root.ts";
+import { readOnlyRefusal } from "../policy/read-only.ts";
 import { term } from "../policy/vocabulary.ts";
 import { errorMessage } from "../util.ts";
 import type { SettingsManager } from "../types/services.ts";
@@ -293,12 +293,12 @@ export function registerAgentTools(
   harness.on("tool_execution_start", recordToolStart);
 
   // tool_call is the one hook that can still stop or change a call before it runs. An agent
-  // with a write root is refused every call that is not a read or a write inside the root. A
+  // A read-only agent is refused every call that is not a read, or a write inside its output directory. A
   // locked or gated command runs only through `orch lock`, which asks orchd first.
   harness.on("tool_call", (event: unknown) => {
     if (!isToolCallEvent(event)) return undefined;
-    if (options.writeRoot !== null) {
-      const refusal = writeRootRefusal(options.writeRoot, event.toolName, event.input);
+    if (options.readOnly !== null) {
+      const refusal = readOnlyRefusal(options.readOnly, event.toolName, event.input);
       if (refusal !== undefined) return { block: true, reason: refusal };
     }
     if (event.toolName !== "bash" || !isRecord(event.input)) return undefined;

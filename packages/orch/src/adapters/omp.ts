@@ -66,7 +66,7 @@ function ompToolArgv(opts: SpawnOpts): string[] {
 class OmpAdapter extends PiBridgeAdapter implements AgentAdapter {
   protected readonly resumeFlag = "--resume";
   readonly id = "omp" as const;
-  readonly toolVocabulary = OMP_TOOLS;
+  readonly readOnly = { tools: OMP_TOOLS };
   readonly install: Prerequisite = { install: everywhere("bun add -g @oh-my-pi/pi-coding-agent"), needs: ["bun"], signIn: "omp setup" };
   readonly preferredForm = null;
   readonly skillsDir = null;

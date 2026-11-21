@@ -2,7 +2,7 @@ import { NO_COMPACTION } from "../shared/harness.ts";
 import type { AgentAdapter, CompactionLaunch, SpawnOpts } from "../types/adapter.ts";
 import type { WorkerPolicy } from "../types/policy.ts";
 import type { OrchSettings } from "../types/settings.ts";
-import { WRITE_ROOT_ENV, writeRootTools, type ToolVocabulary } from "./write-root.ts";
+import { readOnlyEnv, readOnlyTools, type ReadOnly, type ToolVocabulary } from "./read-only.ts";
 
 /** Orch's own tools, always available — they are how a worker talks back. */
 const ORCH_BASE_TOOLS = ["orch_ask"] as const;
@@ -23,12 +23,6 @@ export function policyTools(policy: WorkerPolicy): string | undefined {
   return policy.allowTools.length ? policy.allowTools.join(",") : undefined;
 }
 
-/** The tool allowlist a worker launches under, or undefined for no restriction.
- *  Orch's own tools are always required; everything else is `workers.allow_tools`. */
-export function workerTools(settings: OrchSettings): string | undefined {
-  return policyTools(workerPolicyFrom(settings));
-}
-
 /** Resolve the worker policy from loaded settings. */
 export function workerPolicyFrom(settings: OrchSettings): WorkerPolicy {
   const { workers } = settings;
@@ -40,21 +34,22 @@ export function workerPolicyFrom(settings: OrchSettings): WorkerPolicy {
     // An allowlist that omitted orch's tools would mute the worker, so they join it.
     allowTools: workers.allow_tools.length ? [...new Set([...workers.allow_tools, ...orchTools(settings)])] : [],
     compactAtTokens: workers.compact_at_tokens,
-    writeRoot: null,
+    readOnly: null,
   };
 }
 
-/** The policy of a worker launched under a write root: its harness's read and write tools and
- *  orch's own, and no user extension or MCP server, since either can bring a tool that writes.
- *  The built-ins stay on, because the allowlist names the ones the worker keeps. */
-export function confinedPolicy(settings: OrchSettings, root: string, tools: ToolVocabulary): WorkerPolicy {
+/** The policy of a read-only worker: its harness's tools that read, the two that write when it
+ *  has an output directory, and orch's own. No user extension and no MCP server, since either
+ *  can bring a tool that writes. The built-ins stay on, because the allowlist names the ones
+ *  the worker keeps. */
+export function readOnlyPolicy(settings: OrchSettings, readOnly: ReadOnly, tools: ToolVocabulary): WorkerPolicy {
   return {
     ...workerPolicyFrom(settings),
     inheritExtensions: false,
     inheritMcp: false,
     builtinTools: true,
-    allowTools: [...writeRootTools(tools), ...orchTools(settings)],
-    writeRoot: root,
+    allowTools: [...readOnlyTools(tools, readOnly), ...orchTools(settings)],
+    readOnly,
   };
 }
 
@@ -64,10 +59,10 @@ function compactionLaunch(adapter: AgentAdapter, model: string | undefined, poli
   return points === undefined || adapter.compaction === null ? NO_COMPACTION : adapter.compaction.launch(points, model);
 }
 
-/** The env a launch's policy sets: its compaction point, and its write root when it has one. */
+/** The env a launch's policy sets: its compaction point, and what tells a read-only worker's process what it is. */
 export function policyEnv(adapter: AgentAdapter, model: string | undefined, policy: WorkerPolicy | undefined): Readonly<Record<string, string>> {
-  const root = policy === undefined ? null : policy.writeRoot;
-  return { ...compactionLaunch(adapter, model, policy).env, ...(root === null ? {} : { [WRITE_ROOT_ENV]: root }) };
+  const readOnly = policy === undefined ? null : policy.readOnly;
+  return { ...compactionLaunch(adapter, model, policy).env, ...(readOnly === null ? {} : readOnlyEnv(readOnly)) };
 }
 
 /** The launch arguments that set a launch's compaction point. */

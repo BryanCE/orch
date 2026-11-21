@@ -1,7 +1,7 @@
 // What orch's PreToolUse hook does to one Claude tool call. It lives apart from the shim so a
 // test can call it: the shim reads stdin and prints what this returns.
 import { gatedPatterns, lockedCommandLine } from "orch/core/policy/command-gate.ts";
-import { writeRootRefusal, type WriteRootGate } from "orch/core/policy/write-root.ts";
+import { readOnlyRefusal, type ReadOnlyGate } from "orch/core/policy/read-only.ts";
 import { isRecord } from "orch/core/util.ts";
 import type { JsonRecord } from "orch/core/types/core.ts";
 
@@ -34,10 +34,10 @@ function lockedBash(input: JsonRecord, settings: GateSettings): JsonRecord | und
 }
 
 /** What the hook prints for one tool call, or undefined to let the call run as it is. An agent
- *  with a write root is refused every call that is not a read or a write inside the root. */
-export function preToolUse(input: JsonRecord, settings: GateSettings, writeRoot: WriteRootGate | null): JsonRecord | undefined {
-  if (writeRoot !== null) {
-    const refusal = writeRootRefusal(writeRoot, input.tool_name, input.tool_input);
+ *  A read-only agent is refused every call that is not a read, or a write inside its output directory. */
+export function preToolUse(input: JsonRecord, settings: GateSettings, readOnly: ReadOnlyGate | null): JsonRecord | undefined {
+  if (readOnly !== null) {
+    const refusal = readOnlyRefusal(readOnly, input.tool_name, input.tool_input);
     if (refusal !== undefined) return hookOutput({ permissionDecision: "deny", permissionDecisionReason: refusal });
   }
   return lockedBash(input, settings);

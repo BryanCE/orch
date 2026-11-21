@@ -22,6 +22,7 @@ const THINKING: FlagSpec = { name: "--thinking", arity: "one", placeholder: "<le
 const HARNESS: FlagSpec = { name: "--harness", arity: "one", placeholder: "<harness>", help: `Harness id: ${ADAPTER_IDS.join(", ")}.` };
 const PLEXER: FlagSpec = { name: "--plexer", arity: "one", placeholder: "<plexer>", help: `Plexer id: ${BACKEND_IDS.join(", ")}.` };
 const DIR: FlagSpec = { name: "--dir", arity: "one", placeholder: "<path>", help: "Directory the agent starts in. Default: the spawner's own." };
+const COUNCIL_DIR: FlagSpec = { name: "--dir", arity: "one", placeholder: "<path>", help: "Directory the council was convened from. Default: this one." };
 const CMD: FlagSpec = { name: "--cmd", arity: "one", placeholder: "<command>", help: "Harness command to launch. Default: the harness's own." };
 const COUNT: FlagSpec = { name: "-n", arity: "one", placeholder: "<count>", help: "How many." };
 const ONLY: FlagSpec = { name: "--only", arity: "one", placeholder: "<state,...>", help: "Keep only rows in these states." };
@@ -217,11 +218,42 @@ const AGENTS: readonly CommandSpec[] = [
       { name: "--file", arity: "many", placeholder: "<path>|-", help: "The task file. One, or one per name. '-' reads stdin." },
       { name: "--with", arity: "many", placeholder: "[<name>=]<path>", help: "A context file or directory. Must exist." },
       { name: "--tasks", arity: "one", placeholder: "<path>", help: "A JSON array of task strings, one per name." },
-      { name: "--write-root", arity: "many", placeholder: "<dir>", help: "The one directory an agent may write in; it launches with no shell. {name} stands for the agent's name. One, or one per name." },
+      { name: "--read-only", arity: "none", help: "Every agent keeps only the tools that read: no shell, no MCP tool, no extension tool." },
+      { name: "--out", arity: "many", placeholder: "<dir>", help: "With --read-only: the one directory an agent may write in. One, or one per name." },
       WORKTREE, WORKTREE_PROVIDER,
     ],
   },
   { name: "tile", section: "agents", args: "<tab> <name>", summary: "Add one named agent to an existing tab.", flags: [MODEL, DIR, CMD, THINKING, HARNESS, PLEXER, WORKTREE, WORKTREE_PROVIDER] },
+  {
+    name: "council", section: "agents",
+    summary: "Agents on different models review one subject and score it, round by round.",
+    flags: [],
+    subcommands: [
+      {
+        name: "convene", args: "<council> <member>...",
+        summary: "Launch the members read-only and send them round 1.",
+        flags: [
+          { name: "--prompt", arity: "one", placeholder: "<text>", help: "What the members review, and what a good one looks like." },
+          { name: "--with", arity: "many", placeholder: "<path>", help: "A file or directory the members read. Must exist." },
+          { ...MODEL, arity: "many", help: "The model. One, or one per member." },
+          { ...HARNESS, arity: "many", help: `Harness id: ${ADAPTER_IDS.join(", ")}. One, or one per member.` },
+          THINKING,
+          { ...DIR, help: "Directory the council is convened from, and its members start in. Default: this one." },
+          { name: "--form", arity: "one", placeholder: `<${FORM_IDS.join("|")}>`, help: `Form for every member: ${FORM_IDS.join(", ")}.` },
+          PLEXER,
+          { ...SPACE, help: "The orch space the members join." },
+          { name: "--tab", arity: "one", placeholder: "<tab>", help: "The members' tab. Default: the council's name." },
+        ],
+      },
+      {
+        name: "round", args: "<council> <text...>",
+        summary: "Send the next round onto each member's conversation. The text says what changed.",
+        flags: [{ name: "--with", arity: "many", placeholder: "<path>", help: "A file or directory the members read. Must exist." }, COUNCIL_DIR],
+      },
+      { name: "scores", args: "<council>", summary: "Each member's score for each round, with what its runs cost.", flags: [COUNCIL_DIR] },
+      { name: "close", args: "<council>", summary: "Close the council and every member still running.", flags: [COUNCIL_DIR] },
+    ],
+  },
   {
     name: "rename", section: "agents", args: "<target> <name>",
     summary: "Set the agent name. --pane sets the border label.",

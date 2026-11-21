@@ -7,7 +7,7 @@ import type { BridgeAction } from "../shared/bridge-message.ts";
 import type { HostOs } from "./host.ts";
 import type { HeldSessionDriver } from "./held-session.ts";
 import type { FormId } from "./form.ts";
-import type { ToolVocabulary } from "../policy/write-root.ts";
+import type { ToolVocabulary } from "../policy/read-only.ts";
 
 /** The closed adapter-id set, importable without pulling any provider code. */
 export const ADAPTER_IDS = ["pi", "omp", "claude", "codex", "opencode"] as const;
@@ -19,6 +19,12 @@ export type AdapterId = (typeof ADAPTER_IDS)[number];
 export const LIFECYCLE_VERBS = ["reset", "reload", "restart"] as const;
 
 export type LifecycleVerb = (typeof LIFECYCLE_VERBS)[number];
+
+/** What a harness needs to run a read-only agent. */
+export interface ReadOnlyRole {
+  /** The harness's names for the tools such an agent can keep. */
+  readonly tools: ToolVocabulary;
+}
 
 /** Inputs shared by interactive and detached spawn commands. */
 export interface SpawnOpts {
@@ -332,8 +338,8 @@ export interface AgentAdapter {
   readonly resume: ResumeRole | null;
   /** True when this harness's integration rewrites a locked or gated shell command through `orch lock` before it runs. */
   readonly commandGate: boolean;
-  /** The harness's names for the tools a write-root agent keeps, or null when its integration has no site that can refuse a tool call. */
-  readonly toolVocabulary: ToolVocabulary | null;
+  /** How this harness runs a read-only agent, or null when its integration has no site that can refuse a tool call. */
+  readonly readOnly: ReadOnlyRole | null;
   /**
    * Env var this harness's interactive session exports into its subprocesses,
    * letting orch name the session KIND a spawn came from when the caller is not

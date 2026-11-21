@@ -293,6 +293,8 @@ const HELP: Readonly<Record<string, string>> = {
   "worktrees.timeout_ms": "How long one worktree command may run, hooks included, in milliseconds.",
   "counts.tail": "How many session entries orch tail shows without -n.",
   "counts.peek": "How many screen lines orch peek shows without -n.",
+  "council.directory": "Where councils keep their files, under the directory a council is convened from. Each council has a directory there named for it.",
+  "council.scale": "What a council member scores out of. A score is a whole number from 0 to this.",
   "skills.install": "Whether orch installs packaged skills.",
   "skills.store": "Directory holding the real skill files. The cross-harness standard is ~/.agents/skills.",
   "skills.link": "Harness skill directories orch symlinks into the store.",

@@ -12,7 +12,7 @@ const inherited: WorkerPolicy = {
   builtinTools: true,
   allowTools: [],
   compactAtTokens: {},
-  writeRoot: null,
+  readOnly: null,
 };
 
 const model = "openrouter/openai/gpt-5.6-luna:high";

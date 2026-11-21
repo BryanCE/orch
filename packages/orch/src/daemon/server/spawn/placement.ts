@@ -8,7 +8,7 @@ import { errorMessage } from "../../../util.ts";
 import { hostIdentity } from "../../../hosts/identity.ts";
 import { SpawnRefusalError } from "../../../refusal.ts";
 import { LAUNCH_ENV } from "../../../identity/launch.ts";
-import { policyEnv } from "../../../policy/workers.ts";
+import { policyEnv, policyTools } from "../../../policy/workers.ts";
 import { registerSpawnedAgent } from "../../../store/spawn-registration.ts";
 import type { AgentAdapter } from "../../../types/adapter.ts";
 import type { WorkerPolicy } from "../../../types/policy.ts";
@@ -164,6 +164,7 @@ function registerSpawnedTabAgent(services: DaemonClient, spec: TabSpawnSpec, key
     spawner: spec.spawner,
     owner: spec.owner,
     worktree: spec.worktree,
+    readOnly: spec.workers?.readOnly ?? undefined,
     // The pane opened on this machine, so its process runs on this host.
     process: { ...spec.backend.process.running(handle), host: hostIdentity().id },
   });
@@ -241,8 +242,8 @@ async function placeAgent(services: DaemonClient, settings: SpawnSettings, plan:
     model: plan.model,
     thinking: plan.thinking,
     preferredModels: plan.preferredModels,
-    tools: settings.tools,
-    workers: settings.workers,
+    tools: policyTools(plan.workers),
+    workers: plan.workers,
     cmd: settings.commandFlag ? plan.cmd : undefined,
     worktree,
     spawner: self.id,

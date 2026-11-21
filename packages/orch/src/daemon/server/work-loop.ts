@@ -20,6 +20,7 @@ import { loadPresence, presenceEntry } from "../../presence/store.ts";
 import { pendingQuestions, type QuestionRow } from "../../store/question-rows.ts";
 import { selectAgentStatus } from "../../store/status-rows.ts";
 import { workerHeaderFor, workerPlaceContext, workerRules } from "../../worker-prompt.ts";
+import { storedHeaderContext } from "./agent-policy.ts";
 import { abstractAgentLabel } from "../../notify/format.ts";
 import { getAdapter } from "../../adapters/registry.ts";
 import { isAgentId } from "../../shared/agent-id.ts";
@@ -94,7 +95,7 @@ async function waitForWorking(options: WorkOptions, entry: PresenceEntry, task: 
   } while (true);
 }
 
-function buildTaskHeader(orchDir: OrchDir, view: ReturnType<typeof agentView>, options: WorkOptions): string {
+function buildTaskHeader(orchDir: OrchDir, view: ReturnType<typeof agentView>, options: WorkOptions, runnerId: string | undefined): string {
   // The daemon is not this agent's spawner; provenance names it. Only a spawner
   // still writing live presence can receive the reply the clause instructs, and
   // a presence key is that spawner's minted id.
@@ -102,7 +103,7 @@ function buildTaskHeader(orchDir: OrchDir, view: ReturnType<typeof agentView>, o
   const spawnerRepliable = typeof spawnerKey === "string" && recordedProcessIsLive(orchDir, spawnerKey);
   const adapterId = view?.harnessId;
   const rules = workerRules(options.settings.current());
-  return workerHeaderFor(adapterId ? getAdapter(adapterId) : undefined, { spawnerRepliable, ...workerPlaceContext(view ?? undefined), ...rules });
+  return workerHeaderFor(adapterId ? getAdapter(adapterId) : undefined, { spawnerRepliable, ...workerPlaceContext(view ?? undefined), ...rules, ...(runnerId === undefined ? {} : storedHeaderContext(orchDir, runnerId)) });
 }
 
 function prepareTaskDispatch(options: WorkOptions, entry: PresenceEntry, task: TaskRec, orchDir: OrchDir) {
@@ -110,7 +111,7 @@ function prepareTaskDispatch(options: WorkOptions, entry: PresenceEntry, task: T
   // the tables that own each fact, never decoded out of the address.
   const runnerId = currentAttempt(task)?.agentId ?? (isAgentId(entry.key) ? entry.key : undefined);
   const view = runnerId === undefined ? null : agentView(orchDir, runnerId);
-  const header = buildTaskHeader(orchDir, view, options);
+  const header = buildTaskHeader(orchDir, view, options, runnerId);
   const prompt = `${header}\n\n${task.text}`;
   // The claim's dispatch id rides every attempt: the bridge acks per id, so a
   // retry of the same id can never deliver the prompt twice, and the agent's

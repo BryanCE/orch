@@ -1,9 +1,9 @@
+import * as path from "node:path";
 import { FORM_IDS, isFormId, type FormId } from "../../types/form.ts";
 import { agentFlags, pickAdapter } from "../selection.ts";
 import { resolveTuningOrDie } from "../../shared/tuning.ts";
 import { parseCommand } from "../registry.ts";
 import { readFileSync } from "node:fs";
-import * as path from "node:path";
 import { errorMessage } from "../../util.ts";
 import { die } from "../target.ts";
 import type { AdapterId } from "../../types/adapter.ts";
@@ -47,8 +47,10 @@ export type SpawnFlags = Omit<AgentFlags, "adapterFlag" | "modelFlag"> & {
   harnessFlags: string[];
   /** Where the agents' context lives; each `--with` adds one, `<name>=<path>` for one agent. Orch checks each exists and never reads it. */
   withPaths: string[];
-  /** The directories the agents may write in: one for all, or one per agent. `{name}` stands for the agent's name. */
-  writeRoots: string[];
+  /** `--read-only`: every agent keeps only the tools that read. */
+  readOnly: boolean;
+  /** `--out`: where a read-only agent may write, one for all or one per agent. */
+  outDirs: string[];
   tasksFile?: string;
   positional: string[];
 };
@@ -80,7 +82,12 @@ export function formFlag(invocation: Invocation): FormId | null {
 }
 
 export function parseSpawnFlags(args: string[]): SpawnFlags {
-  const invocation = parseCommand("spawn", args);
+  return spawnFlagsOf(parseCommand("spawn", args));
+}
+
+/** The launch flags an invocation carries. A command that declares fewer of them than `spawn`
+ *  gets the rest as unset. */
+export function spawnFlagsOf(invocation: Invocation): SpawnFlags {
   const { flags, positional } = invocation;
   const tasksFile = flags.value("--tasks");
   const form = formFlag(invocation);
@@ -101,7 +108,8 @@ export function parseSpawnFlags(args: string[]): SpawnFlags {
     modelFlags: [...flags.values("--model")],
     harnessFlags: [...flags.values("--harness")],
     withPaths: [...flags.values("--with")],
-    writeRoots: [...flags.values("--write-root")],
+    readOnly: flags.has("--read-only"),
+    outDirs: [...flags.values("--out")],
     ...(tasksFile === undefined ? {} : { tasksFile }),
     positional: [...positional],
   };
@@ -183,18 +191,17 @@ function resolveSpawnAdapters(flags: SpawnFlags, settings: OrchSettings, n: numb
   return adapters;
 }
 
-/** One agent's launch, with its model resolved against its own harness. */
-/** What `--write-root` writes for the agent's own name. */
-const NAME_TOKEN = "{name}";
-
-/** One agent's write root as an absolute path, taken from the directory the agents start in. */
-function writeRootFor(flags: SpawnFlags, root: string | undefined, name: string): string | null {
-  return root === undefined ? null : path.resolve(flags.cwd, root.replaceAll(NAME_TOKEN, name));
+/** What `--read-only` and `--out` ask of one agent: null for an ordinary agent, else its output
+ *  directory as an absolute path taken from the directory the agents start in, or none. */
+function readOnlyFor(flags: SpawnFlags, out: string | undefined): { out: string | null } | null {
+  if (!flags.readOnly) return null;
+  return { out: out === undefined ? null : path.resolve(flags.cwd, out) };
 }
 
-function planAgent(flags: SpawnFlags, settings: OrchSettings, agent: { name: string; adapter: AdapterId; model: string | undefined; prompt: string | null; writeRoot: string | null }): AgentPlan {
+/** One agent's launch, with its model resolved against its own harness. */
+function planAgent(flags: SpawnFlags, settings: OrchSettings, agent: { name: string; adapter: AdapterId; model: string | undefined; prompt: string | null; readOnly: { out: string | null } | null }): AgentPlan {
   const tuning = resolveTuningOrDie({ ...flags, modelFlag: agent.model }, settings, agent.adapter, null);
-  return { name: agent.name, harness: agent.adapter, model: tuning.model, thinking: tuning.thinking, prompt: agent.prompt, writeRoot: agent.writeRoot };
+  return { name: agent.name, harness: agent.adapter, model: tuning.model, thinking: tuning.thinking, prompt: agent.prompt, readOnly: agent.readOnly };
 }
 
 export function resolveSpawnSettings(flags: SpawnFlags, settings: OrchSettings): SpawnRequest {
@@ -204,7 +211,8 @@ export function resolveSpawnSettings(flags: SpawnFlags, settings: OrchSettings):
     if (flags.worktree.wanted || flags.worktree.provider !== undefined) throw usageError(flags.at, "--host cannot make a worktree on that host yet; drop --worktree");
     if (flags.cmd !== null) throw usageError(flags.at, "--host launches each harness's own command; drop --cmd");
   }
-  if (flags.cmd !== null && flags.writeRoots.length > 0) throw usageError(flags.at, "--write-root confines the harness's own launch, and --cmd replaces that launch; drop one");
+  if (!flags.readOnly && flags.outDirs.length > 0) throw usageError(flags.at, "--out names where a read-only agent may write; add --read-only");
+  if (flags.readOnly && flags.cmd !== null) throw usageError(flags.at, "--read-only is held by the harness's own launch, and --cmd replaces that launch; drop one");
   const worktree = flags.host === null ? resolveWorktreeIntent(flags.at, flags.worktree, settings) : null;
   const names = resolveSpawnNames(flags.at, flags.positional);
   const n = names.length;
@@ -212,12 +220,12 @@ export function resolveSpawnSettings(flags: SpawnFlags, settings: OrchSettings):
   const prompts = resolveSpawnPrompts(flags, n).map((prompt, index) => prompt === null ? null : taskWithReferences(prompt, references[index] ?? []));
   const adapters = resolveSpawnAdapters(flags, settings, n);
   const models = perAgent(flags.at, "--model", flags.modelFlags, n);
-  const roots = perAgent(flags.at, "--write-root", flags.writeRoots, n);
+  const outs = perAgent(flags.at, "--out", flags.outDirs, n);
   const agents = names.map((name, index) => {
     const adapter = adapters[index];
     const prompt = prompts[index];
     if (adapter === undefined || prompt === undefined) die("could not resolve spawn agent plan");
-    return planAgent(flags, settings, { name, adapter, model: models[index], prompt, writeRoot: writeRootFor(flags, roots[index], name) });
+    return planAgent(flags, settings, { name, adapter, model: models[index], prompt, readOnly: readOnlyFor(flags, outs[index]) });
   });
   return {
     json: flags.json,

@@ -127,7 +127,7 @@ export class CodexAdapter implements AgentAdapter {
     argv: (opts: SpawnOpts, sessionId: string): readonly string[] => [...this.interactiveArgv(opts), "resume", sessionId],
   };
   readonly commandGate = false;
-  readonly toolVocabulary = null;
+  readonly readOnly = null;
 
   /** Marker consumed by callers that render heuristic states with a dagger. */
   readonly stateFallback = true;

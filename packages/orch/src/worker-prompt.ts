@@ -7,6 +7,7 @@ import { term } from "./policy/vocabulary.ts";
 import { commandIn } from "./policy/command-paths.ts";
 import { echoesPrompts } from "./shared/harness.ts";
 import type { AgentAdapter } from "./types/adapter.ts";
+import type { ReadOnly } from "./policy/read-only.ts";
 import type { ContextReference, WorkerHeaderContext, WorkerRules } from "./types/core.ts";
 import type { OrchSettings } from "./types/settings.ts";
 
@@ -21,11 +22,21 @@ export function workerRules(settings: OrchSettings): WorkerRules {
  * The header addresses the AGENT, so it reads the same however the agent was
  * launched and whether or not any environment shows it.
  */
-const WORKER_HEADER_BASE =
-  "[orch worker] No human watches you." +
-  " Verify the files you edited before you report; a task that edits no file runs no verify command." +
+const WORKER_HEADER_LEAD = "[orch worker] No human watches you.";
+
+/** What a worker with a shell is told about verifying its own work. */
+const WORKER_HEADER_VERIFY = " Verify the files you edited before you report; a task that edits no file runs no verify command.";
+
+/** What every worker is told about orch's verbs and the size of its slice. */
+const WORKER_HEADER_RULES =
   " Every orch verb (spawn, dispatch, steer, close, reset, status) stays forbidden." +
   " Do the work yourself. A slice too big for one agent is reported back, not split by you.";
+
+/** What a read-only worker is told in place of the verify rules: it has no shell to run them. */
+function readOnlyClause(readOnly: ReadOnly): string {
+  return " You are read-only: you have the tools that read files, and no shell."
+    + (readOnly.out === null ? " You change no file. Your final reply is your result." : ` You write files only inside ${readOnly.out}.`);
+}
 
 /** Names the commands that verify a slice; falls back to the repository's own when the user declared none. */
 function verifyCommandsClause(verifyCommands: readonly string[], cwd: string | undefined): string {
@@ -99,7 +110,10 @@ export function workerHeaderFor(adapter: AgentAdapter | undefined, context: Part
   const spawner = adapter?.bridge && context.spawnerRepliable
     ? WORKER_HEADER_SPAWNER_CLAUSE
     : context.spawnerRepliable ? "" : WORKER_HEADER_NO_SPAWNER_CLAUSE;
-  return WORKER_HEADER_BASE
+  if (context.readOnly !== undefined) {
+    return WORKER_HEADER_LEAD + readOnlyClause(context.readOnly) + WORKER_HEADER_RULES + workerSpawnClause(false) + ask + spawner;
+  }
+  return WORKER_HEADER_LEAD + WORKER_HEADER_VERIFY + WORKER_HEADER_RULES
     + verifyCommandsClause(context.verifyCommands ?? [], context.cwd)
     + worktreeClause(context.worktreeBranch)
     + workerSpawnClause(context.maySpawn === true)
@@ -115,7 +129,7 @@ function leadBlock(task: string, lead: string): { readonly block: string; readon
 
 /** Strip the composed worker header (base + any clauses) from a dispatched task's text. */
 export function stripWorkerHeader(task: string): string {
-  return leadBlock(task, WORKER_HEADER_BASE)?.rest ?? task;
+  return leadBlock(task, WORKER_HEADER_LEAD)?.rest ?? task;
 }
 
 const CONTEXT_REFERENCES_LEAD =

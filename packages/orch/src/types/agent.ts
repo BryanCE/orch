@@ -1,7 +1,7 @@
 // Type-only: `typeof`/`ReturnType` over a runtime binding, erased at compile
 // time, so these create no runtime edge out of the types layer.
 import type { createAgentPresence } from "../agent/presence.ts";
-import type { ToolVocabulary, WriteRootGate } from "../policy/write-root.ts";
+import type { ReadOnlyGate, ToolVocabulary } from "../policy/read-only.ts";
 import type { AgentNotice, BridgeDelivery } from "../shared/bridge-message.ts";
 import type { AgentState } from "../agent-state.ts";
 import type { ThinkingLevel } from "./policy.ts";
@@ -127,7 +127,7 @@ export interface HarnessIdentity {
   readonly agentId: string;
   /** Event name this build fires when a run settles. */
   readonly settleEvent: string;
-  /** The harness's own names for the tools a write-root agent keeps. */
+  /** The harness's own names for the tools a read-only agent can keep. */
   readonly tools: ToolVocabulary;
 }
 
@@ -257,8 +257,8 @@ export interface AgentToolsOptions {
   notify: BridgeNotifier;
   /** Refreshes this agent's pane/tab labels and writes status when they apply. */
   refreshLabels: () => Promise<void>;
-  /** The write root this session was launched under, or null when its launch set none. */
-  writeRoot: WriteRootGate | null;
+  /** The gate this session runs behind when it was launched read-only, or null. */
+  readOnly: ReadOnlyGate | null;
 }
 
 /** What an agent did with one control command. */

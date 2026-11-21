@@ -2,6 +2,7 @@ import { errorMessage, packageManifest } from "../util.ts";
 import { daemonEntrypoint, readDaemonCodeSkew } from "../daemon/client/process.ts";
 import { cmdStatusVerb } from "./status/verb.ts";
 import { cmdSpawn, cmdTile } from "./spawn/index.ts";
+import { cmdCouncil } from "./council.ts";
 import { cmdAnswer, cmdBroadcast, cmdDispatch, cmdModel, cmdPipe, cmdSteer } from "./control.ts";
 import { cmdWait } from "./lifecycle/index.ts";
 import { cmdNew } from "./lifecycle/reset.ts";
@@ -158,6 +159,7 @@ export const commandHandlers: Record<string, Handler> = {
   pane: cmdPane,
   spawn: cmdSpawn,
   tile: cmdTile,
+  council: cmdCouncil,
   model: cmdModel,
   models: (services, args) => cmdModels(services, args),
   wait: (services, args) => cmdWait(services, args),

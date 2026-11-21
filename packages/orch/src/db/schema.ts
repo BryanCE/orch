@@ -341,6 +341,16 @@ export const agentTunings = sqliteTable("agent_tunings", {
   check("agent_tunings_interval", sql`${table.until} IS NULL OR ${table.until} > ${table.since}`),
 ]);
 
+/** A read-only agent: it keeps the tools that read, and writes only in its output directory
+ *  when it has one. An agent with no row has every tool its harness gives it. Written with the
+ *  spawn and never changed. */
+export const agentReadOnly = sqliteTable("agent_read_only", {
+  agentId: text("agent_id").primaryKey().references(() => agents.id, { onDelete: "cascade" }),
+  /** The one directory the agent may write in. NULL: it writes nothing. */
+  outDir: text("out_dir"),
+  setAt: integer("set_at").notNull(),
+});
+
 /** The form an agent's harness runs in over time: `tui`, `oneshot` or `acp`. An agent orch
  *  did not launch has no row. */
 export const agentForms = sqliteTable("agent_forms", {
@@ -501,6 +511,49 @@ export const commandLocks = sqliteTable("command_locks", {
   command: text("command").notNull(),
   acquiredAt: integer("acquired_at").notNull(),
 });
+
+// ── councils ─────────────────────────────────────────────────────────────────
+
+/** A council: agents on different models that review one subject and score it, round by round. */
+export const councils = sqliteTable("councils", {
+  id: text("id").notNull().primaryKey(),
+  name: text("name").notNull(),
+  /** The council's own directory. Each member writes in a directory under it, named for the member. */
+  directory: text("directory").notNull(),
+  /** The agent that convened it, and does the work between rounds. */
+  convenedBy: text("convened_by").notNull().references(() => agents.id),
+  /** Every score is a whole number from 0 to this. Fixed when the council is convened. */
+  scale: integer("scale").notNull(),
+  convenedAt: integer("convened_at").notNull(),
+  /** NULL: the council is still open. */
+  closedAt: integer("closed_at"),
+}, (table) => [uniqueIndex("one_council_per_directory").on(table.directory)]);
+
+/** The agents that sit on a council. `name` is the name a member sits under: it names the
+ *  member's directory and its reviews, and stays when the agent is renamed. An agent sits on
+ *  one council. */
+export const councilMembers = sqliteTable("council_members", {
+  agentId: text("agent_id").notNull().primaryKey().references(() => agents.id, { onDelete: "cascade" }),
+  councilId: text("council_id").notNull().references(() => councils.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+}, (table) => [uniqueIndex("one_member_per_name").on(table.councilId, table.name)]);
+
+/** One member's review of one round. The row is written when the round's prompt is dispatched,
+ *  and scored once, when that run finishes. Like a run, it outlives the member's agent. */
+export const councilReviews = sqliteTable("council_reviews", {
+  dispatchId: text("dispatch_id").notNull().primaryKey(),
+  councilId: text("council_id").notNull().references(() => councils.id, { onDelete: "cascade" }),
+  round: integer("round").notNull(),
+  /** The member's name when the round was asked for. */
+  member: text("member").notNull(),
+  askedAt: integer("asked_at").notNull(),
+  /** The score in the member's round file. NULL until the run finishes, and when the file carries none. */
+  score: integer("score"),
+  /** What is wrong with the round file, when orch could read no score from it. */
+  problem: text("problem"),
+  /** NULL: the run has not finished. */
+  scoredAt: integer("scored_at"),
+}, (table) => [uniqueIndex("one_review_per_round").on(table.councilId, table.round, table.member)]);
 
 // ── derived states ───────────────────────────────────────────────────────────
 

@@ -3,13 +3,13 @@
 import { linkTakes } from "../../../control/agent-links.ts";
 import { resolveAdapter } from "../../../adapters/registry.ts";
 import { admitModel } from "../../../policy/model.ts";
-import { workerPolicyFrom, workerTools } from "../../../policy/workers.ts";
+import { policyTools, workerPolicyFrom } from "../../../policy/workers.ts";
 import { takesModel } from "../../../shared/harness.ts";
 import { SpawnRefusalError } from "../../../refusal.ts";
 import { errorMessage } from "../../../util.ts";
 import type { AdapterId, AgentAdapter, ModelCatalogue } from "../../../types/adapter.ts";
 import type { OfferedModels } from "../../../policy/compaction.ts";
-import type { ThinkingLevel } from "../../../types/policy.ts";
+import type { ThinkingLevel, WorkerPolicy } from "../../../types/policy.ts";
 import type { OrchSettings } from "../../../types/settings.ts";
 import type { ParamsOf, ResultOf } from "../../client/protocol.ts";
 import type { DaemonState } from "../state.ts";
@@ -28,17 +28,26 @@ export function resolveAdapterOrDie(id: string): AgentAdapter {
   }
 }
 
-/** The command one harness launches under, built by that harness's own adapter. `launch` carries
- *  what this launch selected — the model it starts on and the quicklist its picker shows — so a
- *  previewed command is the command the backend actually runs. */
+/** The command one harness launches a worker under for its policy, built by that harness's own
+ *  adapter. `launch` carries what this launch selected: the model it starts on and the
+ *  quicklist its picker shows. A previewed command is the command the backend runs. */
+export function policyCommand(
+  adapter: string,
+  workers: WorkerPolicy,
+  launch: { model?: string; thinking?: ThinkingLevel; preferredModels?: readonly string[] } = {},
+): string {
+  const resolved = resolveAdapterOrDie(adapter);
+  const opts = { ...launch, tools: policyTools(workers), workers };
+  return resolved.workerLaunch?.restrictedInteractiveCmd(opts) ?? resolved.interactiveCmd(opts);
+}
+
+/** The command one harness launches under for the policy the settings give. */
 export function adapterCommand(
   adapter: string,
   settings: OrchSettings,
   launch: { model?: string; thinking?: ThinkingLevel; preferredModels?: readonly string[] } = {},
 ): string {
-  const resolved = resolveAdapterOrDie(adapter);
-  const opts = { ...launch, tools: workerTools(settings), workers: workerPolicyFrom(settings) };
-  return resolved.workerLaunch?.restrictedInteractiveCmd(opts) ?? resolved.interactiveCmd(opts);
+  return policyCommand(adapter, workerPolicyFrom(settings), launch);
 }
 
 /** Enforce orch's model policy at the launch's side-effect gate and return the spec the launch

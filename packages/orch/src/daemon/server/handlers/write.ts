@@ -32,6 +32,7 @@ import type { HereAgent } from "../../../types/agent-place.ts";
 import { atAgentHost, driveOnHost } from "./host.ts";
 import { getAdapter } from "../../../adapters/registry.ts";
 import { workerPrompt } from "../../../worker-prompt.ts";
+import { storedHeaderContext } from "../agent-policy.ts";
 
 /** Build the event carrying mail for a live session with no bridge route. */
 function sessionMessageEvent(directory: OrchDir, agent: HereAgent, id: string, mail: SessionMail): NotifyEvent {
@@ -327,7 +328,8 @@ export async function dispatch(state: DaemonState, params: ParamsOf<"dispatch">)
   const worker = params.worker;
   if (worker === undefined) return writeText(state, "dispatch", params);
   const adapter = worker.harness === null ? undefined : getAdapter(worker.harness);
-  return writeText(state, "dispatch", { ...params, text: workerPrompt(params.text, false, adapter, worker.context) });
+  const context = { ...worker.context, ...storedHeaderContext(state.directory, placedKey(state.directory, params.target)) };
+  return writeText(state, "dispatch", { ...params, text: workerPrompt(params.text, false, adapter, context) });
 }
 
 function senderName(directory: OrchDir, from: string): string {

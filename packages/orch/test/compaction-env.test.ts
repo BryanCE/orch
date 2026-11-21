@@ -16,14 +16,14 @@ const workers: WorkerPolicy = {
   builtinTools: true,
   allowTools: [],
   compactAtTokens: { claude: { haiku: 100_000 }, codex: { "gpt-5.5": 150_000 }, pi: { "anthropic/claude-haiku-4-5": 90_000 } },
-  writeRoot: null,
+  readOnly: null,
 };
 
 describe("launch compaction", () => {
-  test("a policy with a write root sets it beside the compaction point", () => {
-    const confined = { ...workers, writeRoot: "/repo/.orch/councils/plan/ada" };
-    expect(policyEnv(claudeAdapter, "haiku", confined)).toEqual({ CLAUDE_CODE_AUTO_COMPACT_WINDOW: "100000", ORCH_WRITE_ROOT: "/repo/.orch/councils/plan/ada" });
-    expect(policyEnv(codexAdapter, "gpt-5.5", confined)).toEqual({ ORCH_WRITE_ROOT: "/repo/.orch/councils/plan/ada" });
+  test("a read-only policy says so beside the compaction point, and names its output directory", () => {
+    const reporter = { ...workers, readOnly: { out: "/repo/.orch/councils/plan/ada" } };
+    expect(policyEnv(claudeAdapter, "haiku", reporter)).toEqual({ CLAUDE_CODE_AUTO_COMPACT_WINDOW: "100000", ORCH_READ_ONLY: "1", ORCH_OUT_DIR: "/repo/.orch/councils/plan/ada" });
+    expect(policyEnv(codexAdapter, "gpt-5.5", { ...workers, readOnly: { out: null } })).toEqual({ ORCH_READ_ONLY: "1" });
   });
 
   test("claude takes its point as env for the launch model", () => {

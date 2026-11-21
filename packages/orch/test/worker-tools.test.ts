@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { confinedPolicy, workerPolicyFrom, workerTools } from "../src/policy/workers.ts";
+import { policyTools, readOnlyPolicy, workerPolicyFrom } from "../src/policy/workers.ts";
 import { SETTINGS_DEFAULTS } from "../src/settings/schema.ts";
 import type { OrchSettings } from "../src/types/settings.ts";
 
@@ -26,39 +26,49 @@ const settings = (workerPeerTools?: boolean, allowTools: string[] = []): OrchSet
   tiling: { first_split: "rows" },
   worktrees: { provider: "git", branch_prefix: "orch/", directory: ".orch-worktrees", worktrunk_commands: ["wkt", "wt"], copy_ignored: true, timeout_ms: 300000 },
   counts: { tail: 20, peek: 25 },
+  council: { directory: ".orch/councils", scale: 10 },
   skills: { install: true, store: "~/.agents/skills", link: ["~/.claude/skills"] },
   agents: { writable_settings: [] },
 });
 
+const tools = { reads: ["read", "grep"], writes: ["edit", "write"], pathField: "path" };
+const allowlist = (workerPeerTools?: boolean, allowTools: string[] = []): string | undefined => policyTools(workerPolicyFrom(settings(workerPeerTools, allowTools)));
+
 describe("worker tool policy", () => {
-  test("settings alone give a policy with no write root", () => {
-    expect(workerPolicyFrom(settings()).writeRoot).toBeNull();
+  test("settings alone give a policy that is not read-only", () => {
+    expect(workerPolicyFrom(settings()).readOnly).toBeNull();
   });
 
-  test("a write root leaves only the harness's read and write tools and orch's own", () => {
-    const tools = { reads: ["read", "grep"], writes: ["edit", "write"], pathField: "path" };
-    const policy = confinedPolicy(settings(true, ["bash"]), "/repo/out", tools);
-    expect(policy.writeRoot).toBe("/repo/out");
-    expect(policy.allowTools).toEqual(["read", "grep", "edit", "write", "orch_ask", "orch_agents", "orch_send", "orch_read"]);
+  test("a read-only worker keeps only the harness's read tools and orch's own", () => {
+    const policy = readOnlyPolicy(settings(true, ["bash"]), { out: null }, tools);
+    expect(policy.readOnly).toEqual({ out: null });
+    expect(policy.allowTools).toEqual(["read", "grep", "orch_ask", "orch_agents", "orch_send", "orch_read"]);
     expect(policy.inheritExtensions).toBe(false);
     expect(policy.inheritMcp).toBe(false);
     expect(policy.builtinTools).toBe(true);
-    expect(confinedPolicy(settings(), "/repo/out", tools).allowTools).toEqual(["read", "grep", "edit", "write", "orch_ask"]);
+    expect(readOnlyPolicy(settings(), { out: null }, tools).allowTools).toEqual(["read", "grep", "orch_ask"]);
   });
+
+  test("an output directory adds the harness's write tools", () => {
+    const policy = readOnlyPolicy(settings(), { out: "/repo/out" }, tools);
+    expect(policy.readOnly).toEqual({ out: "/repo/out" });
+    expect(policy.allowTools).toEqual(["read", "grep", "edit", "write", "orch_ask"]);
+  });
+
   test("no configured allowlist restricts nothing", () => {
     // A hardcoded allowlist is what left workers without grep or subagent tools.
-    expect(workerTools(settings())).toBeUndefined();
-    expect(workerTools(settings(true))).toBeUndefined();
+    expect(allowlist()).toBeUndefined();
+    expect(allowlist(true)).toBeUndefined();
   });
 
   test("a configured allowlist always carries orch's own tools", () => {
-    const tools = workerTools(settings(false, ["read", "bash"]));
+    const allowed = allowlist(false, ["read", "bash"]);
 
-    expect(tools).toBe("read,bash,orch_ask");
-    expect(tools).not.toContain("orch_send");
+    expect(allowed).toBe("read,bash,orch_ask");
+    expect(allowed).not.toContain("orch_send");
   });
 
   test("peer tools join the allowlist when the fleet enables them", () => {
-    expect(workerTools(settings(true, ["read"]))).toBe("read,orch_ask,orch_agents,orch_send,orch_read");
+    expect(allowlist(true, ["read"])).toBe("read,orch_ask,orch_agents,orch_send,orch_read");
   });
 });

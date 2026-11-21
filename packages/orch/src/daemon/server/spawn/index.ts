@@ -4,9 +4,8 @@
 import { heldBackend } from "../../../backends/registry.ts";
 import { terminalAttach, terminalPreparer } from "../session-agents.ts";
 import { FORM_SESSION_OWNER, FORM_STDIO, type FormId } from "../../../types/form.ts";
-import { policyEnv } from "../../../policy/workers.ts";
+import { policyEnv, policyTools, workerPolicyFrom } from "../../../policy/workers.ts";
 import { withLaunchPoints } from "../../../policy/compaction.ts";
-import { workerPolicyFrom, workerTools } from "../../../policy/workers.ts";
 import { workerPrompt, workerRules } from "../../../worker-prompt.ts";
 import { mintAgentId } from "../../../shared/agent-id.ts";
 import { takesModel } from "../../../shared/harness.ts";
@@ -142,10 +141,10 @@ async function executeHeadlessSpawn(state: DaemonState, params: ParamsOf<"spawn"
         thinking: plan.thinking,
         preferredModels: [...plan.preferredModels],
         // An agent on a linked host spawned with no work idles there until its first dispatch.
-        prompt: plan.prompt?.trim() ? workerPrompt(plan.prompt, false, adapter, { maySpawn, cwd, ...(worktree === undefined ? {} : { worktreeBranch: worktree.branch }), spawnerRepliable: self.id !== null, ...workerRules(settingsFile) }) : null,
-        tools: settings.tools,
-        workers: settings.workers,
-        env: policyEnv(adapter, plan.model, settings.workers),
+        prompt: plan.prompt?.trim() ? workerPrompt(plan.prompt, false, adapter, { maySpawn, cwd, ...(worktree === undefined ? {} : { worktreeBranch: worktree.branch }), spawnerRepliable: self.id !== null, ...workerRules(settingsFile), ...(plan.workers.readOnly === null ? {} : { readOnly: plan.workers.readOnly }) }) : null,
+        tools: policyTools(plan.workers),
+        workers: plan.workers,
+        env: policyEnv(adapter, plan.model, plan.workers),
         ...(settings.host === null ? {} : { host: settings.host.name }),
         ...(params.actor === undefined ? {} : { actor: params.actor }),
       });
@@ -176,7 +175,7 @@ function prepareAgents(state: DaemonState, settings: SpawnSettings, names: reado
       const adapter = resolveAdapterOrDie(plan.adapter);
       const { cwd, worktree } = prepareWorkspace(settings.cwd, settings.worktree, name, adapter, plan.cmd);
       const key = mintAgentId();
-      const env = spawnEnv(state.directory, key, adapter, plan.form, plan.model, settings.workers);
+      const env = spawnEnv(state.directory, key, adapter, plan.form, plan.model, plan.workers);
       prepared.push({ name, cwd, key, env, worktree, handle: undefined });
     }
   } catch (error: unknown) {
@@ -246,7 +245,7 @@ async function launchPrepared(state: DaemonState, prepared: readonly PreparedAge
         prepareTerminal: terminalPreparer(state),
         backend, adapter: resolveAdapterOrDie(plan.adapter), adapterId: plan.adapter, name: item.name, cwd: item.cwd, space, workspace, group: groupId,
         form: plan.form, model: plan.model, thinking: plan.thinking, preferredModels: plan.preferredModels,
-        tools: settings.tools, workers: settings.workers, cmd: settings.commandFlag ? plan.cmd : undefined,
+        tools: policyTools(plan.workers), workers: plan.workers, cmd: settings.commandFlag ? plan.cmd : undefined,
         worktree: item.worktree,
         spawner: self.id, owner: self.id ?? undefined,
         intoHandle: item.handle, key: item.key, env: item.env,
@@ -405,6 +404,7 @@ export async function tileAgent(state: DaemonState, params: ParamsOf<"tile">): P
   const intent = worktreeIntent(params.worktree, settingsFile);
   const launchCommand = params.cmd ?? adapterCommand(agent.harness, settingsFile, { model, thinking: agent.thinking, preferredModels });
   const { cwd, worktree } = prepareWorkspace(params.cwd, intent, agent.name, adapter, launchCommand);
+  const workers = withLaunchPoints(workerPolicyFrom(settingsFile), offeredModels(services.models));
   const spec: TabSpawnSpec = {
     prepareTerminal: terminalPreparer(state),
     backend, adapter, adapterId: agent.harness, name: agent.name, cwd, worktree, space,
@@ -415,8 +415,8 @@ export async function tileAgent(state: DaemonState, params: ParamsOf<"tile">): P
     placement: planTilePlacement(layout, settingsFile.tiling.first_split),
     ...(params.cmd === null ? {} : { cmd: params.cmd }),
     // A tiled worker loads exactly what a spawned one does.
-    tools: workerTools(settingsFile),
-    workers: withLaunchPoints(workerPolicyFrom(settingsFile), offeredModels(services.models)),
+    tools: policyTools(workers),
+    workers,
     model,
     thinking: agent.thinking,
     preferredModels,

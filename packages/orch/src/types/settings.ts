@@ -79,6 +79,7 @@ export interface OrchSettings {
   tiling: { first_split: TileFirstSplit };
   worktrees: WorktreeConfig;
   counts: { tail: number; peek: number };
+  council: { directory: string; scale: number };
   skills: { install: boolean; store: string; link: string[] };
 }
 

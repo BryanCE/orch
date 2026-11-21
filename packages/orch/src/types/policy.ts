@@ -2,6 +2,7 @@
 // this creates no runtime edge out of the types layer.
 import type { VOCABULARY } from "../policy/vocabulary.ts";
 import type { CompactionTable, ExtensionExclusions, OrchSettings } from "./settings.ts";
+import type { ReadOnly } from "../policy/read-only.ts";
 
 export interface WallDecision {
   allowed: boolean;
@@ -89,8 +90,9 @@ export interface WorkerPolicy {
   readonly allowTools: readonly string[];
   /** Where a worker compacts, by harness and model; a pair with no entry keeps the harness default. */
   readonly compactAtTokens: CompactionTable;
-  /** The one directory the worker may write in, absolute. Null lets it write wherever its harness does. */
-  readonly writeRoot: string | null;
+  /** Set for a read-only worker: it keeps the tools that read, and writes only in its output
+   *  directory when it has one. Null: the worker has every tool its harness and the settings give it. */
+  readonly readOnly: ReadOnly | null;
 }
 
 /** The two provenance facts a walk reads; `AgentView` satisfies it structurally. */

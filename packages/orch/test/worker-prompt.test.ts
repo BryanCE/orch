@@ -22,6 +22,23 @@ afterEach(() => {
 });
 
 describe("worker prompt capability composition", () => {
+  test("a read-only worker is told what it is, and no verify command", () => {
+    const header = workerHeaderFor(getAdapter("pi"), { readOnly: { out: null }, verifyCommands: ["bun check"], gatedCommands: ["git push"], maySpawn: true, worktreeBranch: "orch/a" });
+    expect(header).toContain("You are read-only: you have the tools that read files, and no shell. You change no file. Your final reply is your result.");
+    expect(header).toContain("Never spawn subagents.");
+    for (const omitted of ["Verify", "bun check", "git push", "worktree"]) expect(header).not.toContain(omitted);
+  });
+
+  test("a read-only worker with an output directory is told where it writes", () => {
+    const header = workerHeaderFor(getAdapter("pi"), { readOnly: { out: "/repo/out" } });
+    expect(header).toContain("You write files only inside /repo/out.");
+    expect(header).not.toContain("You change no file");
+  });
+
+  test("a read-only header strips like any other", () => {
+    expect(stripWorkerHeader(workerPrompt("task", false, getAdapter("pi"), { readOnly: { out: null } }))).toBe("task");
+  });
+
   test("a worker on a worktree branch is told review reads commits, and the verify path is its own", () => {
     const header = workerHeaderFor(undefined, { cwd: "/repo.orch-alpha", worktreeBranch: "orch/alpha", verifyCommands: ["bun check"] });
     expect(header).toContain("on branch orch/alpha");

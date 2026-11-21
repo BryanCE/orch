@@ -41,6 +41,8 @@ import { createPanePainter } from "./pane-painter.ts";
 import { createWakeSignal } from "./wake.ts";
 import { closeAllStores, reportDrains, reportWriteFailures } from "../../store/connection.ts";
 import { flushPresenceHistory, reportHistoryFailures } from "../../presence/history.ts";
+import { onRunUpserted } from "../../store/run-rows.ts";
+import { scoreFinishedRun } from "./council.ts";
 import { observeToolExec } from "../../backends/tool-exec.ts";
 import { startLoopWatchdog } from "./loop-watchdog.ts";
 
@@ -118,6 +120,7 @@ export async function startDaemon(): Promise<DaemonState> {
   }
   reportWriteFailures((error) => state.services.logger.error("store.write-failed", { error: errorMessage(error) }));
   reportHistoryFailures((error) => state.services.logger.error("history.append-failed", { error: errorMessage(error) }));
+  onRunUpserted(scoreFinishedRun);
   observeToolExec((exec) => {
     const fields = { binary: exec.binary, args: exec.args.join(" "), attempt: exec.attempt, ok: exec.ok, elapsedMs: exec.elapsedMs };
     const slowMs = state.services.settings.current().logging.slow_tool_ms;

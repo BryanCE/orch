@@ -266,6 +266,10 @@ const settingsValueExtractors = {
     tail: root.counts?.tail ?? SETTINGS_DEFAULTS.counts.tail,
     peek: root.counts?.peek ?? SETTINGS_DEFAULTS.counts.peek,
   }),
+  council: (root: Partial<SettingsFile>) => ({
+    directory: root.council?.directory ?? SETTINGS_DEFAULTS.council.directory,
+    scale: root.council?.scale ?? SETTINGS_DEFAULTS.council.scale,
+  }),
   skills: (root: Partial<SettingsFile>) => ({
     install: root.skills?.install ?? SETTINGS_DEFAULTS.skills.install,
     store: root.skills?.store ?? SETTINGS_DEFAULTS.skills.store,
@@ -307,6 +311,7 @@ export function settingsValues(root: Partial<SettingsFile>): Omit<OrchSettings, 
     tiling: settingsValueExtractors.tiling(root),
     worktrees: settingsValueExtractors.worktrees(root),
     counts: settingsValueExtractors.counts(root),
+    council: settingsValueExtractors.council(root),
     skills: settingsValueExtractors.skills(root),
   };
 }

@@ -210,7 +210,8 @@ export async function admitSpawn(
   assertSpawnPolicy(settings, settings.space ?? self.space, settings.agents.length, views, presence, self.id);
   // Memory is the limit of the host the agents run on; a linked host's orchd checks its own.
   if (settings.host === null) assertHostMemory(settings);
-  const agents = settings.agents.map((agent) => ({ ...agent, model: admitLaunchModel(settingsFile, agent.adapter, catalogue, agent.model) }));
+  const offered = offeredModels(catalogue);
+  const agents = settings.agents.map((agent) => ({ ...agent, model: admitLaunchModel(settingsFile, agent.adapter, catalogue, agent.model), workers: withLaunchPoints(agent.workers, offered) }));
   // Shim refresh is a launch side effect, so it happens only after policy
   // accepts, and only for the harnesses actually being launched.
   await refreshStaleShims(directory, logger, [...new Set(agents.map((agent) => agent.adapter))], settingsFile);
@@ -220,7 +221,7 @@ export async function admitSpawn(
   } catch (error: unknown) {
     throw new SpawnRefusalError(errorMessage(error));
   }
-  return { ...settings, agents, workers: withLaunchPoints(settings.workers, offeredModels(catalogue)) };
+  return { ...settings, agents };
 }
 
 /** Assert every already-resolved name is free in this space, before anything

@@ -8,9 +8,11 @@ import { worktreeOf } from "../../../store/agent-rows.ts";
 import { setForm } from "../../../store/interval-rows.ts";
 import { whileSwappingProcess } from "../../../presence/store.ts";
 import { isThinkingLevel } from "../../../policy/thinking.ts";
+import { policyEnv, policyTools } from "../../../policy/workers.ts";
 import { FORM_STDIO, offersForm, type FormId } from "../../../types/form.ts";
 import { endSessionAgent, sessionDriver, startAttachedTerminal, startSessionAgent, terminalAttach } from "../session-agents.ts";
 import { reclaim } from "./lifecycle.ts";
+import { relaunchPolicy } from "../agent-policy.ts";
 import type { AgentAdapter, ResumeRole } from "../../../types/adapter.ts";
 import type { HeldSessionDriver, TerminalAttachRole } from "../../../types/held-session.ts";
 import type { BackendSpawnOpts } from "../../../types/backend.ts";
@@ -53,11 +55,13 @@ function formRole(adapter: AgentAdapter, form: FormId): FormRole | null {
   }
 }
 
-/** The spawn opts of a restart, from what the store holds about the agent. The store holds no
- *  env, tools or workers for an agent, so a restart carries none. */
+/** The spawn opts of a restart, from what the store holds about the agent: its tuning, its
+ *  worktree, and its read-only policy when it is read-only. */
 function restartOpts(state: DaemonState, adapter: AgentAdapter, agent: HereAgent, view: AgentView, form: FormId): BackendSpawnOpts {
   const { model, thinking } = view.tuning;
   const worktree = worktreeOf(state.directory, agent);
+  const settings = state.services.settings.current();
+  const workers = relaunchPolicy(state.directory, settings, adapter, view.id);
   return {
     ...(worktree === null ? {} : { worktree }),
     form,
@@ -67,7 +71,8 @@ function restartOpts(state: DaemonState, adapter: AgentAdapter, agent: HereAgent
     cwd: view.environment.cwd,
     ...(model === null ? {} : { model }),
     ...(isThinkingLevel(thinking) ? { thinking } : {}),
-    preferredModels: state.services.settings.current().models.preferred[adapter.id] ?? [],
+    preferredModels: settings.models.preferred[adapter.id] ?? [],
+    ...(workers === undefined ? {} : { workers, tools: policyTools(workers), env: policyEnv(adapter, model ?? undefined, workers) }),
   };
 }
 

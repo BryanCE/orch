@@ -6,6 +6,7 @@ import { hostIdentity } from "../hosts/identity.ts";
 import { placeHere } from "../process-place.ts";
 import { spaces } from "../db/schema.ts";
 import { acquireLease } from "./lease-rows.ts";
+import { setReadOnly } from "./read-only-rows.ts";
 import { orm, withTransaction } from "./connection.ts";
 import type { HostedSpawnRegistration, SpawnRegistration } from "../types/store.ts";
 import type { HostIdentity } from "../types/host.ts";
@@ -98,7 +99,7 @@ function holdSpawned(directory: OrchDir, agentId: string, holder: string | null,
 }
 
 /** Every environment axis a spawn states, each on its own interval table:
- *  plexer, handle, process, space, tuning, worktree. The agent runs here, so it has all of them. */
+ *  plexer, handle, process, space, tuning, read-only, worktree. The agent runs here, so it has all of them. */
 function writeEnvironment(directory: OrchDir, agent: HereAgent, now: number, input: SpawnRegistration): void {
   const agentId = agent.id;
   if (input.backendId !== undefined) setAgentPlexer(directory, agent, input.backendId);
@@ -114,6 +115,7 @@ function writeEnvironment(directory: OrchDir, agent: HereAgent, now: number, inp
   // `model` recorded NULL for every spawn, because the launch hands over the bare
   // id — so the row said the fleet ran at no effort while every pin said `high`.
   setTuning(directory, agentId, now, { model: input.model, thinking: input.thinking });
+  if (input.readOnly !== undefined) setReadOnly(directory, agentId, now, input.readOnly);
   if (input.worktree) setWorktree(directory, agent, input.worktree);
 }
 

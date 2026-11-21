@@ -7,7 +7,7 @@ import { whoAmI } from "../self.ts";
 import { resolveLaunchAgent, resolveSpawnSettings, resolveWorktreeIntent, parseSpawnFlags, worktreeFlags, type SpawnRequest } from "./flags.ts";
 import { pinModels } from "./models.ts";
 import { resolveSpawnNames } from "./names.ts";
-import { reportHeadlessSpawn, reportSpawnResults, writeNotes } from "./report.ts";
+import { reportHeadlessSpawn, reportSpawnResults, writeNotes, type Spawned } from "./report.ts";
 import { usageError } from "../../cli/usage.ts";
 import type { ResultOf } from "../../daemon/client/protocol.ts";
 import type { Services } from "../../types/services.ts";
@@ -15,26 +15,30 @@ import type { OrchSettings } from "../../types/settings.ts";
 
 /** An environment without the role a command needs cannot do it. That is an ANSWER
  *  with exit 0, never a throw and never a silent empty result. */
-function answerNoEnvironmentRole(json: boolean, text: string): void {
+export function answerNoEnvironmentRole(json: boolean, text: string): void {
   const answer = { outcome: "answer", reason: "no-environment-role", text };
   if (json) process.stdout.write(JSON.stringify(answer) + "\n");
   else process.stdout.write(`${answer.text}\n`);
 }
 
 /** How long orchd may take to launch: each agent's harness command, and its worktree when asked. */
-function launchBudgetMs(settings: OrchSettings, agents: number, worktree: boolean): number {
+export function launchBudgetMs(settings: OrchSettings, agents: number, worktree: boolean): number {
   return agents * (settings.timeouts.adapter_command_ms + (worktree ? settings.worktrees.timeout_ms : 0));
+}
+
+/** Report a launched fleet: what orchd noted, then each agent as it comes up, its model pin and its launch prompt. */
+export async function reportSpawned(services: Services, request: SpawnRequest, spawned: Spawned): Promise<void> {
+  writeNotes(spawned.notes);
+  if (spawned.headless) return reportHeadlessSpawn(services, request, spawned);
+  await reportSpawnResults(services, await whoAmI(services), request, spawned);
 }
 
 async function executeSpawn(services: Services, request: SpawnRequest): Promise<void> {
   const settings = services.settings.current();
-  const self = await whoAmI(services);
   const { params } = request;
   const answer = await writeRpc(services, "spawn", params, {}, launchBudgetMs(settings, params.agents.length, params.worktree !== null));
   if (answer.outcome === "answer") return answerNoEnvironmentRole(request.json, answer.text);
-  writeNotes(answer.notes);
-  if (answer.headless) return reportHeadlessSpawn(services, request, answer);
-  await reportSpawnResults(services, self, request, answer);
+  await reportSpawned(services, request, answer);
 }
 
 export async function cmdSpawn(services: Services, args: string[]) {

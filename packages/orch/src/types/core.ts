@@ -2,6 +2,7 @@
 // this creates no runtime edge out of the types layer.
 import type { EXTENSION_SOURCE_DIR } from "../bridge-bundles/metadata.ts";
 import type { HostIdentity } from "./host.ts";
+import type { ReadOnly } from "../policy/read-only.ts";
 
 import type { PresenceEntry } from "./presence.ts";
 
@@ -210,6 +211,8 @@ export interface WorkerHeaderContext {
   /** The spawner's link is live and will accept a peer write. Default false: orch
    *  never instructs a reply it has not established the worker can actually deliver. */
   spawnerRepliable?: boolean;
+  /** Set for a read-only agent: it has no shell, so its header names no verify command. */
+  readOnly?: ReadOnly;
 }
 
 /** The half of a worker header that comes from settings rather than from this spawn. */

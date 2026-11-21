@@ -10,7 +10,10 @@ import { selectAgentStatus } from "../../../store/status-rows.ts";
 import { agentLocation } from "../../../store/interval-rows.ts";
 import { hereIsLive } from "../../../process-place.ts";
 import { resolveTuningOrDie } from "../../../shared/tuning.ts";
-import { adapterCommand, admitLaunchModel, resolveAdapterOrDie } from "../spawn/models.ts";
+import { policyEnv, policyTools } from "../../../policy/workers.ts";
+import { CommandRefusal } from "../../../refusal.ts";
+import { adapterCommand, admitLaunchModel, policyCommand, resolveAdapterOrDie } from "../spawn/models.ts";
+import { relaunchPolicy } from "../agent-policy.ts";
 import { applyVerb, reclaim } from "./lifecycle.ts";
 import { restartPipes, switchForm } from "./restart-form.ts";
 import { governWrite } from "./write.ts";
@@ -98,7 +101,10 @@ function planRelaunch(state: DaemonState, key: string, recorded: AgentAdapter, r
   const flags: AgentFlags = { ...(request.model === null ? {} : { modelFlag: request.model }), ...(request.thinking === null ? {} : { thinkingFlag: request.thinking }) };
   const tuning = resolveTuningOrDie(flags, settings, adapter.id, switched === null ? view?.tuning ?? null : null);
   const model = admitLaunchModel(settings, adapter.id, state.services.models, tuning.model);
-  const command = request.cmd ?? adapterCommand(adapter.id, settings, { model, thinking: tuning.thinking, preferredModels: settings.models.preferred[adapter.id] ?? [] });
+  const workers = relaunchPolicy(state.directory, settings, adapter, key);
+  if (workers !== undefined && request.cmd !== null) throw new CommandRefusal("this agent is read-only, and --cmd replaces the launch that holds it to that; restart it without --cmd");
+  const launch = { model, thinking: tuning.thinking, preferredModels: settings.models.preferred[adapter.id] ?? [] };
+  const command = request.cmd ?? (workers === undefined ? adapterCommand(adapter.id, settings, launch) : policyCommand(adapter.id, workers, launch));
   return { adapter, relaunch: { harnessId: adapter.id, model, thinking: tuning.thinking }, command };
 }
 
@@ -147,6 +153,7 @@ async function restartAttached(state: DaemonState, agent: HereAgent, recorded: A
   const { relaunch } = planRelaunch(state, key, recorded, request);
   const sessionId = selectAgentStatus(state.directory, key)?.sessionId ?? null;
   await endSessionAgent(key);
+  const workers = relaunchPolicy(state.directory, state.services.settings.current(), recorded, key);
   const opts: BackendSpawnOpts = {
     form,
     key,
@@ -154,6 +161,7 @@ async function restartAttached(state: DaemonState, agent: HereAgent, recorded: A
     ...(view?.environment.cwd === undefined ? {} : { cwd: view.environment.cwd }),
     ...(relaunch.model === null ? {} : { model: relaunch.model }),
     ...(isThinkingLevel(relaunch.thinking) ? { thinking: relaunch.thinking } : {}),
+    ...(workers === undefined ? {} : { workers, tools: policyTools(workers), env: policyEnv(recorded, relaunch.model ?? undefined, workers) }),
   };
   const prepared = await prepareTerminal(state, recorded, role, opts, sessionId);
   const command = shellLine(prepared.program);

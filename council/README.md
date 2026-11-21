@@ -17,9 +17,9 @@ each member's score for each round and decides whether another round runs.
 - **Lead.** The agent that started the council. It names the subject, spawns the members,
   reads their files, does or delegates the work between rounds, and reports the scores to the
   user.
-- **Member.** Reads the subject and the other members' files from the round before. Writes one
-  Markdown file per round in its own directory. Writes nothing else, anywhere, and has no
-  shell.
+- **Member.** A read-only agent. Reads the subject and the other members' files from the round
+  before. Writes one Markdown file per round in its own directory, which is the only place it
+  can write.
 - **User.** Reads the scores. Says whether another round runs.
 
 ## The council directory
@@ -40,8 +40,8 @@ default of the `council.directory` setting. Whether git tracks it is the reposit
   layout that one reader in orch parses.
 - Members write at the same time. In round N a member reads the others' `round-<N-1>.md`,
   which no longer changes. A finished round's file is never rewritten.
-- Every member may read every file in the council's directory. A member writes only inside
-  its own directory.
+- Every member may read every file in the council's directory. A member's own directory is
+  its output directory.
 
 ## Where a score lives
 
@@ -74,97 +74,102 @@ Each line names the findings file that carries the `path:line` facts.
 - pi and omp launch under a tool allowlist: `--tools`, with the built-ins dropped by
   `--no-builtin-tools` or `--no-tools`. `findings/L7-tool-limits.md` §2.
 
-## What orch needs
+## The read-only agent
 
-1. **The member write rule.** A member's write to any path outside its own directory is
-   refused by orch at the tool call. A prompt that asks the member to behave is not the rule.
-   - A member launches with no shell tool, so edit and write are the only tools it has that
-     reach the disk, and a path check on those two is the whole rule. The lead hands a member
-     what a command would have shown it (a diff, test output, screenshots) through `--with`.
-   - orch already sees each tool call before it runs on three harnesses: the `tool_call`
-     listener in `src/agent/tools.ts` for pi and omp, and the `PreToolUse` hook for claude.
-     Both act only on the shell tool and only rewrite a command. Neither refuses a call, and
-     neither looks at the path of an edit or a write. `findings/L10-tool-gate.md` §2, §3, §6.
-   - The rule extends that seam: the same two sites also act on the edit and write tools and
-     refuse a path outside the member's directory. One pure function decides whether a path
-     is inside, and both sites call it. The claude hook's matcher widens from `Bash` to cover
-     the tools that write, and the hook refuses `Bash` itself for a member.
-   - codex and opencode have no site that sees a tool call first (`commandGate` is `false`).
-     A harness with no such site is refused as a council member, by that declared capability.
-     `findings/L10-tool-gate.md` §1, §4.
-   - The directory an agent may write in is chosen per spawn and stored with the agent, so a
-     restart keeps it. orchd hands it to the agent's process at every launch. Today the tool
-     policy is filled only from the install-wide `workers` settings.
-     `findings/L7-tool-limits.md` §7.
-2. **The score.** The layout of a round file, the one reader that parses it, the table in the
-   store that holds a score per run, the history line, and the table that shows members
-   against rounds with each score and its cost.
-3. **Council settings.** The members (harness, model, thinking), the round count, the score
-   scale, the criteria and the council directory. None exists today. They describe a project,
-   so they live in the project settings file the `project-settings/` job adds.
-   `findings/L2-settings-models.md` §7.
-4. **A member prompt.** `orch spawn` puts the worker header and the verify commands ahead of
-   the first prompt and has no `--raw`. A member's first prompt needs to arrive without them.
-   `findings/L7-tool-limits.md` §4, §5.
-5. **The council skill.** `packages/orch/skills/council/`: how a lead convenes a council, runs
-   a round, reads the scores, does the work and asks the user about the next round.
+A member is a read-only agent, which is something any orchestrator can spawn, council or not.
+
+- A **read-only agent** keeps its harness's tools that read and orch's own. It has no shell,
+  no MCP tool and no extension tool.
+- It may be given one **output directory**. That lets it write files there and nowhere else.
+  With none, it writes nothing and its reply is its result.
+- orch refuses a call at the tool call. A tool that is not known to be a read is refused, so a
+  tool that slips past the launch allowlist still cannot run.
+
+```
+orch spawn checker --read-only                                    # reads and replies
+orch spawn lookup-a lookup-b --read-only --out council/findings   # reads, and writes reports there
+```
+
+A council member is a read-only agent whose output directory is its own member directory. The
+lead hands a member what a command would have shown it (a diff, test output, screenshots)
+through `--with`.
+
+codex and opencode have no site that sees a tool call before it runs, so they cannot run a
+read-only agent, and a spawn that asks is refused with the harnesses that can.
+`findings/L10-tool-gate.md` §1, §4.
+
+## The council verbs
+
+A council has verbs of its own, and its members sit in a tab of their own, apart from any
+worker fleet the same orchestrator runs.
+
+```
+orch council convene plan-review ada bea cy --model sol,luna,opus --prompt "Review the plan in plan.md." --with plan.md
+orch council round plan-review "Rewrote section 2." --with plan.md
+orch council scores plan-review
+orch council close plan-review
+```
+
+- `convene` launches each member read-only with its member directory as its output directory,
+  records the council, and sends round 1. Members are named on the command the way a spawn
+  names agents, with a harness and a model each.
+- `round` sends the next round onto each member's conversation. It is refused while a member
+  of the round before still runs. From round 2 a member is pointed at the others' files from
+  the round before.
+- `scores` prints a row per member and a column per round, with the model and cost of the
+  runs, and under the table what was wrong with any file that carried no score.
+- `close` closes every member still running, then the council.
+
+A council's rounds and its close belong to the agent that convened it, and to the human.
+orch owns the member prompt and the round-file layout in `src/council/`, so what a member is
+told to write is what the reader parses.
 
 ## Built
 
-Source that has landed, each with its test. None of it is reachable until the launch path
-below sets a write root.
+Source that has landed, each with its test.
 
-- `src/policy/write-root.ts`. The one place that decides: `insideWriteRoot`, `toolReach`
-  (a tool call classified by its harness's vocabulary), `writeRootRefusal` (the text the model
-  gets), `writeRootOf` (the root from `ORCH_WRITE_ROOT`). A tool the vocabulary does not list
-  is refused, so an MCP tool or a shell that slips past the launch allowlist still cannot run.
-- `extensions/pi/vocabulary.ts`, `extensions/omp/vocabulary.ts`,
-  `extensions/claude/vocabulary.ts`. Each harness's own names for its read tools, its write
-  tools and the input field that holds the path. The bridge, the hook and the adapter read
-  the same constant.
-- `src/agent/tools.ts`. The pi and omp `tool_call` listener answers `{ block, reason }` for a
-  refused call.
-- `extensions/claude/tool-gate.ts`. The claude `PreToolUse` decision, called by the hook shim.
-  The hook's matcher now covers `Bash`, `Edit` and `Write`.
-- `AgentAdapter.toolVocabulary`. Null on codex and opencode, which is the capability a
-  write-root spawn is refused on. Claude's adapter passes `--tools` for a write-root launch.
-- `src/council/round-file.ts`. `roundFileName`, `roundFileLayout` (the text a member's prompt
-  quotes) and `parseRoundFile`. A round file is:
-  ```
-  Score: 7/10
+- **The read-only agent.** `src/policy/read-only.ts` decides, at the pi and omp `tool_call`
+  listener (`src/agent/tools.ts`) and at the claude `PreToolUse` hook
+  (`extensions/claude/tool-gate.ts`). Each harness names its read tools, its write tools and
+  its path field in `extensions/<harness>/vocabulary.ts`. `WorkerPolicy.readOnly` carries the
+  fact on every launch, `AgentAdapter.readOnly` is null on codex and opencode, the
+  `agent_read_only` table keeps it for a restart, and `orch spawn --read-only [--out <dir>]`
+  asks for it. A read-only agent's worker header says what it is and names no verify command.
+- **The council's files.** `src/council/layout.ts` builds every path, `round-file.ts` holds
+  the layout a member writes and the parser, `prompt.ts` writes a member's round prompt.
+- **The council in the store.** `councils`, `council_members` and `council_reviews` in
+  `src/db/schema.ts`, read and written by `src/store/council-rows.ts`. A review row is written
+  when a round's prompt is dispatched and scored once, when that run finishes.
+- **The council in orchd.** `src/daemon/server/council.ts`: the four handlers, and
+  `scoreFinishedRun`, which reads a finished member's round file, stores the score and
+  appends it to the member's `scores.jsonl` history.
+- **The command.** `src/commands/council.ts`, `help/council.md`, and the registry entry.
+- **Settings.** `council.directory` and `council.scale` in the install settings file.
+- **The skill.** `skills/council/SKILL.md`: how a lead runs a council.
 
-  ## Improvements
+## Waiting on Bryan
 
-  1. The change that would raise the score most.
-  2. The next one.
-  ```
+- `bun db:gen`, then `bun db:mig`: one migration for `agent_read_only`, `councils`,
+  `council_members` and `council_reviews`. Four test files cannot pass before it:
+  `store-read-only-rows`, `store-council-rows`, `council-score-run`, `store-rebuild-schema`.
+- `bun run build:orch:dev`, then a first real council to try the verbs end to end.
 
 ## Next
 
-1. **The launch path.** A spawn carries a write root to orchd. orchd stores it in a new
-   `agent_write_roots` table, launches the agent under a worker policy of only the harness's
-   read and write tools and orch's own, with no user extension and no MCP server, and sets
-   `ORCH_WRITE_ROOT`. A restart reads the root back from the store. Today a restart carries no
-   tool policy at all (`findings/L11-launch-facts.md` §4). `findings/L14-launch-options.md`
-   lists every site.
-2. **The council in the store.** Tables for a council, its members, its rounds and one score
-   per run, and the history line. One `bun db:gen` covers these and `agent_write_roots`.
-3. **The verbs**, then the settings, then the skill.
+1. **Project settings.** The council's members, round count and criteria describe a project,
+   so they belong in the project settings file the `project-settings/` job adds. Until then
+   the members are named on `convene`, and a round runs when the lead sends it.
+2. **The web UI.** A council page: members against rounds, each review a click away.
+   `findings/L8-web.md`.
 
 ## Open questions
 
-- Is a council driven by verbs of its own? The proposal: `orch council convene <name>` reads
-  the council settings, makes the directory, spawns each member under its write root and sends
-  the member prompt; `orch council round <name>` sends the next round onto each member's
-  conversation; `orch council scores <name>` prints members against rounds with score and
-  cost; `orch council close <name>` closes the members. orch then owns the member prompt and
-  the round-file layout in one module, and the skill only says when to run each verb. The
-  other way is no new verb: the skill has the lead run `orch spawn` and `orch dispatch` itself
-  and write the member prompt by hand.
 - Which models a council may use is set by `models.allowed`, which today allows pi three
   OpenAI models and claude two. Does a council use that list or carry its own?
-- Council settings live in the project file, so they wait on `project-settings/` and its own
-  open questions.
+- Should a council carry its criteria as a setting, so every round's prompt repeats them, or
+  is the convener's `--prompt` enough?
+- A member whose run errors has no way back into its round: the next `round` moves every
+  member on. Is a retry of one member's round wanted?
 
 ## Working material
 
@@ -190,3 +195,5 @@ below sets a write root.
     file on an agent's host.
   - `L14-launch-options.md`. Every place a launch's options are built, from the request to the
     process.
+  - `L15-spawn-dispatch-entry.md`. How orchd spawns, dispatches and closes from inside itself.
+  - `L16-subverb-command.md`. How a command with subverbs and a settings section are built.

@@ -15,7 +15,7 @@ import { registerAgentTools } from "./tools.ts";
 import { registerCompaction } from "./compaction.ts";
 import { launchCredential } from "../identity/launch.ts";
 import { ORCH_TOOLS } from "../policy/workers.ts";
-import { writeRootGate } from "../policy/write-root.ts";
+import { readOnlyGate } from "../policy/read-only.ts";
 import type { HarnessApi, HarnessBridge, HarnessIdentity } from "../types/agent.ts";
 import type { SettingsManager } from "../types/services.ts";
 
@@ -58,8 +58,8 @@ export function registerHarnessBridge(
       void daemon.ask("notify", event);
     },
     refreshLabels,
-    // A write-root agent keeps its harness's read tools and orch's own, and writes inside the root.
-    writeRoot: writeRootGate(process.env, process.cwd(), { ...identity.tools, reads: [...identity.tools.reads, ...ORCH_TOOLS] }),
+    // A read-only agent keeps its harness's tools that read and orch's own.
+    readOnly: readOnlyGate(process.env, process.cwd(), { ...identity.tools, reads: [...identity.tools.reads, ...ORCH_TOOLS] }),
   }, options.settings);
   // The point is a worker setting: a session orch did not launch keeps the harness default.
   if (launchCredential() !== null) registerCompaction(harness, identity, options.settings);

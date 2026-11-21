@@ -1,3 +1,4 @@
+import { PI_IDENTITY } from "../extensions/pi/vocabulary.ts";
 import { hostIdentity } from "../src/hosts/identity.ts";
 import { orchDirAt } from "../src/orch-dir.ts";
 import type { OrchDir } from "../src/types/core.ts";
@@ -98,7 +99,7 @@ function fakeContext(): HarnessContext {
 function presenceFor(daemon: DaemonLink) {
   return createAgentPresence({
     harness: fakeHarness(),
-    identity: { agentId: "pi", settleEvent: "agent_settled" },
+    identity: PI_IDENTITY,
     extensionHash: "test",
     daemon,
   });

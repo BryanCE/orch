@@ -1,3 +1,4 @@
+import { PI_IDENTITY } from "../extensions/pi/vocabulary.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { createAgentPresence } from "../src/agent/presence.ts";
 import { registerAgentTools } from "../src/agent/tools.ts";
@@ -45,7 +46,7 @@ function toolInput(toolName: string, input: Record<string, unknown>): Record<str
     events: { on: () => undefined },
   };
   const daemon = stubDaemonLink();
-  const identity = { agentId: "pi", settleEvent: "agent_settled" };
+  const identity = PI_IDENTITY;
   const presence = createAgentPresence({ harness, identity, extensionHash: "test", daemon });
   const settings = testServices({ orchDir: root, settings: { locked_commands: { commands: ["bun test"] } } }).settings;
   registerAgentTools(harness, { presence, daemon, identity, notify: () => undefined, refreshLabels: () => Promise.resolve() }, settings);

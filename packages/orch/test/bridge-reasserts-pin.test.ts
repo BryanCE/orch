@@ -1,3 +1,4 @@
+import { PI_IDENTITY } from "../extensions/pi/vocabulary.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
@@ -140,7 +141,7 @@ async function setup(): Promise<{
   const daemon = fakeDaemon();
   const presence = createAgentPresence({
     harness,
-    identity: { agentId: "pi", settleEvent: "agent_settled" },
+    identity: PI_IDENTITY,
     extensionHash: "test",
     daemon: daemon.daemon,
   });
@@ -152,7 +153,7 @@ async function setup(): Promise<{
   registerAgentTools(harness, {
     presence,
     daemon: daemon.daemon,
-    identity: { agentId: "pi", settleEvent: "agent_settled" },
+    identity: PI_IDENTITY,
     notify: () => undefined,
     refreshLabels: () => Promise.resolve(),
   }, settings);

@@ -16,6 +16,8 @@ import type { CheckResult } from "../types/doctor.ts";
 import type { Logger, OrchDir } from "../types/core.ts";
 import type { OrchSettings } from "../types/settings.ts";
 import type { ThinkingLevel } from "../types/policy.ts";
+import { CLAUDE_TOOLS } from "../../extensions/claude/vocabulary.ts";
+import { writeRootTools } from "../policy/write-root.ts";
 
 /** State input for Claude, identified by its hook-owned presence key. */
 interface ClaudeStateDetectionInput extends StateDetectionInput {
@@ -144,6 +146,11 @@ function mcpArgv(opts: SpawnOpts): string[] {
   return opts.workers?.inheritMcp ? [] : ["--strict-mcp-config"];
 }
 
+/** Claude's `--tools` for a write-root agent: the tools that read and the two that write, and no other. */
+function writeRootArgv(opts: SpawnOpts): string[] {
+  return opts.writeRoot === undefined ? [] : ["--tools", writeRootTools(CLAUDE_TOOLS).join(",")];
+}
+
 /** The worker settings file as orch writes it: the user's keys beside orch's values. A file orch cannot parse throws. */
 function expectedWorkerSettings(settingsPath: string, pkgRoot: string, orchDir: OrchDir, settings: OrchSettings): { current: Record<string, unknown>; expected: Record<string, unknown> } {
   const current = readWorkerSettings(settingsPath);
@@ -252,6 +259,7 @@ class ClaudeAdapter implements AgentAdapter {
     argv: (opts: SpawnOpts, sessionId: string): readonly string[] => [...this.interactiveArgv(opts), "--resume", sessionId],
   };
   readonly commandGate = true;
+  readonly toolVocabulary = CLAUDE_TOOLS;
 
   /** Claude Code exports CLAUDECODE=1 into every subprocess it runs. */
   readonly sessionEnvMarker = HARNESS_SESSION_ENV.claude.marker;
@@ -268,14 +276,14 @@ class ClaudeAdapter implements AgentAdapter {
   }
 
   interactiveArgv(opts: SpawnOpts): readonly string[] {
-    const argv = [...buildInteractiveArgv("claude", opts), ...settingsArgv(opts), ...mcpArgv(opts)];
+    const argv = [...buildInteractiveArgv("claude", opts), ...settingsArgv(opts), ...mcpArgv(opts), ...writeRootArgv(opts)];
     if (opts.thinking !== undefined) argv.push(...this.thinking.launchArgs(opts.thinking));
     return argv;
   }
 
   /** Run Claude Code's print mode for detached workers. */
   headlessCmd(prompt: string, opts: SpawnOpts): string[] {
-    const flags = ["-p", ...settingsArgv(opts), ...mcpArgv(opts)];
+    const flags = ["-p", ...settingsArgv(opts), ...mcpArgv(opts), ...writeRootArgv(opts)];
     if (opts.thinking !== undefined) flags.push(...this.thinking.launchArgs(opts.thinking));
     return buildHeadlessArgv("claude", flags, opts, prompt);
   }

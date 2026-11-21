@@ -74,6 +74,7 @@ class OpencodeAdapter implements AgentAdapter {
     argv: (opts: SpawnOpts, sessionId: string): readonly string[] => [...this.interactiveArgv(opts), "--session", sessionId],
   };
   readonly commandGate = false;
+  readonly toolVocabulary = null;
 
   /** Marker consumed by callers that render heuristic states with a dagger. */
   readonly stateFallback = true;

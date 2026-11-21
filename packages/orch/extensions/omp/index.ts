@@ -14,10 +14,8 @@
 import { fileURLToPath } from "node:url";
 import { hashExtensionFile } from "orch/core/agent/harness-bridge.ts";
 import { composePiShaped } from "../pi/compose.ts";
-import type { HarnessApi, HarnessIdentity } from "orch/core/types/agent.ts";
-
-/** omp calls itself `omp`, and fires `session_stop` when a run will not auto-continue. */
-const OMP_IDENTITY: HarnessIdentity = { agentId: "omp", settleEvent: "session_stop" };
+import type { HarnessApi } from "orch/core/types/agent.ts";
+import { OMP_IDENTITY } from "./vocabulary.ts";
 
 const EXTENSION_HASH = hashExtensionFile(fileURLToPath(import.meta.url));
 

@@ -1,3 +1,4 @@
+import { PI_IDENTITY } from "../extensions/pi/vocabulary.ts";
 import { placeHere } from "../src/process-place.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import type { RunRecord } from "../src/types/store.ts";
@@ -111,14 +112,14 @@ describe("bridge terminal turn seam", () => {
     const daemon = fakeDaemonLink(root);
     const presence = createAgentPresence({
       harness,
-      identity: { agentId: "pi", settleEvent: "agent_settled" },
+      identity: PI_IDENTITY,
       extensionHash: "test",
       daemon,
     });
     registerAgentTools(harness, {
       presence,
       daemon,
-      identity: { agentId: "pi", settleEvent: "agent_settled" },
+      identity: PI_IDENTITY,
       notify: () => undefined,
       refreshLabels: () => Promise.resolve(),
     }, testServices({ orchDir: root, settings: null }).settings);

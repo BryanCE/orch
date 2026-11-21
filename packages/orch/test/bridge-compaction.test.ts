@@ -1,3 +1,4 @@
+import { PI_IDENTITY } from "../extensions/pi/vocabulary.ts";
 import { afterAll, describe, expect, test } from "bun:test";
 import { registerCompaction } from "../src/agent/compaction.ts";
 import { fileSettingsManager } from "../src/settings/manager.ts";
@@ -34,7 +35,7 @@ function harnessSession(model: HarnessResolvedModel | undefined, tokens: number)
     getContextUsage: () => ({ tokens }),
     compact: (options) => { requests.push(options); },
   };
-  registerCompaction(harness, { agentId: "pi", settleEvent: "agent_settled" }, settings);
+  registerCompaction(harness, PI_IDENTITY, settings);
   const endTurn = (): void => { for (const handler of handlers) void handler({}, ctx); };
   return { endTurn, requests };
 }

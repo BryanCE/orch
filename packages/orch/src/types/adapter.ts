@@ -7,6 +7,7 @@ import type { BridgeAction } from "../shared/bridge-message.ts";
 import type { HostOs } from "./host.ts";
 import type { HeldSessionDriver } from "./held-session.ts";
 import type { FormId } from "./form.ts";
+import type { ToolVocabulary } from "../policy/write-root.ts";
 
 /** The closed adapter-id set, importable without pulling any provider code. */
 export const ADAPTER_IDS = ["pi", "omp", "claude", "codex", "opencode"] as const;
@@ -39,6 +40,8 @@ export interface SpawnOpts {
   readonly tools?: string;
   /** What this worker may load; the adapter maps it onto its harness's flags. */
   readonly workers?: WorkerPolicy;
+  /** The one directory this agent may write in. Set, the adapter leaves it only its read and write tools. */
+  readonly writeRoot?: string;
 }
 
 /** Native process/session information an adapter may use to classify state. */
@@ -331,6 +334,8 @@ export interface AgentAdapter {
   readonly resume: ResumeRole | null;
   /** True when this harness's integration rewrites a locked or gated shell command through `orch lock` before it runs. */
   readonly commandGate: boolean;
+  /** The harness's names for the tools a write-root agent keeps, or null when its integration has no site that can refuse a tool call. */
+  readonly toolVocabulary: ToolVocabulary | null;
   /**
    * Env var this harness's interactive session exports into its subprocesses,
    * letting orch name the session KIND a spawn came from when the caller is not

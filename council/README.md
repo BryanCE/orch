@@ -109,10 +109,62 @@ Each line names the findings file that carries the `path:line` facts.
 5. **The council skill.** `packages/orch/skills/council/`: how a lead convenes a council, runs
    a round, reads the scores, does the work and asks the user about the next round.
 
+## Built
+
+Source that has landed, each with its test. None of it is reachable until the launch path
+below sets a write root.
+
+- `src/policy/write-root.ts`. The one place that decides: `insideWriteRoot`, `toolReach`
+  (a tool call classified by its harness's vocabulary), `writeRootRefusal` (the text the model
+  gets), `writeRootOf` (the root from `ORCH_WRITE_ROOT`). A tool the vocabulary does not list
+  is refused, so an MCP tool or a shell that slips past the launch allowlist still cannot run.
+- `extensions/pi/vocabulary.ts`, `extensions/omp/vocabulary.ts`,
+  `extensions/claude/vocabulary.ts`. Each harness's own names for its read tools, its write
+  tools and the input field that holds the path. The bridge, the hook and the adapter read
+  the same constant.
+- `src/agent/tools.ts`. The pi and omp `tool_call` listener answers `{ block, reason }` for a
+  refused call.
+- `extensions/claude/tool-gate.ts`. The claude `PreToolUse` decision, called by the hook shim.
+  The hook's matcher now covers `Bash`, `Edit` and `Write`.
+- `AgentAdapter.toolVocabulary`. Null on codex and opencode, which is the capability a
+  write-root spawn is refused on. Claude's adapter passes `--tools` for a write-root launch.
+- `src/council/round-file.ts`. `roundFileName`, `roundFileLayout` (the text a member's prompt
+  quotes) and `parseRoundFile`. A round file is:
+  ```
+  Score: 7/10
+
+  ## Improvements
+
+  1. The change that would raise the score most.
+  2. The next one.
+  ```
+
+## Next
+
+1. **The launch path.** A spawn carries a write root to orchd. orchd stores it in a new
+   `agent_write_roots` table, launches the agent under a worker policy of only the harness's
+   read and write tools and orch's own, with no user extension and no MCP server, and sets
+   `ORCH_WRITE_ROOT`. A restart reads the root back from the store. Today a restart carries no
+   tool policy at all (`findings/L11-launch-facts.md` §4). `findings/L14-launch-options.md`
+   lists every site.
+2. **The council in the store.** Tables for a council, its members, its rounds and one score
+   per run, and the history line. One `bun db:gen` covers these and `agent_write_roots`.
+3. **The verbs**, then the settings, then the skill.
+
 ## Open questions
 
+- Is a council driven by verbs of its own? The proposal: `orch council convene <name>` reads
+  the council settings, makes the directory, spawns each member under its write root and sends
+  the member prompt; `orch council round <name>` sends the next round onto each member's
+  conversation; `orch council scores <name>` prints members against rounds with score and
+  cost; `orch council close <name>` closes the members. orch then owns the member prompt and
+  the round-file layout in one module, and the skill only says when to run each verb. The
+  other way is no new verb: the skill has the lead run `orch spawn` and `orch dispatch` itself
+  and write the member prompt by hand.
 - Which models a council may use is set by `models.allowed`, which today allows pi three
   OpenAI models and claude two. Does a council use that list or carry its own?
+- Council settings live in the project file, so they wait on `project-settings/` and its own
+  open questions.
 
 ## Working material
 
@@ -136,3 +188,5 @@ Each line names the findings file that carries the `path:line` facts.
     that limit a session's tools.
   - `L13-run-finish.md`. What orchd does when a run finishes, its history, and how it reads a
     file on an agent's host.
+  - `L14-launch-options.md`. Every place a launch's options are built, from the request to the
+    process.

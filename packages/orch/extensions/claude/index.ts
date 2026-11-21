@@ -19,20 +19,12 @@ import { presenceSession } from "orch/core/daemon/client/report-session.ts";
 import { reportOnce, reportUntilAccepted } from "orch/core/daemon/client/socket.ts";
 import { isRecord, projectRoot, textValue, truncate, truncateOptional } from "orch/core/util.ts";
 import { lastAssistantFromJsonl, trailingQuestion } from "orch/core/shared/transcript.ts";
-import { gatedPatterns, lockedCommandLine } from "orch/core/policy/command-gate.ts";
+import { writeRootOf } from "orch/core/policy/write-root.ts";
+import { preToolUse } from "./tool-gate.ts";
 import type { JsonRecord } from "orch/core/types/core.ts";
 import type { StatusPatch } from "orch/core/types/presence.ts";
 
 const MAX_TEXT = 400;
-/** Claude's Bash tool: its timeout is in ms, 2 minutes when unset, 10 minutes at most. */
-const BASH_DEFAULT_TIMEOUT_MS = 120_000;
-const BASH_MAX_TIMEOUT_MS = 600_000;
-
-/** The Bash timeout with the lock wait added, so waiting for the lock never eats the command's own time. */
-function bashTimeoutWithWait(timeout: unknown, lockWaitMs: number): number {
-  const own = typeof timeout === "number" ? timeout : BASH_DEFAULT_TIMEOUT_MS;
-  return Math.min(BASH_MAX_TIMEOUT_MS, own + lockWaitMs);
-}
 
 /** Read a claude transcript file to raw JSONL, or undefined when absent/unreadable. */
 function readTranscript(transcriptPath: string | undefined): string | undefined {
@@ -89,15 +81,10 @@ function reportStatus(status: StatusPatch): Promise<boolean> {
   return report("report-status", { key, status: { ...sessionRefs, ...status } });
 }
 
-/** PreToolUse rewrites a locked or gated Bash command through `orch lock`. No
- *  permissionDecision: the user's own rules still judge the rewritten command. */
-function rewriteLockedBash(): void {
-  const toolInput = input.tool_input;
-  if (input.tool_name !== "Bash" || !isRecord(toolInput) || typeof toolInput.command !== "string") return;
-  const wrapped = lockedCommandLine(toolInput.command, gatedPatterns(settings));
-  if (wrapped === undefined) return;
-  const timeout = bashTimeoutWithWait(toolInput.timeout, settings.timeouts.lock_wait_ms);
-  process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", updatedInput: { ...toolInput, command: wrapped, timeout } } }));
+/** PreToolUse prints what the tool gate decides. Printing nothing lets the call run as it is. */
+function gateToolCall(): void {
+  const output = preToolUse(input, settings, writeRootOf(process.env), textValue(input.cwd) ?? process.cwd());
+  if (output !== undefined) process.stdout.write(JSON.stringify(output));
 }
 
 /** A new, resumed or cleared session waits for its first prompt. A compaction happens
@@ -156,7 +143,7 @@ async function reportPrompt(): Promise<void> {
 }
 
 const handlers: Record<string, () => void | Promise<void>> = {
-  pretooluse: rewriteLockedBash,
+  pretooluse: gateToolCall,
   sessionstart: reportStart,
   userpromptsubmit: reportPrompt,
   notification: reportNotification,

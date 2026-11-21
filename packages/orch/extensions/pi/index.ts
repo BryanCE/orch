@@ -7,10 +7,8 @@
 import { fileURLToPath } from "node:url";
 import { hashExtensionFile } from "orch/core/agent/harness-bridge.ts";
 import { composePiShaped } from "./compose.ts";
-import type { HarnessApi, HarnessIdentity } from "orch/core/types/agent.ts";
-
-/** pi calls itself `pi`, and fires `agent_settled` when a run will not auto-continue. */
-const PI_IDENTITY: HarnessIdentity = { agentId: "pi", settleEvent: "agent_settled" };
+import type { HarnessApi } from "orch/core/types/agent.ts";
+import { PI_IDENTITY } from "./vocabulary.ts";
 
 const EXTENSION_HASH = hashExtensionFile(fileURLToPath(import.meta.url));
 

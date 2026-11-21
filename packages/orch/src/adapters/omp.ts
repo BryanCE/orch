@@ -1,4 +1,5 @@
 import * as path from "node:path";
+import { OMP_TOOLS } from "../../extensions/omp/vocabulary.ts";
 import { isRecord } from "../util.ts";
 import { bridgeExtensionArgv, bridgeModelArgv, diagnoseExtensionLink, installExtensionLink, PiBridgeAdapter, settingsDefaultModel, toolPolicyArgv } from "./pi.ts";
 import { HARNESS_SESSION_ENV } from "../shared/session-env.ts";
@@ -65,6 +66,7 @@ function ompToolArgv(opts: SpawnOpts): string[] {
 class OmpAdapter extends PiBridgeAdapter implements AgentAdapter {
   protected readonly resumeFlag = "--resume";
   readonly id = "omp" as const;
+  readonly toolVocabulary = OMP_TOOLS;
   readonly install: Prerequisite = { install: everywhere("bun add -g @oh-my-pi/pi-coding-agent"), needs: ["bun"], signIn: "omp setup" };
   readonly preferredForm = null;
   readonly skillsDir = null;

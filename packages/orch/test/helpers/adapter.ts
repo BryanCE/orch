@@ -23,6 +23,7 @@ export function fakeAdapter(overrides: Partial<AgentAdapter> = {}): AgentAdapter
     server: null,
     resume: null,
     commandGate: false,
+    toolVocabulary: null,
     interactiveCmd,
     interactiveArgv: (opts: SpawnOpts): readonly string[] => interactiveCmd(opts).split(" "),
     headlessCmd: (): string[] => ["true"],

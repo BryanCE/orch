@@ -1,3 +1,4 @@
+import { PI_IDENTITY } from "../extensions/pi/vocabulary.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { createAgentPresence } from "../src/agent/presence.ts";
@@ -99,7 +100,7 @@ async function presence(daemon: DaemonLink, harness: HarnessApi) {
   directories.push(orchDir);
   const value = createAgentPresence({
     harness,
-    identity: { agentId: "pi", settleEvent: "agent_settled" },
+    identity: PI_IDENTITY,
     extensionHash: "test",
     daemon,
   });

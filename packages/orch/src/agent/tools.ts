@@ -8,6 +8,8 @@
 // backend-agnostic.
 import { Type } from "typebox";
 import { isThinkingLevel } from "../policy/thinking.ts";
+import { ORCH_TOOLS } from "../policy/workers.ts";
+import { toolReach, writeRootOf, writeRootRefusal, type ToolVocabulary } from "../policy/write-root.ts";
 import { term } from "../policy/vocabulary.ts";
 import { errorMessage } from "../util.ts";
 import type { SettingsManager } from "../types/services.ts";
@@ -291,17 +293,28 @@ export function registerAgentTools(
 
   harness.on("tool_execution_start", recordToolStart);
 
-  // tool_call is the one hook that can still change a command before it runs; a
-  // locked or gated one runs only through `orch lock`, which asks orchd first.
+  // A write-root agent keeps its harness's read tools and orch's own, and writes inside the root.
+  const rootTools: ToolVocabulary = { ...options.identity.tools, reads: [...options.identity.tools.reads, ...ORCH_TOOLS] };
+
+  // tool_call is the one hook that can still stop or change a call before it runs. An agent
+  // with a write root is refused every call that is not a read or a write inside the root. A
+  // locked or gated command runs only through `orch lock`, which asks orchd first.
   harness.on("tool_call", (event: unknown) => {
-    if (!isToolCallEvent(event) || event.toolName !== "bash" || !isRecord(event.input)) return;
+    if (!isToolCallEvent(event)) return undefined;
+    const writeRoot = writeRootOf(process.env);
+    if (writeRoot !== null) {
+      const refusal = writeRootRefusal(writeRoot, process.cwd(), toolReach(rootTools, event.toolName, event.input));
+      if (refusal !== undefined) return { block: true, reason: refusal };
+    }
+    if (event.toolName !== "bash" || !isRecord(event.input)) return undefined;
     const current = settings.currentOrNull();
-    if (current === null || typeof event.input.command !== "string") return;
+    if (current === null || typeof event.input.command !== "string") return undefined;
     const wrapped = lockedCommandLine(event.input.command, gatedPatterns(current));
-    if (wrapped === undefined) return;
+    if (wrapped === undefined) return undefined;
     event.input.command = wrapped;
     // The host's bash timeout is in seconds and absent means none; the lock wait must not eat it.
     if (typeof event.input.timeout === "number") event.input.timeout += Math.ceil(current.timeouts.lock_wait_ms / 1000);
+    return undefined;
   });
 
   function finalFailedAssistantMessage(messages: readonly unknown[]): AssistantMessageLike | undefined {

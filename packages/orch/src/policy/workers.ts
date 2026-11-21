@@ -9,6 +9,9 @@ const ORCH_BASE_TOOLS = ["orch_ask"] as const;
 /** Peer-messaging tools, added when `fleet.worker_peer_tools` is on. */
 const ORCH_PEER_TOOLS = ["orch_agents", "orch_send", "orch_read"] as const;
 
+/** Every tool orch itself registers in a worker. None of them changes a file. */
+export const ORCH_TOOLS: readonly string[] = [...ORCH_BASE_TOOLS, ...ORCH_PEER_TOOLS];
+
 /** The tool allowlist a worker launches under, or undefined for no restriction.
  *  Orch's own tools are always required; everything else is `workers.allow_tools`. */
 export function workerTools(settings: OrchSettings): string | undefined {

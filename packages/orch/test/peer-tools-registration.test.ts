@@ -1,3 +1,4 @@
+import { PI_IDENTITY } from "../extensions/pi/vocabulary.ts";
 import { tempOrchDir as makeTempOrchDir } from "./helpers/tempdir.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
@@ -37,7 +38,7 @@ function fakeHarness(): { harness: HarnessApi; toolNames: string[] } {
 function fakePresence(harness: HarnessApi) {
   return createAgentPresence({
     harness,
-    identity: { agentId: "pi", settleEvent: "agent_settled" },
+    identity: PI_IDENTITY,
     extensionHash: "test",
     daemon: stubDaemonLink(),
   });

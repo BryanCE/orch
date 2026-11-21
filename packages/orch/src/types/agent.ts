@@ -1,6 +1,7 @@
 // Type-only: `typeof`/`ReturnType` over a runtime binding, erased at compile
 // time, so these create no runtime edge out of the types layer.
 import type { createAgentPresence } from "../agent/presence.ts";
+import type { ToolVocabulary } from "../policy/write-root.ts";
 import type { AgentNotice, BridgeDelivery } from "../shared/bridge-message.ts";
 import type { AgentState } from "../agent-state.ts";
 import type { ThinkingLevel } from "./policy.ts";
@@ -78,8 +79,8 @@ export interface HarnessContext {
   compact?(options: HarnessCompactOptions): void;
 }
 
-/** A handler bound to one harness event; the event payload is validated by its reader. */
-export type HarnessEventHandler = (event: unknown, ctx: HarnessContext) => void | Promise<unknown>;
+/** A handler bound to one harness event; the event payload is validated by its reader. What it returns goes back to the harness, which reads it for the events it lets a handler answer. */
+export type HarnessEventHandler = (event: unknown, ctx: HarnessContext) => unknown;
 
 /** A slash-command handler; `args` is the raw text after the command name. */
 export type HarnessCommandHandler = (args: string | undefined, ctx: HarnessContext) => void | Promise<void>;
@@ -126,6 +127,8 @@ export interface HarnessIdentity {
   readonly agentId: string;
   /** Event name this build fires when a run settles. */
   readonly settleEvent: string;
+  /** The harness's own names for the tools a write-root agent keeps. */
+  readonly tools: ToolVocabulary;
 }
 
 /** What a composition root gets back: this session's own orch identity for its seat. */

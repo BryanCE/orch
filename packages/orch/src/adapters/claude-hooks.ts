@@ -1,4 +1,5 @@
 import * as path from "node:path";
+import { CLAUDE_TOOLS } from "../../extensions/claude/vocabulary.ts";
 import { runtimeArgv, type OrchRuntime } from "../runtime.ts";
 import { shellLine, toolDir } from "../util.ts";
 import type { OrchDir } from "../types/core.ts";
@@ -12,10 +13,10 @@ import type { OrchDir } from "../types/core.ts";
 export const CLAUDE_HOOK_EVENTS = ["SessionStart", "UserPromptSubmit", "Stop", "StopFailure", "Notification", "PreToolUse"] as const;
 
 /** The events whose shim runs only on a match, so Claude starts no process for the rest:
- *  PreToolUse rewrites only Bash, and only these notification types wait on the human
+ *  PreToolUse acts on Bash and on the tools that write, and only these notification types wait on the human
  *  (`idle_prompt` only means the turn ended a while ago). */
 export const CLAUDE_HOOK_MATCHERS: Readonly<Partial<Record<(typeof CLAUDE_HOOK_EVENTS)[number], string>>> = {
-  PreToolUse: "Bash",
+  PreToolUse: ["Bash", ...CLAUDE_TOOLS.writes].join("|"),
   Notification: "permission_prompt|elicitation_dialog|elicitation_url_dialog",
 };
 

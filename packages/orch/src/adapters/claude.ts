@@ -146,9 +146,9 @@ function mcpArgv(opts: SpawnOpts): string[] {
   return opts.workers?.inheritMcp ? [] : ["--strict-mcp-config"];
 }
 
-/** Claude's `--tools` for a write-root agent: the tools that read and the two that write, and no other. */
+/** Claude's `--tools` for a worker with a write root: the tools that read and the two that write, and no other. */
 function writeRootArgv(opts: SpawnOpts): string[] {
-  return opts.writeRoot === undefined ? [] : ["--tools", writeRootTools(CLAUDE_TOOLS).join(",")];
+  return opts.workers?.writeRoot == null ? [] : ["--tools", writeRootTools(CLAUDE_TOOLS).join(",")];
 }
 
 /** The worker settings file as orch writes it: the user's keys beside orch's values. A file orch cannot parse throws. */

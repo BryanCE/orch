@@ -3,6 +3,7 @@ import { agentFlags, pickAdapter } from "../selection.ts";
 import { resolveTuningOrDie } from "../../shared/tuning.ts";
 import { parseCommand } from "../registry.ts";
 import { readFileSync } from "node:fs";
+import * as path from "node:path";
 import { errorMessage } from "../../util.ts";
 import { die } from "../target.ts";
 import type { AdapterId } from "../../types/adapter.ts";
@@ -46,6 +47,8 @@ export type SpawnFlags = Omit<AgentFlags, "adapterFlag" | "modelFlag"> & {
   harnessFlags: string[];
   /** Where the agents' context lives; each `--with` adds one, `<name>=<path>` for one agent. Orch checks each exists and never reads it. */
   withPaths: string[];
+  /** The directories the agents may write in: one for all, or one per agent. `{name}` stands for the agent's name. */
+  writeRoots: string[];
   tasksFile?: string;
   positional: string[];
 };
@@ -98,6 +101,7 @@ export function parseSpawnFlags(args: string[]): SpawnFlags {
     modelFlags: [...flags.values("--model")],
     harnessFlags: [...flags.values("--harness")],
     withPaths: [...flags.values("--with")],
+    writeRoots: [...flags.values("--write-root")],
     ...(tasksFile === undefined ? {} : { tasksFile }),
     positional: [...positional],
   };
@@ -180,9 +184,17 @@ function resolveSpawnAdapters(flags: SpawnFlags, settings: OrchSettings, n: numb
 }
 
 /** One agent's launch, with its model resolved against its own harness. */
-function planAgent(flags: SpawnFlags, settings: OrchSettings, agent: { name: string; adapter: AdapterId; model: string | undefined; prompt: string | null }): AgentPlan {
+/** What `--write-root` writes for the agent's own name. */
+const NAME_TOKEN = "{name}";
+
+/** One agent's write root as an absolute path, taken from the directory the agents start in. */
+function writeRootFor(flags: SpawnFlags, root: string | undefined, name: string): string | null {
+  return root === undefined ? null : path.resolve(flags.cwd, root.replaceAll(NAME_TOKEN, name));
+}
+
+function planAgent(flags: SpawnFlags, settings: OrchSettings, agent: { name: string; adapter: AdapterId; model: string | undefined; prompt: string | null; writeRoot: string | null }): AgentPlan {
   const tuning = resolveTuningOrDie({ ...flags, modelFlag: agent.model }, settings, agent.adapter, null);
-  return { name: agent.name, harness: agent.adapter, model: tuning.model, thinking: tuning.thinking, prompt: agent.prompt };
+  return { name: agent.name, harness: agent.adapter, model: tuning.model, thinking: tuning.thinking, prompt: agent.prompt, writeRoot: agent.writeRoot };
 }
 
 export function resolveSpawnSettings(flags: SpawnFlags, settings: OrchSettings): SpawnRequest {
@@ -192,6 +204,7 @@ export function resolveSpawnSettings(flags: SpawnFlags, settings: OrchSettings):
     if (flags.worktree.wanted || flags.worktree.provider !== undefined) throw usageError(flags.at, "--host cannot make a worktree on that host yet; drop --worktree");
     if (flags.cmd !== null) throw usageError(flags.at, "--host launches each harness's own command; drop --cmd");
   }
+  if (flags.cmd !== null && flags.writeRoots.length > 0) throw usageError(flags.at, "--write-root confines the harness's own launch, and --cmd replaces that launch; drop one");
   const worktree = flags.host === null ? resolveWorktreeIntent(flags.at, flags.worktree, settings) : null;
   const names = resolveSpawnNames(flags.at, flags.positional);
   const n = names.length;
@@ -199,11 +212,12 @@ export function resolveSpawnSettings(flags: SpawnFlags, settings: OrchSettings):
   const prompts = resolveSpawnPrompts(flags, n).map((prompt, index) => prompt === null ? null : taskWithReferences(prompt, references[index] ?? []));
   const adapters = resolveSpawnAdapters(flags, settings, n);
   const models = perAgent(flags.at, "--model", flags.modelFlags, n);
+  const roots = perAgent(flags.at, "--write-root", flags.writeRoots, n);
   const agents = names.map((name, index) => {
     const adapter = adapters[index];
     const prompt = prompts[index];
     if (adapter === undefined || prompt === undefined) die("could not resolve spawn agent plan");
-    return planAgent(flags, settings, { name, adapter, model: models[index], prompt });
+    return planAgent(flags, settings, { name, adapter, model: models[index], prompt, writeRoot: writeRootFor(flags, roots[index], name) });
   });
   return {
     json: flags.json,

@@ -117,6 +117,7 @@ const workerPolicy = z.object({
   builtinTools: z.boolean(),
   allowTools: z.array(z.string()).readonly(),
   compactAtTokens: CompactionTableSchema,
+  writeRoot: z.string().nullable(),
 }) satisfies z.ZodType<WorkerPolicy>;
 /** The harness and tuning a restart relaunches an agent on. */
 const RELAUNCH = z.object({
@@ -211,8 +212,8 @@ const SPAWN_REGISTRATION = z.object({
 
 const LEASE_RESULT = z.object({ id: z.string(), name: z.string() });
 
-/** One agent a spawn asks for: its name, harness, tuning, and the task it starts on, if any. */
-const SPAWN_AGENT = z.object({ name: nonBlank, harness: z.enum(ADAPTER_IDS), model: nonBlank, thinking: z.custom<ThinkingLevel>(isThinkingLevel), prompt: z.string().nullable() });
+/** One agent a spawn launches. `writeRoot` is the one directory it may write in, absolute, or null when it writes wherever its harness does. */
+const SPAWN_AGENT = z.object({ name: nonBlank, harness: z.enum(ADAPTER_IDS), model: nonBlank, thinking: z.custom<ThinkingLevel>(isThinkingLevel), prompt: z.string().nullable(), writeRoot: nonBlank.nullable() });
 /** The worktree a launch asked for: the provider that makes it. orchd adds its own worktree settings. */
 const SPAWN_WORKTREE = z.object({ provider: z.enum(WORKTREE_PROVIDER_IDS) }).nullable();
 /** One agent a spawn or tile started: where it landed and the tuning it launched on. */
@@ -702,7 +703,7 @@ export const RPC_PARAMS = {
   /** Add one agent to an open tab of the caller's plexer, where the tiling planner puts it. */
   tile: GOVERNANCE.extend({
     tab: nonBlank,
-    agent: SPAWN_AGENT.omit({ prompt: true }),
+    agent: SPAWN_AGENT.omit({ prompt: true, writeRoot: true }),
     cmd: nonBlank.nullable(),
     plexer: nonBlank.nullable(),
     cwd: nonBlank,

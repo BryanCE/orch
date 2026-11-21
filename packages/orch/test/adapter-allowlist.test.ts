@@ -10,6 +10,7 @@ const INHERIT: WorkerPolicy = {
   builtinTools: true,
   allowTools: [],
   compactAtTokens: {},
+  writeRoot: null,
 };
 
 const LOCKED_DOWN: WorkerPolicy = {
@@ -19,6 +20,7 @@ const LOCKED_DOWN: WorkerPolicy = {
   builtinTools: false,
   allowTools: ["read", "bash", "orch_ask"],
   compactAtTokens: {},
+  writeRoot: null,
 };
 
 describe("pi worker launch obeys the worker policy", () => {
@@ -29,6 +31,13 @@ describe("pi worker launch obeys the worker policy", () => {
       expect(command).toContain("--no-extensions");
       expect(command).toContain("pi-bridge.js");
     }
+  });
+
+  test("a write-root policy names the tools the worker keeps and leaves the built-ins on", () => {
+    const confined: WorkerPolicy = { inheritExtensions: false, inheritMcp: false, excludeExtensions: {}, builtinTools: true, allowTools: ["read", "grep", "find", "ls", "edit", "write", "orch_ask"], compactAtTokens: {}, writeRoot: "/repo/out" };
+    const command = piAdapter.restrictedInteractiveCmd({ workers: confined });
+    expect(command).toContain("--tools read,grep,find,ls,edit,write,orch_ask");
+    expect(command).not.toContain("--no-builtin-tools");
   });
 
   test("an inheriting policy restricts neither tools nor built-ins", () => {

@@ -217,6 +217,7 @@ const AGENTS: readonly CommandSpec[] = [
       { name: "--file", arity: "many", placeholder: "<path>|-", help: "The task file. One, or one per name. '-' reads stdin." },
       { name: "--with", arity: "many", placeholder: "[<name>=]<path>", help: "A context file or directory. Must exist." },
       { name: "--tasks", arity: "one", placeholder: "<path>", help: "A JSON array of task strings, one per name." },
+      { name: "--write-root", arity: "many", placeholder: "<dir>", help: "The one directory an agent may write in; it launches with no shell. {name} stands for the agent's name. One, or one per name." },
       WORKTREE, WORKTREE_PROVIDER,
     ],
   },

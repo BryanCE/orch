@@ -3,7 +3,7 @@ import { PI_IDENTITY } from "../extensions/pi/vocabulary.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { createAgentPresence } from "../src/agent/presence.ts";
 import { registerAgentTools } from "../src/agent/tools.ts";
-import { WRITE_ROOT_ENV } from "../src/policy/write-root.ts";
+import type { WriteRootGate } from "../src/policy/write-root.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { stubDaemonLink } from "./helpers/daemon-client.ts";
 import { testServices } from "./helpers/services.ts";
@@ -46,19 +46,17 @@ function fire(writeRoot: string | null, toolName: string, input: Record<string, 
   const identity = PI_IDENTITY;
   const presence = createAgentPresence({ harness, identity, extensionHash: "test", daemon });
   const settings = testServices({ orchDir: root, settings: { locked_commands: { commands: ["bun test"] } } }).settings;
-  registerAgentTools(harness, { presence, daemon, identity, notify: () => undefined, refreshLabels: () => Promise.resolve() }, settings);
+  const gate: WriteRootGate | null = writeRoot === null ? null : { root: writeRoot, cwd: process.cwd(), tools: { ...PI_IDENTITY.tools, reads: [...PI_IDENTITY.tools.reads, "orch_ask"] } };
+  registerAgentTools(harness, { presence, daemon, identity, notify: () => undefined, refreshLabels: () => Promise.resolve(), writeRoot: gate }, settings);
   const event = { toolName, input: { ...input } };
   let answer: unknown;
   try {
-    if (writeRoot !== null) process.env[WRITE_ROOT_ENV] = writeRoot;
-    else delete process.env[WRITE_ROOT_ENV];
     for (const handler of handlers.get("tool_call") ?? []) {
       const result = handler(event, harnessContext());
       if (answer === undefined && result !== undefined) answer = result;
     }
     return { answer, input: event.input };
   } finally {
-    delete process.env[WRITE_ROOT_ENV];
     presence.stopPresence();
   }
 }

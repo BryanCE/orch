@@ -40,8 +40,6 @@ export interface SpawnOpts {
   readonly tools?: string;
   /** What this worker may load; the adapter maps it onto its harness's flags. */
   readonly workers?: WorkerPolicy;
-  /** The one directory this agent may write in. Set, the adapter leaves it only its read and write tools. */
-  readonly writeRoot?: string;
 }
 
 /** Native process/session information an adapter may use to classify state. */

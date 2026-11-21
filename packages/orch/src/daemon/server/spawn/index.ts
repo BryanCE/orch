@@ -4,7 +4,7 @@
 import { heldBackend } from "../../../backends/registry.ts";
 import { terminalAttach, terminalPreparer } from "../session-agents.ts";
 import { FORM_SESSION_OWNER, FORM_STDIO, type FormId } from "../../../types/form.ts";
-import { compactionEnv } from "../../../policy/workers.ts";
+import { policyEnv } from "../../../policy/workers.ts";
 import { withLaunchPoints } from "../../../policy/compaction.ts";
 import { workerPolicyFrom, workerTools } from "../../../policy/workers.ts";
 import { workerPrompt, workerRules } from "../../../worker-prompt.ts";
@@ -145,7 +145,7 @@ async function executeHeadlessSpawn(state: DaemonState, params: ParamsOf<"spawn"
         prompt: plan.prompt?.trim() ? workerPrompt(plan.prompt, false, adapter, { maySpawn, cwd, ...(worktree === undefined ? {} : { worktreeBranch: worktree.branch }), spawnerRepliable: self.id !== null, ...workerRules(settingsFile) }) : null,
         tools: settings.tools,
         workers: settings.workers,
-        env: compactionEnv(adapter, plan.model, settings.workers),
+        env: policyEnv(adapter, plan.model, settings.workers),
         ...(settings.host === null ? {} : { host: settings.host.name }),
         ...(params.actor === undefined ? {} : { actor: params.actor }),
       });

@@ -159,11 +159,17 @@ describe("Claude adapter", () => {
   });
 
   test("loads no MCP server unless the worker policy inherits MCP", () => {
-    const policy = { inheritExtensions: true, excludeExtensions: {}, builtinTools: true, allowTools: [], compactAtTokens: {} };
+    const policy = { inheritExtensions: true, inheritMcp: false, excludeExtensions: {}, builtinTools: true, allowTools: [], compactAtTokens: {}, writeRoot: null };
     expect(claudeAdapter.interactiveArgv({ workers: { ...policy, inheritMcp: false } })).toEqual(["claude", "--strict-mcp-config"]);
     expect(claudeAdapter.headlessCmd("reply", { workers: { ...policy, inheritMcp: false } })).toEqual(["claude", "-p", "--strict-mcp-config", "reply"]);
     expect(claudeAdapter.interactiveArgv({ workers: { ...policy, inheritMcp: true } })).toEqual(["claude"]);
     expect(claudeAdapter.headlessCmd("reply", { workers: { ...policy, inheritMcp: true } })).toEqual(["claude", "-p", "reply"]);
+  });
+
+  test("a worker with a write root launches with only the tools that read and the two that write", () => {
+    const confined = { inheritExtensions: false, inheritMcp: false, excludeExtensions: {}, builtinTools: true, allowTools: [], compactAtTokens: {}, writeRoot: "/repo/out" };
+    expect(claudeAdapter.interactiveArgv({ workers: confined })).toEqual(["claude", "--strict-mcp-config", "--tools", "Read,Grep,Glob,Edit,Write"]);
+    expect(claudeAdapter.headlessCmd("reply", { workers: confined })).toEqual(["claude", "-p", "--strict-mcp-config", "--tools", "Read,Grep,Glob,Edit,Write", "reply"]);
   });
 
   test.each([

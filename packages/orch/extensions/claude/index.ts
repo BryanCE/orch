@@ -19,8 +19,9 @@ import { presenceSession } from "orch/core/daemon/client/report-session.ts";
 import { reportOnce, reportUntilAccepted } from "orch/core/daemon/client/socket.ts";
 import { isRecord, projectRoot, textValue, truncate, truncateOptional } from "orch/core/util.ts";
 import { lastAssistantFromJsonl, trailingQuestion } from "orch/core/shared/transcript.ts";
-import { writeRootOf } from "orch/core/policy/write-root.ts";
+import { writeRootGate } from "orch/core/policy/write-root.ts";
 import { preToolUse } from "./tool-gate.ts";
+import { CLAUDE_TOOLS } from "./vocabulary.ts";
 import type { JsonRecord } from "orch/core/types/core.ts";
 import type { StatusPatch } from "orch/core/types/presence.ts";
 
@@ -83,7 +84,7 @@ function reportStatus(status: StatusPatch): Promise<boolean> {
 
 /** PreToolUse prints what the tool gate decides. Printing nothing lets the call run as it is. */
 function gateToolCall(): void {
-  const output = preToolUse(input, settings, writeRootOf(process.env), textValue(input.cwd) ?? process.cwd());
+  const output = preToolUse(input, settings, writeRootGate(process.env, textValue(input.cwd) ?? process.cwd(), CLAUDE_TOOLS));
   if (output !== undefined) process.stdout.write(JSON.stringify(output));
 }
 

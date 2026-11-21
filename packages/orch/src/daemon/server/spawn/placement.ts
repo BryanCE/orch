@@ -8,7 +8,7 @@ import { errorMessage } from "../../../util.ts";
 import { hostIdentity } from "../../../hosts/identity.ts";
 import { SpawnRefusalError } from "../../../refusal.ts";
 import { LAUNCH_ENV } from "../../../identity/launch.ts";
-import { compactionEnv } from "../../../policy/workers.ts";
+import { policyEnv } from "../../../policy/workers.ts";
 import { registerSpawnedAgent } from "../../../store/spawn-registration.ts";
 import type { AgentAdapter } from "../../../types/adapter.ts";
 import type { WorkerPolicy } from "../../../types/policy.ts";
@@ -115,7 +115,7 @@ export function openFleetHome(request: OpenFleetHomeRequest): CreatedHome {
 /** The env one agent launches into: its credential, the orch dir, and its harness's
  *  compaction point for its model when one is set. */
 export function spawnEnv(orchDir: OrchDir, key: string, adapter: AgentAdapter, form: FormId | null, model: string | undefined, workers: WorkerPolicy | undefined): Record<string, string> {
-  return { [LAUNCH_ENV]: key, ORCH_DIR: orchDir, ...compactionEnv(adapter, model, workers), ...terminalClientEnv(adapter, form) };
+  return { [LAUNCH_ENV]: key, ORCH_DIR: orchDir, ...policyEnv(adapter, model, workers), ...terminalClientEnv(adapter, form) };
 }
 
 function resolveSpawnPlace(spec: TabSpawnSpec, env: Readonly<Record<string, string>>): BackendHandle | undefined {

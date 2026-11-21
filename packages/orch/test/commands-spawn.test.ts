@@ -332,3 +332,40 @@ describe("commands/spawn", () => {
     expect(workerPrompt("hello", true, undefined)).toBe("hello");
   });
 });
+
+describe("--write-root", () => {
+  const settingsFor = (dir: OrchDir) => testServices({
+    orchDir: dir,
+    settings: { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless", models: { pi: "openrouter/openai/gpt-5.6-luna" } } },
+  }).settings.current();
+
+  test("defaults to null", () => {
+    const dir = tempOrchDir("orch-spawn-write-root-");
+    tempDirs.push(dir);
+    expect(resolveSpawnSettings(parseSpawnFlags(["a", "b"]), settingsFor(dir)).params.agents.map((agent) => agent.writeRoot)).toEqual([null, null]);
+  });
+
+  test("resolves a name token against --dir", () => {
+    const dir = tempOrchDir("orch-spawn-write-root-");
+    tempDirs.push(dir);
+    expect(resolveSpawnSettings(parseSpawnFlags(["a", "b", "--dir", "/repo", "--write-root", "out/{name}"]), settingsFor(dir)).params.agents.map((agent) => agent.writeRoot)).toEqual(["/repo/out/a", "/repo/out/b"]);
+  });
+
+  test("resolves roots per agent", () => {
+    const dir = tempOrchDir("orch-spawn-write-root-");
+    tempDirs.push(dir);
+    expect(resolveSpawnSettings(parseSpawnFlags(["a", "b", "--dir", "/repo", "--write-root", "/x/one", "--write-root", "two"]), settingsFor(dir)).params.agents.map((agent) => agent.writeRoot)).toEqual(["/x/one", "/repo/two"]);
+  });
+
+  test("refuses an incorrect number of roots", () => {
+    const dir = tempOrchDir("orch-spawn-write-root-");
+    tempDirs.push(dir);
+    expect(() => resolveSpawnSettings(parseSpawnFlags(["a", "b", "c", "--write-root", "x", "--write-root", "y"]), settingsFor(dir))).toThrow(/--write-root accepts one value for all agents or exactly 3 values/);
+  });
+
+  test("refuses --cmd with a write root", () => {
+    const dir = tempOrchDir("orch-spawn-write-root-");
+    tempDirs.push(dir);
+    expect(() => resolveSpawnSettings(parseSpawnFlags(["a", "--write-root", "x", "--cmd", "pi"]), settingsFor(dir))).toThrow(/--write-root confines the harness's own launch/);
+  });
+});

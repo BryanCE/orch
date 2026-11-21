@@ -1,18 +1,29 @@
 import { describe, expect, test } from "bun:test";
-import { insideWriteRoot, toolReach, writeRootOf, writeRootRefusal, writeRootTools } from "../src/policy/write-root.ts";
-import type { ToolVocabulary } from "../src/policy/write-root.ts";
+import { writeRootGate, writeRootRefusal, writeRootTools, type ToolVocabulary, type WriteRootGate } from "../src/policy/write-root.ts";
 
 const root = "/repo/.orch/councils/plan/ada";
-const cwd = "/repo";
+const tools: ToolVocabulary = { reads: ["read", "grep"], writes: ["edit", "write"], pathField: "path" };
+const gate: WriteRootGate = { root, cwd: "/repo", tools };
+const refusedTool = `orch refused this tool: this agent only reads files, and writes only inside ${root}.`;
 
-describe("write root", () => {
-  test("reads the configured root", () => {
-    expect(writeRootOf({})).toBeNull();
-    expect(writeRootOf({ ORCH_WRITE_ROOT: "" })).toBeNull();
-    expect(writeRootOf({ ORCH_WRITE_ROOT: root })).toBe(root);
+describe("writeRootGate", () => {
+  test("a launch that set no root has no gate", () => {
+    expect(writeRootGate({}, "/repo", tools)).toBeNull();
+    expect(writeRootGate({ ORCH_WRITE_ROOT: "" }, "/repo", tools)).toBeNull();
   });
 
-  test("recognizes paths inside the root", () => {
+  test("the gate holds the root and the directory as absolute paths", () => {
+    expect(writeRootGate({ ORCH_WRITE_ROOT: `${root}/` }, "/repo/", tools)).toEqual(gate);
+  });
+});
+
+describe("writeRootRefusal", () => {
+  test("a read runs, wherever it reads", () => {
+    expect(writeRootRefusal(gate, "read", { path: "/etc/passwd" })).toBeUndefined();
+    expect(writeRootRefusal(gate, "grep", { pattern: "x" })).toBeUndefined();
+  });
+
+  test("a write inside the root runs", () => {
     for (const target of [
       ".orch/councils/plan/ada/round-1.md",
       "/repo/.orch/councils/plan/ada/round-1.md",
@@ -20,46 +31,35 @@ describe("write root", () => {
       "/repo/.orch/councils/plan/ada/..draft.md",
       "src/../.orch/councils/plan/ada/round-2.md",
     ]) {
-      expect(insideWriteRoot(root, cwd, target)).toBe(true);
+      expect(writeRootRefusal(gate, "write", { path: target, content: "x" })).toBeUndefined();
     }
   });
 
-  test("rejects the root itself and paths outside it", () => {
-    for (const target of [
-      ".orch/councils/plan/ada",
-      ".orch/councils/plan/ada/",
-      ".orch/councils/plan/bob/round-1.md",
-      ".orch/councils/plan/ada/../bob/round-1.md",
-      "/repo/.orch/councils/plan/ada-2/round-1.md",
-      "src/a.ts",
-      "/etc/passwd",
-      "~/.bashrc",
-      "round-1.md",
+  test("a write to the root itself or outside it is refused, and the refusal names the file", () => {
+    for (const [target, file] of [
+      [".orch/councils/plan/ada", "/repo/.orch/councils/plan/ada"],
+      [".orch/councils/plan/ada/", "/repo/.orch/councils/plan/ada"],
+      [".orch/councils/plan/bob/round-1.md", "/repo/.orch/councils/plan/bob/round-1.md"],
+      [".orch/councils/plan/ada/../bob/round-1.md", "/repo/.orch/councils/plan/bob/round-1.md"],
+      ["/repo/.orch/councils/plan/ada-2/round-1.md", "/repo/.orch/councils/plan/ada-2/round-1.md"],
+      ["src/a.ts", "/repo/src/a.ts"],
+      ["/etc/passwd", "/etc/passwd"],
+      ["~/.bashrc", "/repo/~/.bashrc"],
+      ["round-1.md", "/repo/round-1.md"],
     ]) {
-      expect(insideWriteRoot(root, cwd, target)).toBe(false);
+      expect(writeRootRefusal(gate, "edit", { path: target })).toBe(`orch refused this write: ${file} is outside ${root}, the only directory this agent may write in.`);
     }
-    expect(insideWriteRoot("/repo/.orch/councils/plan/ada/", cwd, ".orch/councils/plan/ada/round-1.md")).toBe(true);
   });
 
-  test("classifies a tool call by its harness's vocabulary", () => {
-    const tools: ToolVocabulary = { reads: ["read", "grep"], writes: ["edit", "write"], pathField: "path" };
-    expect(toolReach(tools, "read", { path: "a.ts" })).toEqual({ kind: "reads" });
-    expect(toolReach(tools, "write", { path: "a.ts", content: "x" })).toEqual({ kind: "writes", path: "a.ts" });
-    expect(toolReach(tools, "edit", { file_path: "a.ts" })).toEqual({ kind: "other" });
-    expect(toolReach(tools, "edit", "a.ts")).toEqual({ kind: "other" });
-    expect(toolReach(tools, "bash", { command: "ls" })).toEqual({ kind: "other" });
-    expect(toolReach(tools, 7, {})).toEqual({ kind: "other" });
-    expect(writeRootTools(tools)).toEqual(["read", "grep", "edit", "write"]);
+  test("every other call is refused", () => {
+    expect(writeRootRefusal(gate, "bash", { command: "ls" })).toBe(refusedTool);
+    expect(writeRootRefusal(gate, "mcp__files__write", { path: `${root}/x.md` })).toBe(refusedTool);
+    expect(writeRootRefusal(gate, 7, {})).toBe(refusedTool);
+    expect(writeRootRefusal(gate, "edit", { file_path: `${root}/x.md` })).toBe(refusedTool);
+    expect(writeRootRefusal(gate, "edit", `${root}/x.md`)).toBe(refusedTool);
   });
+});
 
-  test("explains refusals by tool reach", () => {
-    expect(writeRootRefusal(root, cwd, { kind: "reads" })).toBeUndefined();
-    expect(writeRootRefusal(root, cwd, { kind: "writes", path: ".orch/councils/plan/ada/round-1.md" })).toBeUndefined();
-    expect(writeRootRefusal(root, cwd, { kind: "writes", path: "src/a.ts" })).toBe(
-      "orch refused this write: /repo/src/a.ts is outside /repo/.orch/councils/plan/ada, the only directory this agent may write in.",
-    );
-    expect(writeRootRefusal(root, cwd, { kind: "other" })).toBe(
-      "orch refused this tool: this agent only reads files, and writes only inside /repo/.orch/councils/plan/ada.",
-    );
-  });
+test("writeRootTools lists the reads, then the writes", () => {
+  expect(writeRootTools(tools)).toEqual(["read", "grep", "edit", "write"]);
 });

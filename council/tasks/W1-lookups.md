@@ -1,9 +1,11 @@
 # W1: lookups for the council feature
 
-Context for every section. "Council" is a planned feature: one prompt is sent to several
-models from different providers, each drafts, critiques and scores one shared plan document
-over a fixed number of rounds, and the user sees each model's score and decides whether to run
-another round. Nothing is built yet. These tasks only read code and write one report file each.
+Context for every section. "Council" is a planned feature: several agents on different models
+review one subject (a plan, a UI or an implementation). Each scores it and lists what would
+improve it in one Markdown file of its own, and never changes the subject. The agent that
+convened the council does the work between rounds, and the user sees each member's score and
+decides whether to run another round. `council/README.md` is the full description. Nothing is
+built yet. These tasks only read code and write one report file each.
 Edit no source file. Run no `orch` command, no build, no test. Paths are from the repo root
 `/home/bryan/orch`.
 

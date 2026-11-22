@@ -22,7 +22,7 @@ member's score for each round and may stop it early.
 - **Member.** A read-only agent. Reads the subject and the other members' files from the round
   before. Writes one Markdown file per round in its own directory, which is the only place it
   can write.
-- **User.** Sets the models and the round count. Reads the scores. May stop the council at
+- **User.** Sets the models, each member's thinking level, and the round count. Reads the scores. May stop the council at
   any round.
 
 ## The council directory
@@ -104,23 +104,27 @@ read-only agent, and a spawn that asks is refused with the harnesses that can.
 ## The council verbs
 
 A council has verbs of its own, and its members sit in a tab of their own, apart from any
-worker fleet the same orchestrator runs.
+worker fleet the same orchestrator runs. Members that outnumber `fleet.max_agents_per_tab`
+spread evenly over numbered tabs after it (`memberTabs` in `src/council/lineup.ts`).
 
 ```
 orch council convene plan-review --prompt "Review the plan in plan.md." --with plan.md
 orch council round plan-review "Rewrote section 2." --with plan.md
+orch council steer plan-review "The user ruled the rollback steps out."
 orch council scores plan-review
 orch council close plan-review
 ```
 
 - `convene` launches each member read-only with its member directory as its output directory,
   records the council, and sends round 1. The members are the `council.models` setting: models
-  by harness, one member per model, each named for the council and its model
-  (`src/council/lineup.ts`). A convener that names members on the command, with a harness and a
+  by harness, one member per model, each with its thinking level written after the model as
+  `<model>:<level>`, each named for the council and its model (`src/council/lineup.ts`). A convener that names members on the command, with a harness and a
   model each the way a spawn does, seats those instead for that one council.
 - `round` sends the next round onto each member's conversation. It is refused while a member
   of the round before still runs, and once the council has run `council.rounds` rounds. From round 2 a member is pointed at the others' files from
   the round before.
+- `steer` sends one instruction to every member still writing the current round, for a ruling
+  the members must hold to mid-round. A member that finished the round is named, not steered.
 - `scores` prints a row per member and a column per round, with the model and cost of the
   runs, and under the table what was wrong with any file that carried no score.
 - `close` closes every member still running, then the council.
@@ -155,8 +159,10 @@ Source that has landed, each with its test.
   settings file. A settings file whose `council.models` names a model outside that harness's
   `models.allowed` is refused, on read and on write. In the `orch settings` editor the
   `council.models` row opens a picker: each enabled harness in turn, its launchable models as
-  a checklist (`resolveCouncilModels` in `src/setup/composition.ts`).
-- **The skill.** `skills/council/SKILL.md`: how a lead runs a council.
+  a checklist, then the thinking level of each member picked (`resolveCouncilModels` in
+  `src/setup/composition.ts`).
+- **The skill.** `skills/orch-council/SKILL.md`, the `orch-council` skill: how a lead runs a
+  council. Its name carries orch's so it cannot collide with another tool's council skill.
 
 ## Waiting on Bryan
 
@@ -174,6 +180,9 @@ Source that has landed, each with its test.
 
 - The models that sit on a council are a setting, `council.models`, so a convener never names
   them per council. The list is a subset of `models.allowed`, held to it per harness.
+- A member's thinking level is part of its entry in `council.models`, `<model>:<level>`, the
+  token every launch already takes. The picker asks it per member. A model with no level runs
+  at the thinking default.
 - A council's criteria are part of the convener's `--prompt`. They change with every council,
   so they are not a setting.
 

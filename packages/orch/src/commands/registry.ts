@@ -250,6 +250,11 @@ const AGENTS: readonly CommandSpec[] = [
         summary: "Send the next round onto each member's conversation. The text says what changed.",
         flags: [{ name: "--with", arity: "many", placeholder: "<path>", help: "A file or directory the members read. Must exist." }, COUNCIL_DIR],
       },
+      {
+        name: "steer", args: "<council> <text...>",
+        summary: "Correct every member still writing the current round, mid-round. A ruling the members must hold to.",
+        flags: [COUNCIL_DIR],
+      },
       { name: "scores", args: "<council>", summary: "Each member's score for each round, with what its runs cost.", flags: [COUNCIL_DIR] },
       { name: "close", args: "<council>", summary: "Close the council and every member still running.", flags: [COUNCIL_DIR] },
     ],

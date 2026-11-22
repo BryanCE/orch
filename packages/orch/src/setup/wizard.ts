@@ -1,6 +1,7 @@
 import { intro, outro } from "@clack/prompts";
 import { DEFAULT_RUNTIME, ORCH_RUNTIMES, type OrchRuntime } from "../runtimes.ts";
 import { splitThinkingSuffix } from "../policy/thinking.ts";
+import { THINKING_LEVELS, type ThinkingLevel } from "../types/policy.ts";
 import { idOptions, promptAutocomplete, promptAutocompleteMultiselect, promptSelect, promptMultiselect } from "./io.ts";
 import type { HarnessModel } from "../types/adapter.ts";
 import type { NotifierChoice } from "../types/notify.ts";
@@ -145,6 +146,17 @@ export function selectCouncilModels(
   pick: CataloguePicker = defaultCataloguePicker,
 ): Promise<string[] | null> {
   return pickFromCatalogue(`Council members on ${harnessId}, one per model (${howToPick(offered)}, none = no member on ${harnessId})`, offered, already, pick);
+}
+
+/** Pick the thinking effort one council member runs at, starting on the level it has now.
+ *  Null on cancel. */
+export function selectMemberThinking(
+  harnessId: string,
+  model: string,
+  current: ThinkingLevel,
+  pick: typeof promptSelect<ThinkingLevel> = promptSelect,
+): Promise<ThinkingLevel | null> {
+  return pick(`Thinking level for the ${model} member on ${harnessId}`, idOptions(THINKING_LEVELS), current);
 }
 
 /** Multi-select which missing prerequisites to install; null when the user cancels, [] when none are missing. */

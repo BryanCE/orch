@@ -274,6 +274,7 @@ function parseTypedRequest(method: RpcMethod, id: number | null, value: unknown)
     case "runs": return parseOne(method, RPC_PARAMS[method], id, value);
     case "council-convene": return parseOne(method, RPC_PARAMS[method], id, value);
     case "council-round": return parseOne(method, RPC_PARAMS[method], id, value);
+    case "council-steer": return parseOne(method, RPC_PARAMS[method], id, value);
     case "council-close": return parseOne(method, RPC_PARAMS[method], id, value);
     case "council-scores": return parseOne(method, RPC_PARAMS[method], id, value);
     case "run": return parseOne(method, RPC_PARAMS[method], id, value);

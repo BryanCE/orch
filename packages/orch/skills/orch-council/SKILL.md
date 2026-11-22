@@ -1,10 +1,10 @@
 ---
-name: council
+name: orch-council
 description: Run a council with the orch CLI. Agents on different models score one subject, a plan, a UI or a change, round by round, and you improve it between rounds. Use when the user asks for a council, a multi-model review, or scored review rounds.
 allowed-tools: Bash, Read
 ---
 
-# council
+# orch-council
 
 A council is several agents on different models that score one subject and list what would
 improve it. You are the lead and the members only review. You read their reviews, improve the
@@ -44,8 +44,8 @@ orch council close plan-review
 
 1. **Convene.** Name the council for its subject. `--prompt` carries the brief's subject and
    goal, and `--with` names each file a member must read. The members are the user's
-   `council.models` setting, one per model. Done when the command reports round 1 sent to
-   every member.
+   `council.models` setting, one per model, each at the thinking level the setting gives it.
+   Done when the command reports round 1 sent to every member.
 2. **Wait.** Arm `orch monitor`. Done when every member of the round has reported `DONE`.
 3. **Read.** Run `orch council scores <council>`. Each member's review is `round-<n>.md` in
    its own directory, `.orch/councils/<council>/<member>/` unless the `council.directory`
@@ -79,6 +79,17 @@ The council reaches its stopping point at the first of these:
 - The user says stop.
 - A round's scores match the round before and the members list nothing new. The council has
   said what it has to say.
+
+## A ruling mid-council
+
+When the user rules on something the members are scoring, the members must hear it, or they
+keep scoring against it.
+
+- While a round runs: `orch council steer <council> "<the ruling, stated as decided>"`. It
+  reaches every member still writing the round, and names each member that had finished.
+- Between rounds, and for each member the steer named: open the next round's text with the
+  ruling.
+- Change the subject to match the ruling before the next round.
 
 ## Ask first
 

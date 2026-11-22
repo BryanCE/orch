@@ -107,6 +107,11 @@ describe("orch council", () => {
     return expect(cmdCouncil(services, ["convene", "next", "--model", "luna", "--prompt", "Review plan.md."])).rejects.toThrow("--model and --harness go with named members");
   });
 
+  test("steer needs its text", async () => {
+    const { services } = await setup([]);
+    return expect(cmdCouncil(services, ["steer", "plan"])).rejects.toThrow("usage:");
+  });
+
   test("round needs its text", async () => {
     const { services } = await setup([]);
     return expect(cmdCouncil(services, ["round", "plan"])).rejects.toThrow("usage:");

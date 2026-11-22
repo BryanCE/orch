@@ -27,3 +27,11 @@ export function councilLineup(council: string, models: OrchSettings["council"]["
     return { name: count === 1 ? base : `${base}-${count}`, harness, model };
   }));
 }
+
+/** The tabs a council's members sit in: the council's own tab, and numbered ones after it when
+ *  the members outnumber what one tab holds. The members spread evenly, in their order. */
+export function memberTabs<Member>(tab: string, members: readonly Member[], perTab: number): { readonly tab: string; readonly members: readonly Member[] }[] {
+  const tabs = Math.ceil(members.length / perTab);
+  const size = Math.ceil(members.length / tabs);
+  return Array.from({ length: tabs }, (_, index) => ({ tab: index === 0 ? tab : `${tab}-${index + 1}`, members: members.slice(index * size, (index + 1) * size) }));
+}

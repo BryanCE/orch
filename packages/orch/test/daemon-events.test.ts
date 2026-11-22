@@ -185,6 +185,39 @@ describe("daemon presence events", () => {
     expect(selectRun(orchDir, "dispatch-result")?.result).toBe(resultText);
   });
 
+  test("a result that names no model or usage keeps what the working run recorded", () => {
+    const orchDir = tempOrchDir();
+    const key = mintAgentId();
+    seedAgent(orchDir, key, { harnessId: "claude" });
+    const tokens = { input: 10, output: 20, cacheRead: 30, cacheWrite: 40 };
+    report(orchDir, key, { state: "working", dispatchId: "d-claude", startedAt: 2, task: "review", model: { provider: "anthropic", id: "claude-opus-5-5" } }, () => { /* working */ });
+    report(orchDir, key, { state: "done", finishedAt: 7, tokens, turns: 3 }, () => { /* done */ });
+    acceptResultReport(orchDir, key, { text: "answer", finishedAt: 7 });
+    expect(selectRun(orchDir, "d-claude")).toMatchObject({
+      state: "done",
+      adapter: "claude",
+      model: "claude-opus-5-5",
+      task: "review",
+      startedAt: 2,
+      finishedAt: 7,
+      tokensIn: 10,
+      tokensOut: 20,
+      cacheRead: 30,
+      cacheWrite: 40,
+      turns: 3,
+      result: "answer",
+    });
+  });
+
+  test("a result's own usage replaces the working run's", () => {
+    const orchDir = tempOrchDir();
+    const key = mintAgentId();
+    seedAgent(orchDir, key, { harnessId: "claude" });
+    report(orchDir, key, { state: "working", dispatchId: "d-usage", startedAt: 2, tokens: { input: 1, output: 1, cacheRead: 1, cacheWrite: 1 } }, () => { /* working */ });
+    acceptResultReport(orchDir, key, { text: "answer", finishedAt: 9, tokens: { input: 5, output: 6, cacheRead: 7, cacheWrite: 8 }, turns: 2 });
+    expect(selectRun(orchDir, "d-usage")).toMatchObject({ adapter: "claude", tokensIn: 5, tokensOut: 6, cacheRead: 7, cacheWrite: 8, turns: 2 });
+  });
+
   test("a status report after the result leaves the settled run alone", () => {
     const orchDir = tempOrchDir();
     const key = mintAgentId();

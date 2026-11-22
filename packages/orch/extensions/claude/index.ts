@@ -21,6 +21,7 @@ import { isRecord, projectRoot, textValue, truncate, truncateOptional } from "or
 import { lastAssistantFromJsonl, trailingQuestion } from "orch/core/shared/transcript.ts";
 import { readOnlyGate } from "orch/core/policy/read-only.ts";
 import { preToolUse } from "./tool-gate.ts";
+import { transcriptUsage, type TranscriptUsage } from "./transcript-usage.ts";
 import { CLAUDE_TOOLS } from "./vocabulary.ts";
 import type { JsonRecord } from "orch/core/types/core.ts";
 import type { StatusPatch } from "orch/core/types/presence.ts";
@@ -100,27 +101,35 @@ async function reportStart(): Promise<void> {
   });
 }
 
+/** The session's token totals and model calls, as a status patch and a result carry them. */
+function usageFields(usage: TranscriptUsage | undefined): Pick<StatusPatch, "tokens" | "turns"> {
+  return usage === undefined ? {} : { tokens: usage.tokens, turns: usage.turns };
+}
+
 /** A turn that ends on a question waits for its answer as the next prompt. */
-async function reportQuestion(question: string, text: string): Promise<void> {
+async function reportQuestion(question: string, text: string, usage: TranscriptUsage | undefined): Promise<void> {
   const notice = { notice: "question", agentId: key, questionId: randomUUID(), question: truncate(question, MAX_TEXT), askedAt: Date.now() };
   await report("question", notice);
-  await reportStatus({ state: "asking", blockedMessage: notice.question, lastText: truncateOptional(text, MAX_TEXT) });
+  await reportStatus({ state: "asking", blockedMessage: notice.question, lastText: truncateOptional(text, MAX_TEXT), ...usageFields(usage) });
 }
 
 /** Every other turn end settles the run, with its final text as the result. */
-async function reportDone(text: string | undefined): Promise<void> {
+async function reportDone(text: string | undefined, usage: TranscriptUsage | undefined): Promise<void> {
   const finishedAt = Date.now();
-  await reportStatus({ state: "done", finishedAt, blockedMessage: null, lastText: truncateOptional(text, MAX_TEXT) ?? null });
+  await reportStatus({ state: "done", finishedAt, blockedMessage: null, lastText: truncateOptional(text, MAX_TEXT) ?? null, ...usageFields(usage) });
   if (text === undefined) return;
-  await report("report-result", { key, result: { text, sessionPath: transcriptPath ?? null, finishedAt } });
+  await report("report-result", { key, result: { text, sessionPath: transcriptPath ?? null, finishedAt, ...usageFields(usage) } });
 }
 
-/** Claude names the final reply in the Stop payload; the transcript can lag behind it. */
+/** Claude names the final reply in the Stop payload; the transcript can lag behind it.
+ *  The transcript holds the session's token counts; Claude reports no cost. */
 async function reportStop(): Promise<void> {
-  const text = textValue(input.last_assistant_message) ?? lastAssistantFromJsonl(readTranscript(transcriptPath));
+  const transcript = readTranscript(transcriptPath);
+  const usage = transcriptUsage(transcript);
+  const text = textValue(input.last_assistant_message) ?? lastAssistantFromJsonl(transcript);
   const question = text === undefined ? undefined : trailingQuestion(text);
-  if (text !== undefined && question !== undefined) await reportQuestion(question, text);
-  else await reportDone(text);
+  if (text !== undefined && question !== undefined) await reportQuestion(question, text, usage);
+  else await reportDone(text, usage);
 }
 
 async function reportStopFailure(): Promise<void> {

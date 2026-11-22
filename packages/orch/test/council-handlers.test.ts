@@ -4,7 +4,7 @@ import { hostIdentity } from "../src/hosts/identity.ts";
 import { closeAllStores } from "../src/store/connection.ts";
 import { ensureHarness, insertAgent } from "../src/store/agent-rows.ts";
 import { askReview, closeCouncil, councilAt, insertCouncil, scoreReview } from "../src/store/council-rows.ts";
-import { closeCouncilNamed, councilRound, councilScores } from "../src/daemon/server/council.ts";
+import { closeCouncilNamed, councilRound, councilScores, councilSteer } from "../src/daemon/server/council.ts";
 import { upsertRun } from "../src/store/run-rows.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { idleDaemonState } from "./helpers/daemon-state.ts";
@@ -80,6 +80,19 @@ describe("the council handlers", () => {
   test("a council with no member running takes no round", () => {
     const { dir, state } = seeded([]);
     return expect(councilRound(state, { ...ref(dir), subject: "go" })).rejects.toThrow("council plan has no member still running");
+  });
+
+  test("a steer with no member still writing the round says where to put it", () => {
+    const { dir, state } = seeded(["ada"]);
+    askReview(dir, { dispatchId: "d1", councilId: "c1", round: 1, member: "ada", askedAt: 2 });
+    scoreReview(dir, "d1", 3, { score: 7 });
+    return expect(councilSteer(state, { ...ref(dir), text: "The trust gate is out." })).rejects.toThrow("no member of council plan is still writing round 1. Say it in the text of the next round");
+  });
+
+  test("a closed council takes no steer", () => {
+    const { dir, state } = seeded(["ada"]);
+    closeCouncil(dir, "c1", 5);
+    return expect(councilSteer(state, { ...ref(dir), text: "The trust gate is out." })).rejects.toThrow("council plan is closed");
   });
 
   test("close with no member running closes the council", async () => {

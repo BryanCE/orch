@@ -8,7 +8,7 @@ import type { RunRecord } from "../../types/store.ts";
 import { isAgentState, isRunEndState } from "../../agent-state.ts";
 import { agentView } from "../../store/agent-view.ts";
 import { selectAgentStatus, type AgentStatusRow } from "../../store/status-rows.ts";
-import { upsertRun } from "../../store/run-rows.ts";
+import { selectRun, upsertRun } from "../../store/run-rows.ts";
 import { appendStatusHistory, writeResult } from "../../presence/history.ts";
 import { endDeadAgents, loadPresence, probeAllProcesses, reapDeadAgentRecords, recordAgentState, recordAgentStatus, runIsSettled } from "../../presence/store.ts";
 import { placeHere } from "../../process-place.ts";
@@ -46,6 +46,12 @@ function logStateChange(orchDir: OrchDir, row: AgentStatusRow, now: number): voi
   appendStatusHistory(row.agentId, orchDir, { ts: now, ...changedFields(logged, row), ...(question === undefined ? {} : { question }) });
 }
 
+/** A run carries the harness its agent runs on. */
+function recordAdapter(orchDir: OrchDir, run: RunRecord): void {
+  const view = agentView(orchDir, run.agentKey);
+  if (view) run.adapter = view.harnessId;
+}
+
 function runFromRow(orchDir: OrchDir, row: AgentStatusRow, now: number): RunRecord | undefined {
   if (row.dispatchId === null || row.state === "idle") return undefined;
   const run: RunRecord = {
@@ -54,8 +60,7 @@ function runFromRow(orchDir: OrchDir, row: AgentStatusRow, now: number): RunReco
     state: row.state,
     startedAt: row.startedAt ?? now,
   };
-  const view = agentView(orchDir, row.agentId);
-  if (view) run.adapter = view.harnessId;
+  recordAdapter(orchDir, run);
   if (row.modelId !== null) run.model = row.modelId;
   if (row.task !== null) run.task = row.task;
   if (isRunEndState(row.state) && row.finishedAt !== null) run.finishedAt = row.finishedAt;
@@ -136,16 +141,19 @@ export function acceptResultReport(
   const dispatchId = result.dispatchId ?? selectAgentStatus(orchDir, key)?.dispatchId ?? null;
   if (dispatchId === null) return { ok: true };
   try {
-    upsertRun(orchDir, runFromResult(dispatchId, key, result, now));
+    upsertRun(orchDir, runFromResult(orchDir, dispatchId, key, result, now));
   } catch {
     // History is a bystander: a failed run write cannot reject a report.
   }
   return { ok: true };
 }
 
-/** The settled run one result report describes. */
-function runFromResult(dispatchId: string, key: string, result: ResultReport, now: number): RunRecord {
-  const run: RunRecord = { dispatchId, agentKey: key, state: "done", startedAt: now, result: result.text };
+/** The settled run one result report describes, on top of what the run's status reports
+ *  recorded: a field the result does not carry keeps the value the working run had. */
+function runFromResult(orchDir: OrchDir, dispatchId: string, key: string, result: ResultReport, now: number): RunRecord {
+  const recorded = selectRun(orchDir, dispatchId);
+  const run: RunRecord = { ...recorded, dispatchId, agentKey: key, state: "done", startedAt: recorded?.startedAt ?? now, result: result.text };
+  recordAdapter(orchDir, run);
   if (result.finishedAt !== undefined) run.finishedAt = result.finishedAt;
   if (result.task !== null && result.task !== undefined) run.task = result.task;
   if (result.model !== null && result.model !== undefined) run.model = result.model.id;

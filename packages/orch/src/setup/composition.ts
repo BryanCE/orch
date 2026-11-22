@@ -2,10 +2,10 @@ import { writeSettingsDefault, writeSettingsFullTree, writeSettingsModels, write
 import { DEFAULT_RUNTIME, ORCH_RUNTIMES, type OrchRuntime } from "../runtime.ts";
 import { signedOutFix } from "../shared/prerequisites.ts";
 import { assertModelListed, isAllowedModel } from "../policy/model.ts";
-import { splitThinkingSuffix } from "../policy/thinking.ts";
+import { modelSpec, resolveThinking, splitThinkingSuffix } from "../policy/thinking.ts";
 import { allowlistWithDefault } from "../settings/read.ts";
 import { logStep, logWarning } from "./io.ts";
-import { selectAdapters, selectDefaultAdapter, selectBackends, selectDefaultBackend, selectDefaultModel, selectAllowedModels, selectCouncilModels, selectRuntime } from "./wizard.ts";
+import { selectAdapters, selectDefaultAdapter, selectBackends, selectDefaultBackend, selectDefaultModel, selectAllowedModels, selectCouncilModels, selectMemberThinking, selectRuntime } from "./wizard.ts";
 import { errorMessage } from "../util.ts";
 import { die } from "../commands/target.ts";
 import { SetupFlagError, validateSetupFlag } from "./flags.ts";
@@ -115,24 +115,41 @@ export async function resolveHarnessModels(
   return { ...choices, offers: readOffers };
 }
 
-/** Pick the council's lineup harness by harness, each from the models that harness lists and
- *  may launch. A recorded effort suffix stays on a model that is kept. A harness with nothing
- *  to offer keeps what is recorded for it. Null when the user cancels. */
+/** The two questions the council picker asks of one harness: which models sit, and the
+ *  thinking level each one runs at. */
+export interface CouncilPickers {
+  readonly models: typeof selectCouncilModels;
+  readonly thinking: typeof selectMemberThinking;
+}
+
+/** Pick the council's lineup harness by harness: the members, from the models that harness
+ *  lists and may launch, then each member's thinking level, which starts on the level recorded
+ *  for it or on the one a launch of that harness would get. A harness with nothing to offer
+ *  keeps what is recorded for it. Null when the user cancels. */
 export async function resolveCouncilModels(
   settings: OrchSettings,
   offers: HarnessOffers,
   harnesses: readonly AdapterId[],
-  pick: typeof selectCouncilModels = selectCouncilModels,
+  pick: CouncilPickers = { models: selectCouncilModels, thinking: selectMemberThinking },
 ): Promise<OrchSettings["council"]["models"] | null> {
   let lineup = settings.council.models;
   for (const id of harnesses) {
     const launchable = (await readHarnessCatalogue(id, offers, true)).models.filter((model) => isAllowedModel(settings, id, model.spec));
     if (!launchable.length) continue;
-    const recorded = new Map((lineup[id] ?? []).map((model) => [splitThinkingSuffix(model).bare, model]));
-    const picked = await pick(id, launchable, [...recorded.keys()]);
+    const recorded = new Map((lineup[id] ?? []).map((model) => {
+      const { bare, thinking } = splitThinkingSuffix(model);
+      return [bare, thinking];
+    }));
+    const picked = await pick.models(id, launchable, [...recorded.keys()]);
     if (picked === null) return null;
+    const members: string[] = [];
+    for (const spec of picked) {
+      const level = await pick.thinking(id, spec, resolveThinking({ modelSuffix: recorded.get(spec), harness: id, settings }));
+      if (level === null) return null;
+      members.push(modelSpec(spec, level));
+    }
     const { [id]: _replaced, ...others } = lineup;
-    lineup = picked.length ? { ...others, [id]: picked.map((spec) => recorded.get(spec) ?? spec) } : others;
+    lineup = members.length ? { ...others, [id]: members } : others;
   }
   return lineup;
 }

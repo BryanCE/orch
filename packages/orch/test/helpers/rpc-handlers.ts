@@ -25,6 +25,7 @@ export function stubRpcHandlers(overrides: Partial<RpcHandlers> = {}): RpcHandle
     tile: notStubbed,
     "council-convene": notStubbed,
     "council-round": notStubbed,
+    "council-steer": notStubbed,
     "council-close": notStubbed,
     "council-scores": notStubbed,
     tab: notStubbed,

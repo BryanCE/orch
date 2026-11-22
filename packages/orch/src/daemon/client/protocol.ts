@@ -254,6 +254,12 @@ const TAB_ACTION = z.discriminatedUnion("kind", [
 ]);
 export type TabAction = z.infer<typeof TAB_ACTION>;
 /** Why a launch does not apply in the caller's environment. */
+/** What sending one text to a council's members came to: who took it, and who did not and why. */
+const COUNCIL_SENT = {
+  deliveries: z.array(z.object({ member: z.string(), key: z.string(), id: z.string(), ack: z.enum(["acknowledged", "unavailable"]) })),
+  refused: z.array(z.object({ member: z.string(), reason: z.string() })),
+};
+
 const ENVIRONMENT_ANSWER = z.object({ outcome: z.literal("answer"), reason: z.literal("no-environment-role"), text: z.string() });
 
 /** A fleet a spawn launched. `headless`: placed nowhere, so each agent's key is its handle.
@@ -743,6 +749,8 @@ export const RPC_PARAMS = {
   /** Send a council's next round onto each member's conversation. `subject` is what the convener
    *  tells them: the subject, and from the second round what changed. */
   "council-round": GOVERNANCE.extend({ ...COUNCIL, subject: nonBlank }),
+  /** Steer every member still writing a council's current round: one instruction, mid-round. */
+  "council-steer": GOVERNANCE.extend({ ...COUNCIL, text: nonBlank }),
   /** Close a council and every member still running. */
   "council-close": GOVERNANCE.extend(COUNCIL),
   "council-scores": z.object(COUNCIL),
@@ -941,9 +949,13 @@ export const RPC_RESULTS = {
     round: z.number().int().positive(),
     /** How many rounds the council runs: the `council.rounds` setting. */
     rounds: z.number().int().positive(),
-    deliveries: z.array(z.object({ member: z.string(), key: z.string(), id: z.string(), ack: ACCEPTED.shape.ack })),
-    /** The members the round did not reach, each with why. */
-    refused: z.array(z.object({ member: z.string(), reason: z.string() })),
+    ...COUNCIL_SENT,
+  }),
+  "council-steer": z.object({
+    round: z.number().int().positive(),
+    ...COUNCIL_SENT,
+    /** The members that had finished the round already, so the steer did not go to them. */
+    finished: z.array(z.string()),
   }),
   "council-close": z.object({ closed: z.array(z.string()) }),
   "council-scores": z.object({ name: z.string(), directory: z.string(), scale: z.number().int().positive(), rounds: z.number().int().positive(), closedAt: z.number().nullable(), members: z.array(z.string()), reviews: z.array(COUNCIL_REVIEW) }),
@@ -1063,7 +1075,7 @@ export function isRpcMethod(value: unknown): value is RpcMethod {
 }
 
 export type GovernedMethod =
-  | "dispatch" | "steer" | "message" | "answer" | "set-model" | "lifecycle" | "clear-session" | "abort" | "spawn-headless" | "spawn" | "tile" | "tab" | "council-convene" | "council-round" | "council-close"
+  | "dispatch" | "steer" | "message" | "answer" | "set-model" | "lifecycle" | "clear-session" | "abort" | "spawn-headless" | "spawn" | "tile" | "tab" | "council-convene" | "council-round" | "council-steer" | "council-close"
   | "agent-closed" | "agent-pane" | "agent-worktree" | "adopt-agent" | "detach" | "adopt" | "rename" | "reap" | "reap-candidates" | "reclaim" | "set-handle"
   | "space-create" | "space-rename" | "space-delete" | "grant"
   | "queue-cancel" | "queue-edit" | "queue-take-on" | "queue-reap" | "queue-intake" | "clean";

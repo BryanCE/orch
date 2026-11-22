@@ -31,7 +31,7 @@ import { ownedAgents } from "./owned.ts";
 import { harnessCatalogues, refreshCatalogues, syncHarnessFiles } from "./harness.ts";
 import { admitModelFor } from "../spawn/models.ts";
 import { spawnAgents, tileAgent } from "../spawn/index.ts";
-import { closeCouncilNamed, conveneCouncil, councilRound, councilScores } from "../council.ts";
+import { closeCouncilNamed, conveneCouncil, councilRound, councilScores, councilSteer } from "../council.ts";
 import { tabVerb } from "../tabs.ts";
 import { reexecSelf } from "../ownership.ts";
 import { publishFromOrchd } from "../events.ts";
@@ -141,6 +141,7 @@ export function rpcHandlers(state: DaemonState): RpcHandlers {
     tile: governed(state, (params) => tileAgent(state, params)),
     "council-convene": governed(state, (params) => conveneCouncil(state, params)),
     "council-round": governed(state, (params) => councilRound(state, params)),
+    "council-steer": governed(state, (params) => councilSteer(state, params)),
     "council-close": governed(state, (params) => closeCouncilNamed(state, params)),
     "council-scores": (params) => councilScores(state, params),
     tab: governed(state, (params) => tabVerb(state, params)),

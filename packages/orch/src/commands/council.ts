@@ -79,6 +79,20 @@ async function round(services: Services, invocation: Invocation): Promise<void> 
   await sendRound(services, { name, cwd: councilCwd(invocation), subject: subjectOf(invocation, words.join(" ")) }, invocation.flags.has("--json"));
 }
 
+/** `orch council steer`: one instruction to every member still writing the current round. */
+async function steer(services: Services, invocation: Invocation): Promise<void> {
+  const [name, ...words] = invocation.positional;
+  if (name === undefined || words.length === 0) throw usageError(invocation);
+  const sent = await writeRpc(services, "council-steer", { name, cwd: councilCwd(invocation), text: words.join(" ") });
+  if (invocation.flags.has("--json")) {
+    process.stdout.write(JSON.stringify(sent) + "\n");
+    return;
+  }
+  for (const delivery of sent.deliveries) writeDelivery({ target: delivery.key, name: delivery.member, action: "steer", id: delivery.id, ack: delivery.ack }, { json: false });
+  for (const refusal of sent.refused) process.stdout.write(`The steer did not reach ${refusal.member}: ${refusal.reason}\n`);
+  if (sent.finished.length > 0) process.stdout.write(`Finished round ${sent.round} already, so not steered: ${sent.finished.join(", ")}. Say it to them in the text of the next round.\n`);
+}
+
 /** One review as a table cell: its score, `running` until its run finishes, `?` when its file carried none. */
 function scoreCell(review: CouncilReview | undefined): string {
   if (review === undefined) return "-";
@@ -139,6 +153,7 @@ export async function cmdCouncil(services: Services, args: string[]): Promise<vo
   switch (invocation.command.name) {
     case "convene": return convene(services, invocation);
     case "round": return round(services, invocation);
+    case "steer": return steer(services, invocation);
     case "scores": return scores(services, invocation);
     case "close": return close(services, invocation);
     default: throw usageError(invocation);

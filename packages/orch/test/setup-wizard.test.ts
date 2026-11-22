@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { selectAllowedModels, selectCouncilModels, selectDefaultModel } from "../src/setup/wizard.ts";
+import { selectAllowedModels, selectCouncilModels, selectDefaultModel, selectMemberThinking } from "../src/setup/wizard.ts";
 import type { CataloguePicker } from "../src/types/command.ts";
 
 describe("setup model picker", () => {
@@ -106,6 +106,18 @@ describe("setup model list picker", () => {
     expect(seen[0]!.message).toContain("Council members on claude, one per model");
     expect(seen[0]!.message).toContain("none = no member on claude");
     expect(kept).toEqual(["opus"]);
+  });
+
+  test("the thinking prompt names the member and its harness, offers every level, and starts on the current one", async () => {
+    const seen: { message: string; levels: string[]; initial: string | undefined }[] = [];
+
+    const level = await selectMemberThinking("claude", "sonnet", "high", (message, options, initial) => {
+      seen.push({ message, levels: options.map((option) => option.value), initial });
+      return Promise.resolve("low");
+    });
+
+    expect(seen).toEqual([{ message: "Thinking level for the sonnet member on claude", levels: ["off", "minimal", "low", "medium", "high", "xhigh", "max"], initial: "high" }]);
+    expect(level).toBe("low");
   });
 
   test("stored values start checked, and clearing them returns an empty selection", async () => {

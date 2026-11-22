@@ -10,7 +10,7 @@ help disagree, help is right.
 | Sending a task, quoting the prompt, `--with`, Delivered vs Queued | `orch help dispatch` |
 | Fan-out where any idle agent may take any task | `orch help queue`, `orch help work` |
 | A lookup or review that must change nothing, `--read-only`, `--out` | `orch help spawn` |
-| Several models scoring one plan, UI or change, round by round | `orch help council`, the `council` skill |
+| Several models scoring one plan, UI or change, round by round | `orch help council`, the `orch-council` skill |
 | Arming the watch, what it shows, silence | `orch help monitor`, `orch help events` |
 | One look at the fleet, the capacity line, `--json` fields | `orch help status` |
 | An agent is asking | `orch help questions`, `orch help answer` |

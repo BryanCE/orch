@@ -32,7 +32,9 @@ import type { HarnessTraits, ParamsOf, ResultOf } from "../../client/protocol.ts
 import type { DaemonState } from "../state.ts";
 
 type SpawnResult = ResultOf<"spawn">;
-type SpawnedAgent = Extract<SpawnResult, { outcome: "spawned" }>["agents"][number];
+/** A launch that placed its agents. */
+export type SpawnedFleet = Extract<SpawnResult, { outcome: "spawned" }>;
+type SpawnedAgent = SpawnedFleet["agents"][number];
 
 /** An environment without the role a launch needs cannot do it. That is an answer, never a throw. */
 function noEnvironmentRole(text: string): { outcome: "answer"; reason: "no-environment-role"; text: string } {
@@ -335,15 +337,29 @@ export async function spawnAgents(state: DaemonState, params: ParamsOf<"spawn">)
     if (partition === undefined) partitions.set(agent.backend.id, [agent]);
     else partition.push(agent);
   }
-  const results: Extract<SpawnResult, { outcome: "spawned" }>[] = [];
+  const results: SpawnedFleet[] = [];
   for (const [backend, agents] of partitions) {
     const result = await spawnPartition(state, params, self, { ...settings, backend, agents }, environment, notes);
     if (result.outcome !== "spawned") return result;
     results.push(result);
   }
+  return joinSpawned(results, notes);
+}
+
+/** Several launches for one request as one result: the first one's place, and every launch's
+ *  agents, panes and harnesses. `notes` are the lines the whole request reports. */
+export function joinSpawned(results: readonly SpawnedFleet[], notes: readonly string[]): SpawnedFleet {
   const first = results[0];
   if (first === undefined) throw new SpawnRefusalError("spawn requires at least one agent");
-  return { ...first, requested: settings.agents.length, agents: results.flatMap((result) => result.agents), panes: results.flatMap((result) => result.panes), harnesses: results.flatMap((result) => result.harnesses), notes, headless: results.every((result) => result.headless) };
+  return {
+    ...first,
+    requested: results.reduce((sum, result) => sum + result.requested, 0),
+    agents: results.flatMap((result) => result.agents),
+    panes: results.flatMap((result) => result.panes),
+    harnesses: results.flatMap((result) => result.harnesses),
+    notes: [...notes],
+    headless: results.every((result) => result.headless),
+  };
 }
 
 async function spawnPartition(state: DaemonState, params: ParamsOf<"spawn">, self: CallerSelf, settings: SpawnSettings, environment: AgentEnvironment, notes: SpawnNotes): Promise<SpawnResult> {

@@ -219,7 +219,7 @@ describe("OrcaBackend", () => {
       "terminal create --worktree path:/x": ok({ handle: "term-9", tabId: "tab-9" }),
     });
 
-    expect(backend.spawn(fakeAdapter(), { form: "tui", key, cwd: "/x", orchDir })).toBe("term-9");
+    expect(backend.spawn(fakeAdapter(), { project: "/fleet/project", form: "tui", key, cwd: "/x", orchDir })).toBe("term-9");
     const send = calls[1]?.args ?? [];
     const launch = send[5] ?? "";
     expect(send.slice(0, 5)).toEqual(["terminal", "send", "--terminal", "term-9", "--text"]);
@@ -233,7 +233,7 @@ describe("OrcaBackend", () => {
     const key = mintAgentId();
     const { backend, calls } = fixture({});
 
-    expect(backend.spawn(fakeAdapter(), { form: "tui", key, cwd: "/x", intoHandle: "term-2", orchDir })).toBe("term-2");
+    expect(backend.spawn(fakeAdapter(), { project: "/fleet/project", form: "tui", key, cwd: "/x", intoHandle: "term-2", orchDir })).toBe("term-2");
     expect(calls).toHaveLength(1);
     const send = calls[0]?.args ?? [];
     const launch = send[5] ?? "";

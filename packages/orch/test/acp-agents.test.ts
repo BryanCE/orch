@@ -67,7 +67,7 @@ type Harness = ReturnType<typeof setup>;
 /** Start an `acp` agent under `key`, with `firstPrompt` queued the way a spawn queues it. */
 async function launch(harness: Harness, key: string, firstPrompt: string | null): Promise<void> {
   attached.push({ directory: harness.orchDir, key });
-  await spawnHeldLaunch(harness.state, ADAPTER, {
+  await spawnHeldLaunch(harness.state, ADAPTER, { project: "/fleet/project",
     form: "acp", key, name: "acp-worker", spawner: null, orchDir: harness.orchDir, cwd: harness.orchDir,
     model: "next", thinking: "medium", firstPrompt,
   });

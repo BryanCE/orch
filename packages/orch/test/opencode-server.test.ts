@@ -82,7 +82,7 @@ async function setup(models: readonly Record<string, unknown>[] = [LUNA]) {
 async function openOn(models: readonly Record<string, unknown>[] = [LUNA], opts: { model?: string; thinking?: "off" | "high" | "minimal" } = {}) {
   const setupResult = await setup(models);
   const { driver, context } = setupResult;
-  const connection = await driver.connect({ form: "server", orchDir, cwd, ...opts }, { ORCH_AGENT: "a1" }, context);
+  const connection = await driver.connect({ project: "/fleet/project", form: "server", orchDir, cwd, ...opts }, { ORCH_AGENT: "a1" }, context);
   const rec = recorder();
   const session = await connection.open({ kind: "new", cwd }, rec.events);
   sessions.push(session);
@@ -98,7 +98,7 @@ const posts = (fake: FakeOpencode, suffix: string) => fake.calls.filter((call) =
 describe("opencode server form", () => {
   test("the server is opencode serve --stdio on a loopback port, started with the owner's password", async () => {
     const { owner, pipes, driver, context } = await setup();
-    await driver.connect({ form: "server", orchDir, cwd }, { ORCH_AGENT: "a1" }, context);
+    await driver.connect({ project: "/fleet/project", form: "server", orchDir, cwd }, { ORCH_AGENT: "a1" }, context);
     expect(pipes.spawned[0]?.request.argv).toEqual(["opencode", "serve", "--stdio", "--hostname=127.0.0.1", "--port=0"]);
     expect(pipes.spawned[0]?.request.env.OPENCODE_PASSWORD).toBe(owner.clientEnv.OPENCODE_PASSWORD);
     expect(owner.clientEnv.OPENCODE_PASSWORD).toMatch(/^[\w-]{40,}$/);
@@ -107,8 +107,8 @@ describe("opencode server form", () => {
 
   test("every agent borrows the one server", async () => {
     const { pipes, driver, context } = await setup();
-    const first = await driver.connect({ form: "server", orchDir, cwd }, { ORCH_AGENT: "a1" }, context);
-    const second = await driver.connect({ form: "server", orchDir, cwd }, { ORCH_AGENT: "a2" }, context);
+    const first = await driver.connect({ project: "/fleet/project", form: "server", orchDir, cwd }, { ORCH_AGENT: "a1" }, context);
+    const second = await driver.connect({ project: "/fleet/project", form: "server", orchDir, cwd }, { ORCH_AGENT: "a2" }, context);
     expect(pipes.spawned).toHaveLength(1);
     expect(first.process.pid).toBe(second.process.pid);
     expect(first.process.shared).toBe(true);
@@ -117,21 +117,21 @@ describe("opencode server form", () => {
 
   test("the server closes once the last agent has been gone for the idle wait, and the next borrow starts a fresh one", async () => {
     const { pipes, driver, context } = await setup();
-    const first = await driver.connect({ form: "server", orchDir, cwd }, {}, context);
-    const second = await driver.connect({ form: "server", orchDir, cwd }, {}, context);
+    const first = await driver.connect({ project: "/fleet/project", form: "server", orchDir, cwd }, {}, context);
+    const second = await driver.connect({ project: "/fleet/project", form: "server", orchDir, cwd }, {}, context);
     first.process.release();
     second.process.release();
     await sleep(120);
     expect(pipes.spawned[0]?.process.killed()).toBe(true);
-    await driver.connect({ form: "server", orchDir, cwd }, {}, context);
+    await driver.connect({ project: "/fleet/project", form: "server", orchDir, cwd }, {}, context);
     expect(pipes.spawned).toHaveLength(2);
   });
 
   test("a borrow inside the idle wait keeps the server", async () => {
     const { pipes, driver, context } = await setup();
-    const first = await driver.connect({ form: "server", orchDir, cwd }, {}, context);
+    const first = await driver.connect({ project: "/fleet/project", form: "server", orchDir, cwd }, {}, context);
     first.process.release();
-    await driver.connect({ form: "server", orchDir, cwd }, {}, context);
+    await driver.connect({ project: "/fleet/project", form: "server", orchDir, cwd }, {}, context);
     await sleep(120);
     expect(pipes.spawned[0]?.process.killed()).toBe(false);
     expect(pipes.spawned).toHaveLength(1);
@@ -269,7 +269,7 @@ describe("opencode server form", () => {
 
   test("reopening a recorded session reads it and switches it to the launch model and environment", async () => {
     const { driver, context, fake } = await setup();
-    const connection = await driver.connect({ form: "server", orchDir, cwd, model: "openai/gpt-luna" }, { ORCH_AGENT: "a1" }, context);
+    const connection = await driver.connect({ project: "/fleet/project", form: "server", orchDir, cwd, model: "openai/gpt-luna" }, { ORCH_AGENT: "a1" }, context);
     const session = await connection.open({ kind: "existing", cwd, sessionId: "ses_9" }, recorder().events);
     sessions.push(session);
     expect(session.sessionId).toBe("ses_9");
@@ -332,6 +332,6 @@ describe("opencode server form", () => {
     const driver = opencodeDriver(owner);
     const pipes: PipesProvider = { spawn: () => servingProcess("booting\n") };
     const { logger } = recordingLogger();
-    expect(await rejection(driver.connect({ form: "server", orchDir, cwd }, { ORCH_AGENT: "a1" }, { pipes, logger, settings }))).toContain("did not say it is listening within 1000 ms");
+    expect(await rejection(driver.connect({ project: "/fleet/project", form: "server", orchDir, cwd }, { ORCH_AGENT: "a1" }, { pipes, logger, settings }))).toContain("did not say it is listening within 1000 ms");
   });
 });

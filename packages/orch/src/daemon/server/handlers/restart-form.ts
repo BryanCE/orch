@@ -19,6 +19,7 @@ import type { BackendSpawnOpts } from "../../../types/backend.ts";
 import type { AgentView } from "../../../types/store.ts";
 import type { HeldTerminal } from "../../../types/pty.ts";
 import type { HereAgent } from "../../../types/agent-place.ts";
+import { projectDirectory } from "../spawn/project.ts";
 import type { DaemonState } from "../state.ts";
 
 /** What a form needs from its harness: a session driver on pipes; for a terminal, the session
@@ -68,6 +69,7 @@ function restartOpts(state: DaemonState, adapter: AgentAdapter, agent: HereAgent
     key: view.id,
     name: view.name,
     orchDir: state.directory,
+    project: projectDirectory(state.directory, view.id, view.environment.cwd),
     cwd: view.environment.cwd,
     ...(model === null ? {} : { model }),
     ...(isThinkingLevel(thinking) ? { thinking } : {}),

@@ -51,7 +51,7 @@ async function acpThere(id: string, turns: FakeAcpScript["turns"]) {
   fars.push(far);
   process.env.CODEX_HOME = far.orchDir;
   const key = mintAgentId();
-  await spawnHeadless(far.state, {
+  await spawnHeadless(far.state, { project: "/fleet/project",
     form: "acp", key, name: "acp-far", spawner: null, adapter: "codex", model: "gpt-5.6-luna", thinking: "medium", prompt: null, cwd: far.orchDir,
   }, hostIdentity().id);
   const near = await nearOrchd(far, key, {

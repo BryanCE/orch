@@ -91,7 +91,7 @@ type Harness = ReturnType<typeof setup>;
 async function launch(harness: Harness, form: FormId, sessionId: string | null, spawner: string | null = null): Promise<string> {
   const key = mintAgentId();
   attached.push({ directory: harness.orchDir, key });
-  await spawnHeldLaunch(harness.state, ADAPTER, {
+  await spawnHeldLaunch(harness.state, ADAPTER, { project: "/fleet/project",
     form, key, name: "switcher", spawner, orchDir: harness.orchDir, cwd: harness.orchDir,
     model: "next", thinking: "medium", firstPrompt: null,
   });

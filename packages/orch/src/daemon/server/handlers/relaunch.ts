@@ -26,6 +26,7 @@ import type { AgentAdapter, LifecycleVerb } from "../../../types/adapter.ts";
 import type { AgentFlags } from "../../../types/command.ts";
 import { FORM_STDIO } from "../../../types/form.ts";
 import type { LifecycleOutcome, LifecycleRequest, ParamsOf } from "../../client/protocol.ts";
+import { projectDirectory } from "../spawn/project.ts";
 import type { DaemonState } from "../state.ts";
 import type { HereAgent } from "../../../types/agent-place.ts";
 
@@ -148,7 +149,7 @@ async function restartAttached(state: DaemonState, agent: HereAgent, recorded: A
   const role = terminalAttach(recorded);
   const view = agentView(state.directory, key);
   const form = view?.form ?? null;
-  if (role === null || form === null || FORM_STDIO[form] !== "terminal" || request.cmd !== null || (request.harness !== null && request.harness !== recorded.id)) return null;
+  if (role === null || view === null || form === null || FORM_STDIO[form] !== "terminal" || request.cmd !== null || (request.harness !== null && request.harness !== recorded.id)) return null;
   const { text: quitText } = recordedHarness(state, key, "restart");
   const { relaunch } = planRelaunch(state, key, recorded, request);
   const sessionId = selectAgentStatus(state.directory, key)?.sessionId ?? null;
@@ -158,7 +159,8 @@ async function restartAttached(state: DaemonState, agent: HereAgent, recorded: A
     form,
     key,
     orchDir: state.directory,
-    ...(view?.environment.cwd === undefined ? {} : { cwd: view.environment.cwd }),
+    project: projectDirectory(state.directory, key, view.environment.cwd),
+    cwd: view.environment.cwd,
     ...(relaunch.model === null ? {} : { model: relaunch.model }),
     ...(isThinkingLevel(relaunch.thinking) ? { thinking: relaunch.thinking } : {}),
     ...(workers === undefined ? {} : { workers, tools: policyTools(workers), env: policyEnv(recorded, relaunch.model ?? undefined, workers) }),

@@ -19,6 +19,7 @@ import { listedHomeHandle, openHome } from "../home.ts";
 import { terminalClientEnv } from "../session-agents.ts";
 import type { FormId } from "../../../types/form.ts";
 import type { TerminalPreparer } from "../../../types/held-session.ts";
+import { projectDirectory } from "./project.ts";
 import type { CreatedAgent, OpenFleetHomeRequest, SpawnPlacement, SpawnPlacementRequest, TabSpawnSpec } from "../../../types/command.ts";
 import { liveFleet, type CallerSelf } from "./admission.ts";
 import { resolveAdapterOrDie } from "./models.ts";
@@ -132,7 +133,7 @@ function resolveSpawnPlace(spec: TabSpawnSpec, env: Readonly<Record<string, stri
 function spawnOptsOf(orchDir: OrchDir, spec: TabSpawnSpec, key: string, env: Readonly<Record<string, string>>, thinking: NonNullable<TabSpawnSpec["thinking"]>): BackendSpawnOpts {
   return {
     form: spec.form, key, env, cwd: spec.cwd, name: spec.name, workspace: spec.workspace, group: spec.group,
-    orchDir, model: spec.model, thinking, preferredModels: spec.preferredModels,
+    orchDir, project: spec.project, model: spec.model, thinking, preferredModels: spec.preferredModels,
     tools: spec.tools, workers: spec.workers, cmd: spec.cmd,
   };
 }
@@ -236,6 +237,7 @@ async function placeAgent(services: DaemonClient, settings: SpawnSettings, plan:
     form: plan.form,
     name,
     cwd,
+    project: projectDirectory(services.orchDir, self.id, settings.cwd),
     space,
     workspace,
     group,

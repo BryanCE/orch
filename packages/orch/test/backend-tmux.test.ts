@@ -5,7 +5,6 @@ import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "b
 import { fakeAdapter as makeFakeAdapter } from "./helpers/adapter.ts";
 import { seedStatus } from "./helpers/presence.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
-import { projectRoot } from "../src/util.ts";
 import { ENVIRONMENT_ENV } from "../src/shared/environment.ts";
 
 /** tmux composes no HUD role today, so an agent it spawns is told exactly that. */
@@ -353,11 +352,11 @@ describe("TmuxBackend", () => {
   test("spawn places the agent into an existing group via split-window when opts.group is set", () => {
     const backend = new TmuxBackend();
     const key = mintAgentId();
-    const handle = backend.spawn(fakeAdapter, { form: "tui", key, cwd: "/work", group: "@1", split: "right", orchDir: testOrchDir });
+    const handle = backend.spawn(fakeAdapter, { project: "/fleet/project", form: "tui", key, cwd: "/work", group: "@1", split: "right", orchDir: testOrchDir });
 
     expect(handle).toBe("%1");
     const split = callArgs("tmux", "split-window");
-    expect(split).toEqual(["split-window", "-t", "@1", "-h", "-P", "-F", "#{pane_id}", "-c", "/work", "-e", `${LAUNCH_ENV}=${key}`, "-e", environmentStampArg, "-e", `ORCH_DIR=${testOrchDir}`, "-e", `ORCH_PROJECT=${projectRoot()}`, "--", "bash", "-lc", "fake-agent"]);
+    expect(split).toEqual(["split-window", "-t", "@1", "-h", "-P", "-F", "#{pane_id}", "-c", "/work", "-e", `${LAUNCH_ENV}=${key}`, "-e", environmentStampArg, "-e", `ORCH_DIR=${testOrchDir}`, "-e", "ORCH_PROJECT=/fleet/project", "--", "bash", "-lc", "fake-agent"]);
     expect(execCalls.some((call) => call.args.join(" ") === `set-option -p -t %1 @orch_agent_key ${key}`)).toBe(true);
     expect(execCalls.some((call) => call.args.join(" ") === "set-option -p -t %1 @orch_agent pi")).toBe(true);
     // The tiling planner owns geometry; a blanket select-layout would overwrite it.
@@ -367,7 +366,7 @@ describe("TmuxBackend", () => {
   test("spawn splits the planned target pane, not whatever pane the window has active", () => {
     const backend = new TmuxBackend();
     const key = mintAgentId();
-    backend.spawn(fakeAdapter, { form: "tui", key, cwd: "/work", group: "@1", split: "down", targetHandle: "%7", orchDir: testOrchDir });
+    backend.spawn(fakeAdapter, { project: "/fleet/project", form: "tui", key, cwd: "/work", group: "@1", split: "down", targetHandle: "%7", orchDir: testOrchDir });
 
     expect(callArgs("tmux", "split-window")?.slice(0, 4)).toEqual(["split-window", "-t", "%7", "-v"]);
   });
@@ -392,7 +391,7 @@ describe("TmuxBackend", () => {
 
   test("spawn opens a new window via new-window when no group is given", () => {
     const backend = new TmuxBackend();
-    const handle = backend.spawn(fakeAdapter, { form: "tui", key: mintAgentId(), cwd: "/work", orchDir: testOrchDir });
+    const handle = backend.spawn(fakeAdapter, { project: "/fleet/project", form: "tui", key: mintAgentId(), cwd: "/work", orchDir: testOrchDir });
 
     expect(handle).toBe("%1");
     expect(callArgs("tmux", "new-window")?.[0]).toBe("new-window");
@@ -450,31 +449,24 @@ function launchEnv(cmd: string): string[] {
 }
 
 describe("an agent is launched with its fleet's project scope (1.13)", () => {
-  const originalProject = process.env.ORCH_PROJECT;
-
-  beforeEach(() => { process.env.ORCH_PROJECT = FLEET_PROJECT; });
-  afterEach(() => {
-    if (originalProject === undefined) delete process.env.ORCH_PROJECT;
-    else process.env.ORCH_PROJECT = originalProject;
-  });
-
-  // Without ORCH_PROJECT the worker resolves projectRoot() to its own cwd, and in a
-  // worktree that is not the fleet's project - peers.ts then walls it out of its own fleet.
+  // orchd launches every agent, so the project comes from the launch's own `project`, never
+  // from the launching process. In a worktree that is not the agent's cwd: with its cwd as
+  // its project, peers.ts would wall the agent out of its own fleet.
   test("a tmux agent in a worktree carries the FLEET's project, not its own cwd", () => {
-    new TmuxBackend().spawn(fakeAdapter, { form: "tui", key: "tmuxagent1", cwd: WORKTREE, group: "@1", split: "right", orchDir: orchDirAt("/orch") });
+    new TmuxBackend().spawn(fakeAdapter, { project: FLEET_PROJECT, form: "tui", key: "tmuxagent1", cwd: WORKTREE, group: "@1", split: "right", orchDir: orchDirAt("/orch") });
 
     expect(launchEnv("split-window")).toContain(`ORCH_PROJECT=${FLEET_PROJECT}`);
     expect(launchEnv("split-window")).not.toContain(`ORCH_PROJECT=${WORKTREE}`);
   });
 
   test("a tmux agent opened in a fresh window carries it too", () => {
-    new TmuxBackend().spawn(fakeAdapter, { form: "tui", key: "tmuxagent2", cwd: WORKTREE, orchDir: orchDirAt("/orch") });
+    new TmuxBackend().spawn(fakeAdapter, { project: FLEET_PROJECT, form: "tui", key: "tmuxagent2", cwd: WORKTREE, orchDir: orchDirAt("/orch") });
 
     expect(launchEnv("new-window")).toContain(`ORCH_PROJECT=${FLEET_PROJECT}`);
   });
 
   test("an empty value is dropped rather than exported as a configured blank", () => {
-    new TmuxBackend().spawn(fakeAdapter, { form: "tui", key: "tmuxagent3", cwd: WORKTREE, group: "@1", orchDir: orchDirAt("") });
+    new TmuxBackend().spawn(fakeAdapter, { project: "/fleet/project", form: "tui", key: "tmuxagent3", cwd: WORKTREE, group: "@1", orchDir: orchDirAt("") });
 
     expect(launchEnv("split-window").some((entry) => entry.startsWith("ORCH_DIR="))).toBe(false);
   });

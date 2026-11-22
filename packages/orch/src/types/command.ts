@@ -147,6 +147,8 @@ export interface TabSpawnSpec {
   adapterId: AdapterId;
   name: string;
   cwd: string;
+  /** The agent's project directory, which reaches it as ORCH_PROJECT. */
+  project: string;
   /** orch's own grouping (A7: user-created and OPTIONAL). Null means the agent is
    *  filed in no space — a missing axis, never a sentinel string (Rule 11). */
   space: string | null;

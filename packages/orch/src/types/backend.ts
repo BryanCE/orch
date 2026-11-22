@@ -300,6 +300,9 @@ export interface BackendSpawnOpts {
   readonly preferredModels?: readonly string[];
   /** ORCH_DIR for the adapter process. */
   readonly orchDir: OrchDir;
+  /** The agent's project directory: its spawner's, else the directory the spawn was asked
+   *  from. It reaches the process as ORCH_PROJECT, never orchd's own directory. */
+  readonly project: string;
   /** Extra environment passed to the adapter process. */
   readonly env?: Readonly<Record<string, string>>;
   /** The launching agent's id, recorded as provenance by a backend that registers its own agents. */

@@ -716,6 +716,8 @@ export const RPC_PARAMS = {
     /** The first prompt. Null only for a spawn on a linked host, whose agent idles there for a dispatch. */
     prompt: nonBlank.nullable(),
     cwd: optionalText,
+    /** The agent's project directory on the host that launches it. */
+    project: nonBlank,
     env: z.record(z.string(), z.string()).optional(),
     preferredModels: z.array(nonBlank).optional(),
     tools: optionalText,

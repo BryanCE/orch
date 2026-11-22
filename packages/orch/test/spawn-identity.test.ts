@@ -87,7 +87,7 @@ describe("one key per pane spawn (12.1)", () => {
     seedSpace(dir, "wsA");
     const { backend, envKey } = fakePaneBackend("%5");
 
-    const agent = await spawnOneIntoTab(await spawningServices(dir), { form: "tui",
+    const agent = await spawnOneIntoTab(await spawningServices(dir), { project: "/fleet/project", form: "tui",
       prepareTerminal: () => Promise.resolve(null),
       backend,
       adapter: piAdapter,
@@ -126,7 +126,7 @@ describe("one key per pane spawn (12.1)", () => {
     const dir = makeTempOrchDir();
     seedSpace(dir, "wsC");
     const services = await spawningServices(dir);
-    const spawnAudit = () => spawnOneIntoTab(services, { form: "tui",
+    const spawnAudit = () => spawnOneIntoTab(services, { project: "/fleet/project", form: "tui",
       prepareTerminal: () => Promise.resolve(null),
       backend: fakePaneBackend("%9").backend,
       adapter: piAdapter,
@@ -159,7 +159,7 @@ describe("one key per pane spawn (12.1)", () => {
     seedSpace(dir, "wsB");
     const { backend } = fakePaneBackend("%7");
 
-    const agent = await spawnOneIntoTab(await spawningServices(dir), { form: "tui",
+    const agent = await spawnOneIntoTab(await spawningServices(dir), { project: "/fleet/project", form: "tui",
       prepareTerminal: () => Promise.resolve(null),
       backend,
       adapter: piAdapter,

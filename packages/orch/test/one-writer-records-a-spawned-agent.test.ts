@@ -78,7 +78,7 @@ describe("one writer records a spawned agent (2.1)", () => {
     seedSpace(dir, "wsTwo");
     const owner = seedOperator(dir);
 
-    const agent = await spawnOneIntoTab(await spawningServices(dir), { form: "tui",
+    const agent = await spawnOneIntoTab(await spawningServices(dir), { project: "/fleet/project", form: "tui",
       prepareTerminal: () => Promise.resolve(null),
       backend: new FakePanedBackend({ id: "herdr" }),
       adapter: piAdapter,
@@ -108,7 +108,7 @@ describe("one writer records a spawned agent (2.1)", () => {
     seedOperator(dir);
     const backend = new FakePanedBackend({ id: "herdr" });
 
-    const agent = await spawnOneIntoTab(await spawningServices(dir), { form: "tui",
+    const agent = await spawnOneIntoTab(await spawningServices(dir), { project: "/fleet/project", form: "tui",
       prepareTerminal: () => Promise.resolve(null),
       backend,
       adapter: piAdapter,

@@ -87,6 +87,7 @@ export async function spawnHeadless(state: DaemonState, params: ParamsOf<"spawn-
     worktree: params.worktree,
     env: params.env,
     orchDir: directory,
+    project: params.project,
     cwd: params.cwd,
     ...(prompt === null ? {} : { prompt }),
     model,
@@ -136,7 +137,8 @@ async function spawnOnHost(state: DaemonState, hostName: string, params: ParamsO
   const greeting = await link.requireUp();
   // Governed here already; the far orchd runs it for this host, as this host's peer.
   const { key, name, spawner, adapter, model, thinking, prompt, cwd, env, preferredModels, tools, workers, form } = params;
-  const launched = await link.call("spawn-headless", { key, name, spawner, adapter, model, thinking, prompt, cwd, env, preferredModels, tools, workers, form });
+  // The agent's project is on that host's disk: the directory there it runs in.
+  const launched = await link.call("spawn-headless", { key, name, spawner, adapter, model, thinking, prompt, cwd, project: params.cwd, env, preferredModels, tools, workers, form });
   registerHostedAgent(state.directory, { form: launched.form, key, harnessId: adapter, cwd: params.cwd, name, model, thinking, spawner, host: greeting.host });
   return launched;
 }

@@ -93,7 +93,7 @@ export interface HeldFarAgentOptions {
 /** Spawn a pi agent on the far orchd as this host's orchd asks for one: held in a PTY there. */
 export async function heldFarAgent<T extends PtyProcess>(far: HeldFar<HeldPtys<T>>, opts: HeldFarAgentOptions = {}): Promise<{ readonly key: string; readonly pty: T }> {
   const key = mintAgentId();
-  await spawnHeadless(far.state, {
+  await spawnHeadless(far.state, { project: "/fleet/project",
     form: null,
     key,
     name: opts.name ?? key,

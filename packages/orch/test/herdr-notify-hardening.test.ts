@@ -4,7 +4,6 @@ import { SETTINGS_DEFAULTS } from "../src/settings/schema.ts";
 import { fakeAdapter as makeFakeAdapter } from "./helpers/adapter.ts";
 import { createHerdrCli, type HerdrExecutor } from "../src/backends/herdr/cli.ts";
 import { PLEXER_TIMEOUTS } from "../src/config.ts";
-import { projectRoot } from "../src/util.ts";
 import type { NotifyEvent } from "../src/types/notify.ts";
 import { testServices } from "./helpers/services.ts";
 import { tempOrchDir } from "./helpers/tempdir.ts";
@@ -89,7 +88,7 @@ afterAll(() => {
 describe("herdr and notification hardening", () => {
   test("uses a non-empty agent name and preserves shell command as one argv value", () => {
     const backend = new HerdrBackend(createHerdrCli(fakeExecutor));
-    const handle = backend.spawn(adapter, { form: "tui", cwd: "/tmp/work dir", workspace: "ws-test", key: "  ", orchDir: tempOrchDir("herdr-hardening-") });
+    const handle = backend.spawn(adapter, { project: "/fleet/project", form: "tui", cwd: "/tmp/work dir", workspace: "ws-test", key: "  ", orchDir: tempOrchDir("herdr-hardening-") });
 
     expect(handle).toBe("w6:p10");
     expect(lastCall("pane", "rename")).toEqual(["pane", "rename", "w6:p10", "pi-agent"]);
@@ -102,7 +101,7 @@ describe("herdr and notification hardening", () => {
       "--", 'quoted "value" spaces $HOME',
     ]);
     expect(lastCall("tab", "create")).toContain("/tmp/work dir");
-    expect(lastCall("tab", "create")).toContain(`ORCH_PROJECT=${projectRoot()}`);
+    expect(lastCall("tab", "create")).toContain("ORCH_PROJECT=/fleet/project");
   });
 
   test("falls back to a valid name when the identity key contains herdr-invalid separators", () => {
@@ -111,7 +110,7 @@ describe("herdr and notification hardening", () => {
     // What is asserted is the GRAMMAR, not a particular stripped value - the
     // namer no longer splits on "~" (A1: the key IS the minted id, so there is
     // no component to keep), it normalizes whatever it is handed.
-    new HerdrBackend(createHerdrCli(fakeExecutor)).spawn(adapter, { form: "tui", workspace: "ws-test", key: "herdr~ws-test~ABC_123", orchDir: tempOrchDir("herdr-hardening-") });
+    new HerdrBackend(createHerdrCli(fakeExecutor)).spawn(adapter, { project: "/fleet/project", form: "tui", workspace: "ws-test", key: "herdr~ws-test~ABC_123", orchDir: tempOrchDir("herdr-hardening-") });
     const name = lastCall("pane", "rename")?.[3] ?? "";
     expect(name).toMatch(/^[a-z][a-z0-9_-]{0,31}$/);
     expect(name).not.toContain("~");

@@ -19,6 +19,7 @@ import { resolveTabFor } from "../tabs.ts";
 import { adapterCommand, admitLaunchModel, offeredModels, resolveAdapterOrDie } from "./models.ts";
 import { localAgentPlan, planSpawn, plexerRequest, selectBackend, selectSpawnForm, worktreeIntent, type SpawnAgentPlan, type SpawnSettings } from "./plan.ts";
 import { admitSpawn, assertNewSpaceGranted, assertSpaceCapacity, assertSpawnCapacity, assertSpawnPolicy, assertTabCapacity, claimSpawnNames, liveFleet, type CallerSelf } from "./admission.ts";
+import { projectDirectory } from "./project.ts";
 import { discardUnusedWorkspace, findGroupInSpace, growFleetIntoGroup, openFleetHome, prepareWorkspace, resolveSpawnPlacement, spawnBackend, spawnEnv, spawnOneIntoTab, type SpawnNotes } from "./placement.ts";
 import { freeTabLabel, liveTabLabels } from "./tab-label.ts";
 import { needsViewer, openViewers, planViewers, viewerHost } from "./viewers.ts";
@@ -139,6 +140,7 @@ async function executeHeadlessSpawn(state: DaemonState, params: ParamsOf<"spawn"
         worktree,
         adapter: plan.adapter,
         cwd,
+        project: projectDirectory(state.directory, self.id, settings.cwd),
         model: plan.model,
         thinking: plan.thinking,
         preferredModels: [...plan.preferredModels],
@@ -246,6 +248,7 @@ async function launchPrepared(state: DaemonState, prepared: readonly PreparedAge
       created.push(await spawnOneIntoTab(state.services, {
         prepareTerminal: terminalPreparer(state),
         backend, adapter: resolveAdapterOrDie(plan.adapter), adapterId: plan.adapter, name: item.name, cwd: item.cwd, space, workspace, group: groupId,
+        project: projectDirectory(state.directory, self.id, settings.cwd),
         form: plan.form, model: plan.model, thinking: plan.thinking, preferredModels: plan.preferredModels,
         tools: policyTools(plan.workers), workers: plan.workers, cmd: settings.commandFlag ? plan.cmd : undefined,
         worktree: item.worktree,
@@ -424,6 +427,7 @@ export async function tileAgent(state: DaemonState, params: ParamsOf<"tile">): P
   const spec: TabSpawnSpec = {
     prepareTerminal: terminalPreparer(state),
     backend, adapter, adapterId: agent.harness, name: agent.name, cwd, worktree, space,
+    project: projectDirectory(state.directory, self.id, params.cwd),
     form: selectSpawnForm(null, settingsFile.defaults.forms, adapter, backend, heldBackend).form,
     workspace: tab.workspace ?? undefined,
     group: tab.id,

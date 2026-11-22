@@ -1,6 +1,5 @@
 import { LAUNCH_ENV } from "../identity/launch.ts";
 import { ENVIRONMENT_ENV } from "../shared/environment.ts";
-import { projectRoot } from "../util.ts";
 import type { BackendSpawnOpts } from "../types/backend.ts";
 import { workerPlaceContext, workerRules, type WorkerPlace } from "../worker-prompt.ts";
 import type { ResultOf } from "../daemon/client/protocol.ts";
@@ -34,9 +33,10 @@ export function workerHeaderContextOf(self: CallerSelf, settings: OrchSettings, 
  * that spawned it. Project scope is not a
  * per-plexer nicety; it is how a worker knows which fleet it belongs to.
  *
- * Only what the CALLER passed, plus the project: reading `process.env` for
- * `ORCH_DIR` here would make the launched environment depend on this process's
- * own ambient state. `extra` is for genuinely handle-specific vars (headless's
+ * Only what the CALLER passed: `ORCH_PROJECT` is `opts.project`, the agent's project
+ * directory as orchd decided it for this launch. orchd launches every agent, so reading this
+ * process's own directory or `process.env` here would hand each agent orchd's project and
+ * make the launched environment depend on this process's own ambient state. `extra` is for genuinely handle-specific vars (headless's
  * log path), and `opts.env` wins over everything — it is the caller's explicit
  * word.
  *
@@ -45,13 +45,13 @@ export function workerHeaderContextOf(self: CallerSelf, settings: OrchSettings, 
  * than leaving it unset.
  */
 export function agentLaunchEnv(
-  opts: Pick<BackendSpawnOpts, "key" | "orchDir" | "env">,
+  opts: Pick<BackendSpawnOpts, "key" | "orchDir" | "env" | "project">,
   extra: Readonly<Record<string, string | undefined>> = {},
 ): Record<string, string> {
   const values: Partial<Record<(typeof ORCH_ENV_VARS)[number], string | undefined>> = {
     [LAUNCH_ENV]: opts.key,
     ORCH_DIR: opts.orchDir,
-    ORCH_PROJECT: projectRoot(),
+    ORCH_PROJECT: opts.project,
   };
   const candidates: Record<string, string | undefined> = Object.fromEntries(
     ORCH_ENV_VARS.map((name) => [name, values[name]]),

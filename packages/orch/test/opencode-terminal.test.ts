@@ -88,7 +88,7 @@ async function attach() {
   const role = setupResult.driver.terminal;
   if (role === null) throw new Error("opencode declares a terminal role");
   const attached = await role.attach(
-    { form: "tui", orchDir, cwd, model: "openai/gpt-luna" },
+    { project: "/fleet/project", form: "tui", orchDir, cwd, model: "openai/gpt-luna" },
     { ORCH_AGENT: "a1" },
     { kind: "new", cwd },
     setupResult.context,

@@ -49,7 +49,7 @@ describe("the council handlers", () => {
     scoreReview(dir, "d1", 5, { score: 7 });
     upsertRun(dir, { dispatchId: "d1", agentKey: "ada", state: "done", startedAt: 3, model: "m1", cost: 0.5 });
     expect(councilScores(state, ref(dir))).toEqual({
-      name: "plan", directory, scale: 10, closedAt: null, members: ["ada", "bea"], reviews: [
+      name: "plan", directory, scale: 10, rounds: 3, closedAt: null, members: ["ada", "bea"], reviews: [
         { round: 1, member: "ada", score: 7, problem: null, scoredAt: 5, model: "m1", cost: 0.5 },
         { round: 1, member: "bea", score: null, problem: null, scoredAt: null, model: null, cost: null },
       ],
@@ -60,6 +60,15 @@ describe("the council handlers", () => {
     const { dir, state } = seeded(["ada"]);
     askReview(dir, { dispatchId: "d1", councilId: "c1", round: 1, member: "ada", askedAt: 2 });
     return expect(councilRound(state, { ...ref(dir), subject: "go" })).rejects.toThrow("round 1 of council plan is still running. Not finished: ada");
+  });
+
+  test("a council that has run its rounds takes no more", () => {
+    const { dir, state } = seeded(["ada"]);
+    for (const round of [1, 2, 3]) {
+      askReview(dir, { dispatchId: `d${round}`, councilId: "c1", round, member: "ada", askedAt: round });
+      scoreReview(dir, `d${round}`, round, { score: 7 });
+    }
+    return expect(councilRound(state, { ...ref(dir), subject: "go" })).rejects.toThrow("council plan has run its 3 rounds. Close it, or raise the council.rounds setting to go on");
   });
 
   test("a closed council takes no round", () => {

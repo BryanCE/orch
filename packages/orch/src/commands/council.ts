@@ -38,7 +38,7 @@ async function sendRound(services: Services, params: Pick<ParamsOf<"council-roun
     return;
   }
   for (const delivery of sent.deliveries) writeDelivery({ target: delivery.key, name: delivery.member, action: "dispatch", id: delivery.id, ack: delivery.ack }, { json: false });
-  process.stdout.write(`Round ${sent.round} of council ${params.name} went to ${sent.deliveries.length} of its members.\n`);
+  process.stdout.write(`Round ${sent.round} of ${sent.rounds} of council ${params.name} went to ${sent.deliveries.length} of its members.\n`);
   for (const refusal of sent.refused) process.stdout.write(`Round ${sent.round} did not reach ${refusal.member}: ${refusal.reason}\n`);
 }
 
@@ -102,8 +102,8 @@ function totalCost(reviews: readonly CouncilReview[]): string {
 export function renderScores(scores: CouncilScores): string {
   const rounds = [...new Set(scores.reviews.map((review) => review.round))].sort((a, b) => a - b);
   const state = scores.closedAt === null ? "open" : "closed";
-  const title = `Council ${scores.name}, ${state}. Scores are out of ${scores.scale}.`;
-  if (rounds.length === 0) return `${title}\nNo round has run.`;
+  const title = `Council ${scores.name}, ${state}. ${rounds.length} of ${scores.rounds} rounds run. Scores are out of ${scores.scale}.`;
+  if (rounds.length === 0) return title;
   const rows = scores.members.map((member) => {
     const own = scores.reviews.filter((review) => review.member === member);
     const models = own.flatMap((review) => review.model === null ? [] : [review.model]);

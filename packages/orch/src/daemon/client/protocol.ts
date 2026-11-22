@@ -939,12 +939,14 @@ export const RPC_RESULTS = {
   ]),
   "council-round": z.object({
     round: z.number().int().positive(),
+    /** How many rounds the council runs: the `council.rounds` setting. */
+    rounds: z.number().int().positive(),
     deliveries: z.array(z.object({ member: z.string(), key: z.string(), id: z.string(), ack: ACCEPTED.shape.ack })),
     /** The members the round did not reach, each with why. */
     refused: z.array(z.object({ member: z.string(), reason: z.string() })),
   }),
   "council-close": z.object({ closed: z.array(z.string()) }),
-  "council-scores": z.object({ name: z.string(), directory: z.string(), scale: z.number().int().positive(), closedAt: z.number().nullable(), members: z.array(z.string()), reviews: z.array(COUNCIL_REVIEW) }),
+  "council-scores": z.object({ name: z.string(), directory: z.string(), scale: z.number().int().positive(), rounds: z.number().int().positive(), closedAt: z.number().nullable(), members: z.array(z.string()), reviews: z.array(COUNCIL_REVIEW) }),
   /** The tab's tiling after the agent landed: each place, the name it shows, and its size. */
   tile: z.discriminatedUnion("outcome", [
     ENVIRONMENT_ANSWER,

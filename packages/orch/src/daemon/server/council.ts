@@ -100,7 +100,8 @@ export async function conveneCouncil(state: DaemonState, params: ParamsOf<"counc
 }
 
 /** `council-round`: send the next round onto each sitting member's conversation, and record
- *  the review each dispatch asks for. A round waits for the one before it to finish. Who may
+ *  the review each dispatch asks for. A round waits for the one before it to finish, and a
+ *  council runs no more rounds than the `council.rounds` setting. Who may
  *  send one is the dispatch gate's ruling: whoever may drive the members. */
 export async function councilRound(state: DaemonState, params: ParamsOf<"council-round">): Promise<ResultOf<"council-round">> {
   const directory = state.directory;
@@ -109,12 +110,14 @@ export async function councilRound(state: DaemonState, params: ParamsOf<"council
   const last = lastRound(directory, council.id);
   const running = councilReviewsOf(directory, council.id).filter((review) => review.round === last && review.scoredAt === null).map((review) => review.member);
   if (running.length > 0) throw new CommandRefusal(`round ${last} of council ${council.name} is still running. Not finished: ${running.join(", ")}`);
+  const settings = state.services.settings.current();
+  const { rounds } = settings.council;
+  if (last >= rounds) throw new CommandRefusal(`council ${council.name} has run its ${rounds} rounds. Close it, or raise the council.rounds setting to go on`);
   const sitting = sittingMembers(directory, council);
   if (sitting.length === 0) throw new CommandRefusal(`council ${council.name} has no member still running`);
   const round = last + 1;
   if (params.caller === undefined) throw new CommandRefusal("a council's round names its convener, and this request carried no caller");
   const self = callerSelf(directory, { caller: params.caller });
-  const settings = state.services.settings.current();
   // One member's refusal never hides what reached the others: each send answers for itself.
   const sent = await Promise.all(sitting.map(async ({ member, view }): Promise<RoundSend> => {
     const text = memberPrompt({
@@ -137,7 +140,7 @@ export async function councilRound(state: DaemonState, params: ParamsOf<"council
   const deliveries = sent.flatMap((send) => "delivery" in send ? [send.delivery] : []);
   const refused = sent.flatMap((send) => "refusal" in send ? [send.refusal] : []);
   if (deliveries.length === 0) throw new CommandRefusal(`round ${round} of council ${council.name} reached no member. ${refused.map((refusal) => `${refusal.member}: ${refusal.reason}`).join(". ")}`);
-  return { round, deliveries, refused };
+  return { round, rounds, deliveries, refused };
 }
 
 /** `council-scores`: every review of a council, with the model and cost of the run behind each. */
@@ -148,7 +151,7 @@ export function councilScores(state: DaemonState, params: ParamsOf<"council-scor
     const run = selectRun(directory, review.dispatchId);
     return { round: review.round, member: review.member, score: review.score, problem: review.problem, scoredAt: review.scoredAt, model: run?.model ?? null, cost: run?.cost ?? null };
   });
-  return { name: council.name, directory: council.directory, scale: council.scale, closedAt: council.closedAt, members: councilMembersOf(directory, council.id).map((member) => member.name), reviews };
+  return { name: council.name, directory: council.directory, scale: council.scale, rounds: state.services.settings.current().council.rounds, closedAt: council.closedAt, members: councilMembersOf(directory, council.id).map((member) => member.name), reviews };
 }
 
 /** `council-close`: close every member still running, then the council. Who may close a member

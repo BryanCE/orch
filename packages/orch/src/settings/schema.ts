@@ -124,7 +124,7 @@ export const SETTINGS_DEFAULTS = {
   tiling: { first_split: "rows" },
   worktrees: { provider: "git", branch_prefix: "orch/", directory: ".orch-worktrees", worktrunk_commands: ["wkt", "wt"], copy_ignored: true, timeout_ms: 300_000 },
   counts: { tail: 20, peek: 25 },
-  council: { directory: ".orch/councils", scale: 10, models: {} },
+  council: { directory: ".orch/councils", scale: 10, rounds: 3, models: {} },
   // `.agents/skills` is the cross-harness standard, so the real files live there once; setup links it into each enabled harness's own skills directory.
   skills: { install: true, store: "~/.agents/skills", link: [] },
 } as const;
@@ -377,10 +377,12 @@ export const SETTINGS_FILE_SCHEMA = z.strictObject({
     tail: PositiveInt.optional(),
     peek: PositiveInt.optional(),
   }).optional(),
-  /** Where a council keeps its files, what its members score out of, and who sits on one. */
+  /** Where a council keeps its files, what its members score out of, how many rounds it
+   *  runs, and who sits on one. */
   council: z.strictObject({
     directory: z.string().min(1).optional(),
     scale: PositiveInt.optional(),
+    rounds: PositiveInt.optional(),
     /** The standing lineup PER HARNESS: one member per model, in that harness's own
      *  vocabulary. Every model must pass that harness's `models.allowed`. */
     models: z.partialRecord(z.enum(ADAPTER_IDS), z.array(z.string().min(1))).optional(),

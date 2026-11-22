@@ -66,7 +66,7 @@ describe("orch council", () => {
     askReview(root, { dispatchId: "d2", councilId: "c1", round: 1, member: "bea", askedAt: 2 });
     scoreReview(root, "d1", 5, { score: 7 });
     const output = await captureStdout(() => cmdCouncil(services, ["scores", "plan", "--dir", root]));
-    expect(output).toContain("Council plan, open. Scores are out of 10.");
+    expect(output).toContain("Council plan, open. 1 of 3 rounds run. Scores are out of 10.");
     expect(output).toMatch(/ada\s+-\s+7\s/);
     expect(output).toMatch(/bea\s+-\s+running\s/);
   });
@@ -78,7 +78,7 @@ describe("orch council", () => {
     scoreReview(root, "d1", 5, { score: 7 });
     const output = await captureStdout(() => cmdCouncil(services, ["scores", "plan", "--dir", root, "--json"]));
     const result: unknown = JSON.parse(output);
-    expect(result).toMatchObject({ name: "plan", scale: 10, members: ["ada", "bea"] });
+    expect(result).toMatchObject({ name: "plan", scale: 10, rounds: 3, members: ["ada", "bea"] });
     expect(result).toHaveProperty("reviews.length", 2);
   });
 

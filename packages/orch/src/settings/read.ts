@@ -284,6 +284,7 @@ const settingsValueExtractors = {
   council: (root: Partial<SettingsFile>) => ({
     directory: root.council?.directory ?? SETTINGS_DEFAULTS.council.directory,
     scale: root.council?.scale ?? SETTINGS_DEFAULTS.council.scale,
+    rounds: root.council?.rounds ?? SETTINGS_DEFAULTS.council.rounds,
     models: root.council?.models ?? { ...SETTINGS_DEFAULTS.council.models },
   }),
   skills: (root: Partial<SettingsFile>) => ({

@@ -4,16 +4,16 @@ import type { ResultOf } from "../src/daemon/client/protocol.ts";
 
 type Scores = ResultOf<"council-scores">;
 const review = (round: number, member: string, over: Partial<Scores["reviews"][number]> = {}): Scores["reviews"][number] => ({ round, member, score: null, problem: null, scoredAt: null, model: null, cost: null, ...over });
-const scores = (reviews: Scores["reviews"], over: Partial<Scores> = {}): Scores => ({ name: "plan", directory: "/c/plan", scale: 10, closedAt: null, members: ["ada", "bea"], reviews, ...over });
+const scores = (reviews: Scores["reviews"], over: Partial<Scores> = {}): Scores => ({ name: "plan", directory: "/c/plan", scale: 10, rounds: 3, closedAt: null, members: ["ada", "bea"], reviews, ...over });
 const cells = (line: string) => line.trim().split(/\s{2,}/);
 
 describe("council scores table", () => {
   test("renders no rounds", () => {
-    expect(renderScores(scores([]))).toBe("Council plan, open. Scores are out of 10.\nNo round has run.");
+    expect(renderScores(scores([]))).toBe("Council plan, open. 0 of 3 rounds run. Scores are out of 10.");
   });
 
   test("shows a closed council", () => {
-    expect(renderScores(scores([], { closedAt: 5 })).split("\n")[0]).toBe("Council plan, closed. Scores are out of 10.");
+    expect(renderScores(scores([], { closedAt: 5 })).split("\n")[0]).toBe("Council plan, closed. 0 of 3 rounds run. Scores are out of 10.");
   });
 
   test("renders multiple rounds, models, and costs", () => {
@@ -24,6 +24,7 @@ describe("council scores table", () => {
       review(2, "bea"),
     ])).split("\n");
     expect(lines).toHaveLength(6);
+    expect(lines[0]).toBe("Council plan, open. 2 of 3 rounds run. Scores are out of 10.");
     expect(cells(lines[1]!)).toEqual(["MEMBER", "MODEL", "R1", "R2", "COST"]);
     expect(cells(lines[3]!)).toEqual(["ada", "gpt-6-sol", "6", "9", "$0.30"]);
     expect(cells(lines[4]!)).toEqual(["bea", "opus", "8", "running", "$0.25"]);

@@ -120,7 +120,7 @@ function completeSettings(): Record<string, unknown> {
     tiling: { first_split: "rows" },
     worktrees: { provider: "git", branch_prefix: "orch/", directory: ".orch-worktrees", worktrunk_commands: ["wkt", "wt"], copy_ignored: true, timeout_ms: 300000 },
     counts: { tail: 20, peek: 25 },
-    council: { directory: ".orch/councils", scale: 10, models: {} },
+    council: { directory: ".orch/councils", scale: 10, rounds: 3, models: {} },
     skills: { install: false, store: "/tmp/skills", link: ["/tmp/claude-skills"] },
   };
 }

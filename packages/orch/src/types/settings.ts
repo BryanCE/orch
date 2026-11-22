@@ -79,7 +79,7 @@ export interface OrchSettings {
   tiling: { first_split: TileFirstSplit };
   worktrees: WorktreeConfig;
   counts: { tail: number; peek: number };
-  council: { directory: string; scale: number; models: Partial<Record<AdapterId, string[]>> };
+  council: { directory: string; scale: number; rounds: number; models: Partial<Record<AdapterId, string[]>> };
   skills: { install: boolean; store: string; link: string[] };
 }
 

@@ -296,6 +296,7 @@ const HELP: Readonly<Record<string, string>> = {
   "counts.peek": "How many screen lines orch peek shows without -n.",
   "council.directory": "Where councils keep their files, under the directory a council is convened from. Each council has a directory there named for it.",
   "council.scale": "What a council member scores out of. A score is a whole number from 0 to this.",
+  "council.rounds": "How many rounds a council runs. A round past this is refused.",
   "council.models": "The models a council's members run on, by harness, one member per model: {\"<harness>\": [\"<model>\"]}. orch council convene launches this lineup when it names no member. Every model must be in that harness's models.allowed.",
   "skills.install": "Whether orch installs packaged skills.",
   "skills.store": "Directory holding the real skill files. The cross-harness standard is ~/.agents/skills.",

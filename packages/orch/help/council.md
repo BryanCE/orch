@@ -1,6 +1,7 @@
 A council is several agents on different models that review one subject and score it. You
 convene it, read what the members wrote, improve the subject yourself or with workers, and
-send the next round. The user sees the scores and decides whether another round runs.
+send the next round. A council runs the number of rounds the `council.rounds` setting gives.
+The user sees the scores after each one and may stop it early.
 
     orch council convene plan-review \
       --prompt "Review the plan in plan.md. A good plan can be built without one question." --with plan.md
@@ -34,6 +35,7 @@ Traps:
 - A member has to stay up between rounds. A launch into a form that takes one prompt and
   exits is refused.
 - A harness that cannot refuse a tool call cannot run a member, and the launch says which can.
+- A round past `council.rounds` is refused. To go on, the user raises the setting.
 - `round` waits for every member of the round before it. `orch monitor` reports each finish.
 - A round one member refuses still goes to the others. The command names that member and
   the reason; its cell in the scores shows `-` for the round.

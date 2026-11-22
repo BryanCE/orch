@@ -99,7 +99,7 @@ describe("loadSettings", () => {
       tiling: { first_split: "columns" },
       worktrees: { provider: "git", branch_prefix: "orch/", directory: ".orch-worktrees", worktrunk_commands: ["wkt", "wt"], copy_ignored: true, timeout_ms: 300000 },
       counts: { tail: 40 },
-      council: { directory: ".orch/councils", scale: 10, models: {} },
+      council: { directory: ".orch/councils", scale: 10, rounds: 3, models: {} },
       logging: { slow_tool_ms: 250, stall_ms: 100, stall_poll_ms: 250 },
     });
 
@@ -144,7 +144,7 @@ describe("loadSettings", () => {
       tiling: { first_split: "columns" },
       worktrees: { provider: "git", branch_prefix: "orch/", directory: ".orch-worktrees", worktrunk_commands: ["wkt", "wt"], copy_ignored: true, timeout_ms: 300000 },
       counts: { tail: 40, peek: 25 },
-      council: { directory: ".orch/councils", scale: 10, models: {} },
+      council: { directory: ".orch/councils", scale: 10, rounds: 3, models: {} },
       logging: { level: "info", slow_tool_ms: 250, stall_ms: 100, stall_poll_ms: 250 },
       skills: { install: true, store: "~/.agents/skills", link: [] },
     });
@@ -262,7 +262,7 @@ describe("loadSettings", () => {
       tiling: { first_split: "rows" },
       worktrees: { provider: "git", branch_prefix: "orch/", directory: ".orch-worktrees", worktrunk_commands: ["wkt", "wt"], copy_ignored: true, timeout_ms: 300000 },
       counts: { tail: 20, peek: 25 },
-      council: { directory: ".orch/councils", scale: 10, models: {} },
+      council: { directory: ".orch/councils", scale: 10, rounds: 3, models: {} },
       logging: { level: "info", slow_tool_ms: 1_000, stall_ms: 500, stall_poll_ms: 1_000 },
       skills: { install: true, store: "~/.agents/skills", link: [] },
     });

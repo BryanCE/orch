@@ -20,7 +20,7 @@ User-only, no exceptions, not through a worker or subagent or orch verb, not "ju
 For any source change, the hand-off is the one command `bun run build:orch:dev`: it stops orchd, builds, installs, runs `orch doctor -y`, and starts orchd on the new code. A daemon command after it is redundant. Check any `orch` verb you hand over against `src/commands/registry.ts`. When a change needs one of these, stop, hand Bryan the command, and wait until he says it ran. Never poll, never assume, never retry. The only things run without asking are `bun check` and the scoped `bun test` in Rule 0 and 0.1, and read-only shell (`grep`, `cat`, `ls`, `git log`, `git status`, `which`).
 
 # RULE 0. THE GATE IS `bun check` OVER THE WHOLE TREE.
-Whoever edits a file runs `bun check` on it and pastes the clean output. Whoever commits runs `bun check` once over the whole tree first. That run is the gate. `bun test` is scoped to touched files, always. Nothing commits on a dirty gate or a red test.
+Whoever edits a file runs `bun check` on it and pastes the clean output. Whoever commits runs `bun check` once over the whole tree first. That run is the gate. `bun test` is scoped to touched files, always.
 
 # RULE 0.1. TESTS: ONLY THE FILES YOU TOUCHED, ON THE SIDE THAT OWNS THE DISK, ONCE. SOME ARE BRYAN-ONLY.
 Every test lives in `packages/orch/test/` and runs under the plain `bun test` runner. The one exception is `packages/orch/test-git/*.gittest.ts`: tests that run git for real. `bun test` never discovers them (the name matches no test pattern, the directory is outside `./test`); `bun run test:git` runs them, and only Bryan runs it.

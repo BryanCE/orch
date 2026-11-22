@@ -1,4 +1,5 @@
-import type { OrchDir, LogContext, Logger } from "../../../types/core.ts";
+import { agentProjectSettings, agentSettings } from "../project-settings.ts";
+import type { OrchDir, LogContext, Logger, WorkerRequest } from "../../../types/core.ts";
 import { SETTINGS_DEFAULTS } from "../../../settings/schema.ts";
 import { errorMessage } from "../../../util.ts";
 import { randomUUID } from "node:crypto";
@@ -30,9 +31,7 @@ import { hereIsLive, hostOfPlace, placeAgentIfAny } from "../../../process-place
 import { hostIdentity } from "../../../hosts/identity.ts";
 import type { HereAgent } from "../../../types/agent-place.ts";
 import { atAgentHost, driveOnHost } from "./host.ts";
-import { getAdapter } from "../../../adapters/registry.ts";
-import { workerPrompt } from "../../../worker-prompt.ts";
-import { storedHeaderContext } from "../agent-policy.ts";
+import { workerText } from "../worker-header.ts";
 
 /** Build the event carrying mail for a live session with no bridge route. */
 function sessionMessageEvent(directory: OrchDir, agent: HereAgent, id: string, mail: SessionMail): NotifyEvent {
@@ -134,7 +133,7 @@ export async function deliverWrite(state: DaemonState, agent: HereAgent, payload
     return "acked";
   }
   try {
-    const outcome = await deliverControl(directory, state.services.settings.current(), state.services.models, agent, { kind, text, id });
+    const outcome = await deliverControl(directory, agentSettings(state, agent.id), state.services.models, agent, { kind, text, id });
     if (outcome.outcome === "answer") {
       const agentId = canonicalTarget;
       state.services.logger.forCorrelation(id).forAgent(agentId).debug("boundary.answer", {
@@ -304,15 +303,15 @@ function placedKey(directory: OrchDir, target: string): string {
 
 /** A text write, ruled on here and delivered where the agent runs: by this orchd, or by its
  *  host's orchd over the link, which delivers it with its own code and answers for the ack. */
-function writeText(state: DaemonState, action: TextAction, params: ParamsOf<TextAction>): Promise<Accepted> {
+function writeText(state: DaemonState, action: TextAction, params: ParamsOf<TextAction>, worker: WorkerRequest | undefined = undefined): Promise<Accepted> {
   const { target, text } = params;
   const key = placedKey(state.directory, target);
-  const here = (agent: HereAgent): Promise<Accepted> => confirmTextWrite(state, action, agent, text, (id) => { governWrite(state, target, params, { correlationId: id }); });
+  const here = (agent: HereAgent): Promise<Accepted> => confirmTextWrite(state, action, agent, worker === undefined ? text : workerText(state, agent.id, agentProjectSettings(state, agent.id), text, worker), (id) => { governWrite(state, target, params, { correlationId: id }); });
   return atAgentHost(state, key, {
     here,
     there: async (link) => {
       governWrite(state, target, params);
-      const { accepted, id, ack } = await driveOnHost(state, link, { action, key, text, actor: params.actor ?? null });
+      const { accepted, id, ack } = await driveOnHost(state, link, action === "dispatch" && worker !== undefined ? { action, key, text, actor: params.actor ?? null, worker } : { action, key, text, actor: params.actor ?? null });
       return { accepted, id, ack };
     },
   });
@@ -322,14 +321,9 @@ export async function steer(state: DaemonState, params: ParamsOf<"steer">): Prom
   return writeText(state, "steer", params);
 }
 
-/** Work for an agent. A `worker` dispatch is wrapped in the worker header composed for the
- *  harness named, from what that harness's adapter takes; any other is sent as written. */
+/** Work for an agent. A worker header uses its project's rules on the host where it runs. */
 export async function dispatch(state: DaemonState, params: ParamsOf<"dispatch">): Promise<Accepted> {
-  const worker = params.worker;
-  if (worker === undefined) return writeText(state, "dispatch", params);
-  const adapter = worker.harness === null ? undefined : getAdapter(worker.harness);
-  const context = { ...worker.context, ...storedHeaderContext(state.directory, placedKey(state.directory, params.target)) };
-  return writeText(state, "dispatch", { ...params, text: workerPrompt(params.text, false, adapter, context) });
+  return writeText(state, "dispatch", params, params.worker);
 }
 
 function senderName(directory: OrchDir, from: string): string {
@@ -395,7 +389,7 @@ export async function answerHere(state: DaemonState, agent: HereAgent, text: str
   }
   const id = randomUUID();
   const ack = await confirmDelivery(id, settings.current().timeouts.dispatch_ack_ms, async () => {
-    const outcome = await deliverControl(directory, settings.current(), state.services.models, agent, { kind: "answer", text, optionId, id });
+    const outcome = await deliverControl(directory, agentSettings(state, agent.id), state.services.models, agent, { kind: "answer", text, optionId, id });
     if (outcome.outcome === "answer") throw new Error(outcome.text);
     if (!settleQuestion(directory, { id: current.id, answer: text, answeredAt: Date.now() })) {
       throw new Error(`question ${current.id} is no longer pending`);

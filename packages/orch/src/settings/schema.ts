@@ -108,6 +108,7 @@ export const SETTINGS_DEFAULTS = {
   // orchd's own links to settings.hosts never pass through a harness, so they are not gated.
   gated_commands: ["ssh", "ssh.exe", "scp", "sftp", "rsync"],
   settings_file: { typo_max_edits: 2 },
+  project: { file: ".orch/settings.json" },
   logging: { level: "info", slow_tool_ms: 1_000, stall_ms: 500, stall_poll_ms: 1_000 },
   timeouts: { dispatch_ack_ms: 10_000, wait_ms: 300_000, adapter_command_ms: 60_000, notify_ms: 3_000, spawn_attach_ms: 60_000, spawn_attach_poll_ms: 500, lock_wait_ms: 180_000, lock_poll_ms: 1_000, reset_ready_ms: 75_000, reset_poll_ms: 250, daemon_probe_ms: 10_000, acp_probe_ms: 5_000, server_ready_ms: 30_000, session_close_ms: 2_000, abort_gap_ms: 500, machine_ms: 600_000 },
   servers: { idle_ms: 30_000, silence_ms: 45_000, reconnect_ms: 1_000, backfill_messages: 50 },
@@ -128,6 +129,31 @@ export const SETTINGS_DEFAULTS = {
   // `.agents/skills` is the cross-harness standard, so the real files live there once; setup links it into each enabled harness's own skills directory.
   skills: { install: true, store: "~/.agents/skills", link: [] },
 } as const;
+
+/** Where a project's settings file sits, relative to the project directory. */
+const ProjectFile = z.string().min(1).refine(
+  (value) => !path.isAbsolute(value) && !value.split(/[\\/]/).includes(".."),
+  "must be a relative path with no .. segment",
+);
+
+const FLEET_SCHEMA = z.strictObject({
+  max_agents_per_pack: PositiveInt.optional(),
+  /** Most agents one tab holds. A tab is orch's word for a plexer group; the
+   *  count is the group's placements, read through the layout capability. */
+  max_agents_per_tab: PositiveInt.optional(),
+  /** How deep a provenance tree may grow by spawning: 1 = only a root may spawn
+   *  (a slave calling `orch spawn` is refused); N lets an agent at depth < N spawn.
+   */
+  max_depth: PositiveInt.optional(),
+  max_agents_total: PositiveInt.optional(),
+  max_agents_per_space: z.record(z.string(), PositiveInt).optional(),
+  /** A spawn is refused while the machine has less memory than this available, in MiB. */
+  min_free_memory_mb: PositiveInt.optional(),
+  worker_peer_tools: z.boolean().optional(),
+  cross_space: z.boolean().optional(),
+  /** Leading orchs may see each other with `orch orchs` and talk with `orch message`. */
+  orch_peers: z.boolean().optional(),
+});
 
 /** The full contract for `$ORCH_DIR/settings.json` — user-editable, whole-file
  * JSON round-trip, schemaVersion-stamped, validated loudly on every load. */
@@ -153,24 +179,7 @@ export const SETTINGS_FILE_SCHEMA = z.strictObject({
     forms: z.partialRecord(z.enum(ADAPTER_IDS), z.enum(FORM_IDS)).optional(),
     worktree: z.boolean().optional(),
   }).optional(),
-  fleet: z.strictObject({
-    max_agents_per_pack: PositiveInt.optional(),
-    /** Most agents one tab holds. A tab is orch's word for a plexer group; the
-     *  count is the group's placements, read through the layout capability. */
-    max_agents_per_tab: PositiveInt.optional(),
-    /** How deep a provenance tree may grow by spawning: 1 = only a root may spawn
-     *  (a slave calling `orch spawn` is refused); N lets an agent at depth < N spawn.
-     */
-    max_depth: PositiveInt.optional(),
-    max_agents_total: PositiveInt.optional(),
-    max_agents_per_space: z.record(z.string(), PositiveInt).optional(),
-    /** A spawn is refused while the machine has less memory than this available, in MiB. */
-    min_free_memory_mb: PositiveInt.optional(),
-    worker_peer_tools: z.boolean().optional(),
-    cross_space: z.boolean().optional(),
-    /** Leading orchs may see each other with `orch orchs` and talk with `orch message`. */
-    orch_peers: z.boolean().optional(),
-  }).optional(),
+  fleet: FLEET_SCHEMA.optional(),
   /** Mail is what one agent sends another. Each direction picks its own landing:
    * `prompt` types the text into the recipient's input as it arrives, whoever is in
    * the pane; `prompt-unless-focused` does the same unless the human is in that pane,
@@ -308,6 +317,10 @@ export const SETTINGS_FILE_SCHEMA = z.strictObject({
     /** An unknown key this many edits from a declared key is a typo and is refused. */
     typo_max_edits: z.number().int().min(0).optional(),
   }).optional(),
+  /** Where a project keeps its own settings, relative to its directory. */
+  project: z.strictObject({
+    file: ProjectFile.optional(),
+  }).optional(),
   hosts: z.record(z.string(), HostSchema).optional(),
   /** The SSH link orchd holds to each host in `hosts`. */
   links: z.strictObject({
@@ -400,11 +413,52 @@ export const SETTINGS_FILE_SCHEMA = z.strictObject({
 
 export type SettingsFile = z.infer<typeof SETTINGS_FILE_SCHEMA>;
 
+/** The sections that describe the machine, the install or orchd itself. One orchd reads them
+ *  for every project at once, so a project value could not mean anything. */
+const INSTALL_ONLY_SECTIONS = {
+  runtime: true, enabled: true, skills: true, project: true, settings_file: true,
+  daemon: true, links: true, hosts: true, servers: true, lock: true, retention: true,
+  logging: true, doctor: true, timeouts: true, queue: true,
+  pty: true, attach: true, notify: true, notification: true, monitor: true, monitor_tool: true,
+  counts: true, tiling: true,
+  spaces: true, mail: true, questions: true,
+} as const;
+
+/** The fleet caps that span projects. The rest of `fleet` is a project's. */
+const INSTALL_ONLY_FLEET = {
+  max_agents_total: true, max_agents_per_space: true, min_free_memory_mb: true, cross_space: true, orch_peers: true,
+} as const;
+
+export type InstallOnlySection = keyof typeof INSTALL_ONLY_SECTIONS;
+export type InstallOnlyFleetKey = keyof typeof INSTALL_ONLY_FLEET;
+
+/** The one list of install-only settings: a section, or one key of `fleet`. A key under one
+ *  of these is install-only too. */
+export const INSTALL_ONLY_KEYS: readonly string[] = [
+  ...Object.keys(INSTALL_ONLY_SECTIONS),
+  ...Object.keys(INSTALL_ONLY_FLEET).map((key) => `fleet.${key}`),
+];
+
+/** True when `key`, a dotted settings path, may live only in the install file. */
+export function isInstallOnlyKey(key: string): boolean {
+  return INSTALL_ONLY_KEYS.some((entry) => key === entry || key.startsWith(`${entry}.`));
+}
+
+/** A project file: the install file's schema without its install-only keys, every key
+ *  optional. Strict at each level, so an install-only key fails by name. */
+export const PROJECT_SETTINGS_FILE_SCHEMA = SETTINGS_FILE_SCHEMA.omit(INSTALL_ONLY_SECTIONS).extend({
+  schemaVersion: z.literal(SETTINGS_SCHEMA).optional(),
+  fleet: FLEET_SCHEMA.omit(INSTALL_ONLY_FLEET).optional(),
+});
+
+export type ProjectSettingsFile = z.infer<typeof PROJECT_SETTINGS_FILE_SCHEMA>;
+
 /** The settings filename, as a directory watcher sees it. */
 const SETTINGS_FILE = "settings.json";
 
 /** The path of an orch dir's settings.json. Branded so a bare directory, or any other
- *  string, cannot be handed to code that expects the file. Minted here and nowhere else. */
+ *  string, cannot be handed to code that expects the file. Minted in this file and nowhere else: `settingsPath` for the
+ *  install file, `projectSettingsPath` for a project's. */
 export type SettingsFilePath = string & { readonly __brand: "SettingsFilePath" };
 
 /** User-editable composition storage: `$orchDir/settings.json`. The one place the brand
@@ -412,6 +466,11 @@ export type SettingsFilePath = string & { readonly __brand: "SettingsFilePath" }
  *  nothing the line above it did not just establish. */
 export function settingsPath(orchDir: OrchDir): SettingsFilePath {
   return path.join(orchDir, SETTINGS_FILE) as SettingsFilePath;
+}
+
+/** A project's settings file, as `projectFilePath` resolved it. The brand's other mint. */
+export function projectSettingsPath(file: string): SettingsFilePath {
+  return file as SettingsFilePath;
 }
 
 export function settingsTemporaryPath(file: string): string {

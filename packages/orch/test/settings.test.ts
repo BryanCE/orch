@@ -134,6 +134,7 @@ describe("loadSettings", () => {
       gated_commands: ["ssh", "ssh.exe", "scp", "sftp", "rsync"],
       denied_commands: { commands: [], applies_to: ["slave"] },
       settings_file: { typo_max_edits: 2 },
+      project: { file: ".orch/settings.json" },
       hosts: { gpu1: { dest: "bryan@gpu1" } },
       links: { ssh_command: "ssh", ssh_keygen_command: "ssh-keygen", ssh_keyscan_command: "ssh-keyscan", connect_timeout_s: 10, keepalive_interval_s: 15, keepalive_count: 3, request_timeout_ms: 10_000, deliver_timeout_ms: 60_000, receipt_ttl_ms: 600_000, ping_interval_ms: 5_000, silence_timeout_ms: 15_000, retry_after_loss_ms: 250, retry_reset_after_ms: 30_000, retry_floor_ms: 1_000, retry_cap_ms: 300_000, resume_max_age_ms: 43_200_000 },
       attach: { queue_bytes: 1_048_576, detach_key: "ctrl-]" },
@@ -252,6 +253,7 @@ describe("loadSettings", () => {
       gated_commands: ["ssh", "ssh.exe", "scp", "sftp", "rsync"],
       denied_commands: { commands: [], applies_to: ["slave"] },
       settings_file: { typo_max_edits: 2 },
+      project: { file: ".orch/settings.json" },
       hosts: {},
       links: { ssh_command: "ssh", ssh_keygen_command: "ssh-keygen", ssh_keyscan_command: "ssh-keyscan", connect_timeout_s: 10, keepalive_interval_s: 15, keepalive_count: 3, request_timeout_ms: 10_000, deliver_timeout_ms: 60_000, receipt_ttl_ms: 600_000, ping_interval_ms: 5_000, silence_timeout_ms: 15_000, retry_after_loss_ms: 250, retry_reset_after_ms: 30_000, retry_floor_ms: 1_000, retry_cap_ms: 300_000, resume_max_age_ms: 43_200_000 },
       attach: { queue_bytes: 1_048_576, detach_key: "ctrl-]" },
@@ -514,7 +516,7 @@ describe("settings precedence", () => {
     writeSettingsFixture(directory);
     const settings = fileSettingsManager(directory).current();
 
-    expect(resolveSetting<number>({ settings: settings.fleet.max_agents_total, fallback: 2 })).toBe(2);
+    expect(resolveSetting<number>({ install: settings.fleet.max_agents_total, fallback: 2 })).toBe(2);
   });
 
   test("uses the settings.json value over the fallback", () => {
@@ -522,22 +524,27 @@ describe("settings precedence", () => {
     writeSettingsFixture(directory, { fleet: { max_depth: 4 } });
     const settings = fileSettingsManager(directory).current();
 
-    expect(resolveSetting<number>({ settings: settings.fleet.max_depth, fallback: 2 })).toBe(4);
+    expect(resolveSetting<number>({ install: settings.fleet.max_depth, fallback: 2 })).toBe(4);
   });
 
   test("uses an explicit flag over settings.json", () => {
-    expect(resolveSetting({ flag: 9, settings: 4, fallback: 2 })).toBe(9);
+    expect(resolveSetting({ flag: 9, install: 4, fallback: 2 })).toBe(9);
   });
 });
 
 describe("resolveWithSource", () => {
+  test("puts the project between the flag and the install", () => {
+    expect(resolveWithSource({ flag: 9, project: 5, install: 3, fallback: 1 })).toEqual({ value: 9, source: "flag" });
+    expect(resolveWithSource({ project: 5, install: 3, fallback: 1 })).toEqual({ value: 5, source: "project" });
+    expect(resolveWithSource({ project: "wrong", install: 3, fallback: 1 })).toEqual({ value: 3, source: "install" });
+  });
   test("ignores a settings.json value with the wrong shape", () => {
-    expect(resolveWithSource({ settings: "not-an-object", fallback: { enabled: true } })).toEqual({ value: { enabled: true }, source: "default" });
+    expect(resolveWithSource({ install: "not-an-object", fallback: { enabled: true } })).toEqual({ value: { enabled: true }, source: "default" });
   });
 
   test("reports the winning source at each precedence level", () => {
-    expect(resolveWithSource({ flag: 9, settings: 3, fallback: 1 })).toEqual({ value: 9, source: "flag" });
-    expect(resolveWithSource({ settings: 3, fallback: 1 })).toEqual({ value: 3, source: "settings.json" });
+    expect(resolveWithSource({ flag: 9, install: 3, fallback: 1 })).toEqual({ value: 9, source: "flag" });
+    expect(resolveWithSource({ install: 3, fallback: 1 })).toEqual({ value: 3, source: "install" });
     expect(resolveWithSource({ fallback: 1 })).toEqual({ value: 1, source: "default" });
   });
 });

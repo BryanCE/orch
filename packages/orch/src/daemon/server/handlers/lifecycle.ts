@@ -1,3 +1,5 @@
+import { agentSettings } from "../project-settings.ts";
+import { workerText } from "../worker-header.ts";
 import type { CallerCredential, OrchDir } from "../../../types/core.ts";
 import { selfIdentityOf, spaceOfAgent } from "../../../identity/self.ts";
 import { callerKindOf } from "../../../policy/caller.ts";
@@ -60,6 +62,7 @@ export function enqueue(state: DaemonState, params: ParamsOf<"enqueue">): { task
  *  carries that host and its spawner as its origin. Absent: asked for on this host. */
 export async function spawnHeadless(state: DaemonState, params: ParamsOf<"spawn-headless">, peer?: HostId): Promise<ResultOf<"spawn-headless">> {
   const directory = state.directory;
+  const settings = state.services.settingsFor(params.project).settings;
   const key = params.key;
   const adapterId = params.adapter;
   const adapter = resolveAdapter(adapterId);
@@ -67,7 +70,7 @@ export async function spawnHeadless(state: DaemonState, params: ParamsOf<"spawn-
   // Required AND ruled on: a launch with no model runs on whatever the harness
   // defaults to, and a shorthand one gets fuzzy-matched onto whatever registry
   // entry shares a prefix. Both end with the fleet on a model nobody asked for.
-  const model = admitModel(state.services.settings.current(), adapter, state.services.models, params.model);
+  const model = admitModel(settings, adapter, state.services.models, params.model);
   const thinking = params.thinking;
   if (params.host !== undefined) {
     if (peer !== undefined) throw new Error(`cannot spawn ${key}: a host's orchd asks only for a spawn here, never on a third host`);
@@ -75,10 +78,13 @@ export async function spawnHeadless(state: DaemonState, params: ParamsOf<"spawn-
   }
   // A local spawn's plan resolved its form already; only a linked host's orchd resolves it here.
   let form: FormId;
-  if (peer !== undefined) form = selectSpawnForm(params.form, state.services.settings.current().defaults.forms, adapter, heldBackend, heldBackend).form;
+  if (peer !== undefined) form = selectSpawnForm(params.form, settings.defaults.forms, adapter, heldBackend, heldBackend).form;
   else if (params.form === null) throw new Error(`cannot spawn ${key}: no form resolved by the local plan`);
   else form = params.form;
-  const prompt = params.prompt;
+  // The first prompt's header is composed here, where the agent runs, with its project's rules.
+  const prompt = params.prompt === null || params.worker === undefined
+    ? params.prompt
+    : workerText(state, key, state.services.settingsFor(params.project), params.prompt, params.worker, params.workers?.readOnly ? { readOnly: params.workers.readOnly } : {});
   if (FORM_STDIO[form] === "none" && prompt === null) throw new Error(`cannot spawn ${key}: a headless agent needs its prompt at launch`);
   const opts: BackendSpawnOpts = {
     form,
@@ -98,7 +104,7 @@ export async function spawnHeadless(state: DaemonState, params: ParamsOf<"spawn-
     tools: params.tools,
     workers: params.workers,
   };
-  if (peer !== undefined) assertHostAdmits(directory, state.services.settings.current(), 1);
+  if (peer !== undefined) assertHostAdmits(directory, settings, 1);
   // A form that needs a process orchd holds runs in a held launch; a headless form runs detached.
   if (FORM_STDIO[form] !== "none") {
     return spawnHeldLaunch(state, adapter, { ...opts, key, firstPrompt: prompt, spawner: peer === undefined ? params.spawner : null, ...(peer === undefined ? {} : { origin: { askedBy: peer, spawner: params.spawner } }) });
@@ -136,9 +142,9 @@ async function spawnOnHost(state: DaemonState, hostName: string, params: ParamsO
   const link = state.hosts.link(hostName);
   const greeting = await link.requireUp();
   // Governed here already; the far orchd runs it for this host, as this host's peer.
-  const { key, name, spawner, adapter, model, thinking, prompt, cwd, env, preferredModels, tools, workers, form } = params;
+  const { key, name, spawner, adapter, model, thinking, prompt, worker, cwd, env, preferredModels, tools, workers, form } = params;
   // The agent's project is on that host's disk: the directory there it runs in.
-  const launched = await link.call("spawn-headless", { key, name, spawner, adapter, model, thinking, prompt, cwd, project: params.cwd, env, preferredModels, tools, workers, form });
+  const launched = await link.call("spawn-headless", { key, name, spawner, adapter, model, thinking, prompt, ...(worker === undefined ? {} : { worker }), cwd, project: params.cwd, env, preferredModels, tools, workers, form });
   registerHostedAgent(state.directory, { form: launched.form, key, harnessId: adapter, cwd: params.cwd, name, model, thinking, spawner, host: greeting.host });
   return launched;
 }
@@ -160,7 +166,7 @@ export async function setModel(state: DaemonState, params: ParamsOf<"set-model">
 
 /** Switch the model of an agent this orchd runs, ruled on already. */
 export async function applyModel(state: DaemonState, agent: HereAgent, model: string): Promise<{ ok: true; applied: string }> {
-  const outcome = await deliverControl(state.directory, state.services.settings.current(), state.services.models, agent, { kind: "model", model, id: randomUUID() });
+  const outcome = await deliverControl(state.directory, agentSettings(state, agent.id), state.services.models, agent, { kind: "model", model, id: randomUUID() });
   // A boundary answer is the refusal itself: reporting the model applied would hide it.
   if (outcome.outcome === "answer") throw new Error(outcome.text);
   return { ok: true, applied: model };
@@ -255,7 +261,7 @@ export async function clearHere(state: DaemonState, agent: HereAgent): Promise<R
 
 /** Apply a lifecycle verb to an agent this orchd runs, ruled on already. */
 export async function applyVerb(state: DaemonState, agent: HereAgent, verb: LifecycleVerb): Promise<{ ok: true; verb: LifecycleVerb }> {
-  const outcome = await deliverControl(state.directory, state.services.settings.current(), state.services.models, agent, { kind: "lifecycle", verb });
+  const outcome = await deliverControl(state.directory, agentSettings(state, agent.id), state.services.models, agent, { kind: "lifecycle", verb });
   // A boundary answer is the refusal itself: waiting on a verb never sent only times out.
   if (outcome.outcome === "answer") throw new Error(`cannot ${verb} ${agent.id}: ${outcome.text}`);
   return { ok: true, verb };

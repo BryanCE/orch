@@ -3,6 +3,8 @@
 // its own delivery and close code (`peer-drive`). That orchd takes this one's ruling: it never
 // re-runs a lease gate, since only the asking host can resolve its caller and judge whether
 // the lease holder is alive. Kill verbs (abort, close, reap) are gated nowhere (Rule 11).
+import { agentProjectSettings, agentSettings } from "../project-settings.ts";
+import { workerText } from "../worker-header.ts";
 import { deliverControl } from "../../../control/dispatch.ts";
 import { attemptClose, closeTargetOf } from "../../../control/close-attempt.ts";
 import { closeTargetOfAgent } from "../../../entities/close-targets.ts";
@@ -25,7 +27,7 @@ import type { HereAgent } from "../../../types/agent-place.ts";
 
 /** Cancel the current turn of an agent this orchd runs through the control dispatcher. */
 async function abortHere(state: DaemonState, agent: HereAgent): Promise<ResultOf<"abort">> {
-  const outcome = await deliverControl(state.directory, state.services.settings.current(), state.services.models, agent, { kind: "abort" });
+  const outcome = await deliverControl(state.directory, agentSettings(state, agent.id), state.services.models, agent, { kind: "abort" });
   if (outcome.outcome === "answer") {
     if (outcome.reason !== "no-pane" && outcome.reason !== "no-environment-role") throw new Error(outcome.text);
     return { ...outcome, reason: outcome.reason };
@@ -88,10 +90,14 @@ export async function peerDrive(state: DaemonState, params: ParamsOf<"peer-drive
   if (params.action === "reap") return { action: "reap", reaped: reapForPeer(state.directory, key) };
   const agent = placeHere(state.directory, key);
   switch (params.action) {
-    case "dispatch":
+    case "dispatch": {
+      const text = params.worker === undefined ? params.text : workerText(state, key, agentProjectSettings(state, key), params.text, params.worker);
+      const { accepted, id, ack } = await confirmTextWrite(state, "dispatch", agent, text, () => undefined);
+      return { action: "dispatch", accepted, id, ack };
+    }
     case "steer": {
-      const { accepted, id, ack } = await confirmTextWrite(state, params.action, agent, params.text, () => undefined);
-      return { action: params.action, accepted, id, ack };
+      const { accepted, id, ack } = await confirmTextWrite(state, "steer", agent, params.text, () => undefined);
+      return { action: "steer", accepted, id, ack };
     }
     case "answer":
       return { action: "answer", ...await answerHere(state, agent, params.text, params.questionId) };

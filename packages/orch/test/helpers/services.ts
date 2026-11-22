@@ -1,4 +1,5 @@
 import type { LogProc, OrchDir } from "../../src/types/core.ts";
+import { settingsForProjects } from "../../src/settings/project.ts";
 import { createServices } from "../../src/services.ts";
 import { inMemorySettingsManager } from "../../src/settings/manager.ts";
 import { settingsPath } from "../../src/settings/schema.ts";
@@ -27,5 +28,5 @@ export function testServices(options: TestServicesOptions): Services {
 /** orchd's services over {@link testServices}: the given model listing, or the real catalogue. */
 export function testDaemonServices(options: TestServicesOptions): DaemonServices {
   const services = testServices(options);
-  return { ...services, models: options.models ?? createModelCatalogue(services.orchDir, services.logger) };
+  return { ...services, settingsFor: settingsForProjects(services.settings), models: options.models ?? createModelCatalogue(services.orchDir, services.logger) };
 }

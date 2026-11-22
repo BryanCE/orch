@@ -1,4 +1,6 @@
-import { errorMessage, packageManifest } from "../util.ts";
+import { errorMessage, packageManifest, projectRoot } from "../util.ts";
+import { envOrchDir } from "../orch-dir.ts";
+import { fileSettingsManager, projectViewSettingsManager } from "../settings/manager.ts";
 import { daemonEntrypoint, readDaemonCodeSkew } from "../daemon/client/process.ts";
 import { cmdStatusVerb } from "./status/verb.ts";
 import { cmdSpawn, cmdTile } from "./spawn/index.ts";
@@ -203,7 +205,8 @@ export function runCommand(argv: string[]): void {
   // Help must never require setup, a daemon, or a current install to read.
   const topic = requestedHelpTopic(cmd, rest);
   if (topic !== null) { process.stdout.write(topic); return; }
-  const services = createServices();
+  const orchDir = envOrchDir();
+  const services = createServices({ orchDir, settings: projectViewSettingsManager(projectRoot(), fileSettingsManager(orchDir)) });
   try {
     const directory = services.orchDir;
     // The setup gate never surfaces a raw config error. Either it routes into the wizard, or it

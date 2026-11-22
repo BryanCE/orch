@@ -1,0 +1,34 @@
+src/daemon/server/handlers/lifecycle.ts(70,28): error TS2740: Type 'InstallSettings' is missing the following properties from type 'OrchSettings': defaults, models, workers, agents, and 5 more.
+src/daemon/server/handlers/lifecycle.ts(78,97): error TS2339: Property 'defaults' does not exist on type 'InstallSettings'.
+src/daemon/server/handlers/lifecycle.ts(101,55): error TS2345: Argument of type 'InstallSettings' is not assignable to parameter of type 'Pick<OrchSettings, "fleet">'.
+src/daemon/server/handlers/lifecycle.ts(163,57): error TS2740: Type 'InstallSettings' is missing the following properties from type 'OrchSettings': defaults, models, workers, agents, and 5 more.
+src/daemon/server/handlers/lifecycle.ts(258,57): error TS2740: Type 'InstallSettings' is missing the following properties from type 'OrchSettings': defaults, models, workers, agents, and 5 more.
+src/daemon/server/handlers/relaunch.ts(90,81): error TS2345: Argument of type 'InstallSettings' is not assignable to parameter of type 'OrchSettings | null'.
+src/daemon/server/handlers/relaunch.ts(103,44): error TS2740: Type 'InstallSettings' is missing the following properties from type 'OrchSettings': defaults, models, workers, agents, and 5 more.
+src/daemon/server/handlers/relaunch.ts(104,34): error TS2740: Type 'InstallSettings' is missing the following properties from type 'OrchSettings': defaults, models, workers, agents, and 5 more.
+src/daemon/server/handlers/relaunch.ts(105,51): error TS2740: Type 'InstallSettings' is missing the following properties from type 'OrchSettings': defaults, models, workers, agents, and 5 more.
+src/daemon/server/handlers/relaunch.ts(107,80): error TS2339: Property 'models' does not exist on type 'InstallSettings'.
+src/daemon/server/handlers/relaunch.ts(108,86): error TS2740: Type 'InstallSettings' is missing the following properties from type 'OrchSettings': defaults, models, workers, agents, and 5 more.
+src/daemon/server/handlers/relaunch.ts(157,51): error TS2740: Type 'InstallSettings' is missing the following properties from type 'OrchSettings': defaults, models, workers, agents, and 5 more.
+src/daemon/server/handlers/relaunch.ts(210,140): error TS2345: Argument of type 'InstallSettings' is not assignable to parameter of type 'OrchSettings | null'.
+src/daemon/server/handlers/restart-form.ts(65,51): error TS2740: Type 'InstallSettings' is missing the following properties from type 'OrchSettings': defaults, models, workers, agents, and 5 more.
+src/daemon/server/handlers/restart-form.ts(76,31): error TS2339: Property 'models' does not exist on type 'InstallSettings'.
+src/daemon/server/handlers/restart-form.ts(83,42): error TS2740: Type 'InstallSettings' is missing the following properties from type 'OrchSettings': defaults, models, workers, agents, and 5 more.
+src/daemon/server/spawn/index.ts(116,21): error TS2345: Argument of type 'InstallSettings' is not assignable to parameter of type 'Pick<OrchSettings, "fleet">'.
+src/daemon/server/spawn/index.ts(118,51): error TS2345: Argument of type 'InstallSettings' is not assignable to parameter of type 'Pick<OrchSettings, "fleet">'.
+src/daemon/server/spawn/index.ts(119,28): error TS2345: Argument of type 'InstallSettings' is not assignable to parameter of type 'Pick<OrchSettings, "fleet">'.
+src/daemon/server/spawn/index.ts(120,56): error TS2339: Property 'max_depth' does not exist on type 'Pick<{ max_agents_per_pack: number; max_agents_per_tab: number; max_depth: number; max_agents_total
+src/daemon/server/spawn/index.ts(121,33): error TS2322: Type 'DaemonServices' is not assignable to type 'DaemonClient'.
+src/daemon/server/spawn/index.ts(148,221): error TS2740: Type 'InstallSettings' is missing the following properties from type 'OrchSettings': defaults, models, workers, agents, and 5 more.
+src/daemon/server/spawn/index.ts(248,42): error TS2345: Argument of type 'DaemonServices' is not assignable to parameter of type 'DaemonClient'.
+src/daemon/server/spawn/index.ts(274,5): error TS2322: Type 'DaemonServices' is not assignable to type 'DaemonClient'.
+src/daemon/server/spawn/index.ts(282,23): error TS2345: Argument of type 'InstallSettings' is not assignable to parameter of type 'Pick<OrchSettings, "fleet">'.
+src/daemon/server/spawn/index.ts(303,32): error TS2322: Type 'DaemonServices' is not assignable to type 'DaemonClient'.
+src/daemon/server/spawn/index.ts(332,43): error TS2740: Type 'InstallSettings' is missing the following properties from type 'OrchSettings': defaults, models, workers, agents, and 5 more.
+src/daemon/server/spawn/index.ts(336,60): error TS2740: Type 'InstallSettings' is missing the following properties from type 'OrchSettings': defaults, models, workers, agents, and 5 more.
+src/daemon/server/spawn/index.ts(336,92): error TS2740: Type 'InstallSettings' is missing the following properties from type 'OrchSettings': defaults, models, workers, agents, and 5 more.
+src/daemon/server/spawn/index.ts(385,46): error TS2345: Argument of type 'DaemonServices' is not assignable to parameter of type 'DaemonClient'.
+src/daemon/server/spawn/index.ts(406,9): error TS2740: Type 'InstallSettings' is missing the following properties from type 'OrchSettings': defaults, models, workers, agents, and 5 more.
+src/daemon/server/spawn/index.ts(448,37): error TS2345: Argument of type 'DaemonServices' is not assignable to parameter of type 'DaemonClient'.
+src/daemon/server/spawn/models.ts(102,24): error TS2740: Type 'InstallSettings' is missing the following properties from type 'OrchSettings': defaults, models, workers, agents, and 5 more.
+src/daemon/server/spawn/models.ts(103,23): error TS2740: Type 'InstallSettings' is missing the following properties from type 'OrchSettings': defaults, models, workers, agents, and 5 more.

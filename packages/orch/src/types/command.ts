@@ -2,8 +2,8 @@ import type { AdapterId, AgentAdapter, HarnessModel, ShimRole } from "./adapter.
 import type { Backend, BackendHandle, HomeSubject, SpaceHomeRole, TilePlacement } from "./backend.ts";
 import type { CallerKind, ThinkingLevel, WorkerPolicy } from "./policy.ts";
 import type { GrantAction } from "./store.ts";
-import type { LogLevel, TokenTotals, WorkerHeaderContext } from "./core.ts";
-import type { DaemonClient } from "./services.ts";
+import type { LogLevel, TokenTotals, WorkerCallerContext } from "./core.ts";
+import type { DaemonContext } from "./services.ts";
 import type { TerminalPreparer } from "./held-session.ts";
 import type { AgentWorktree } from "./worktree.ts";
 import type { HostIdentity, HostOffline } from "./host.ts";
@@ -12,7 +12,7 @@ export interface DispatchToAgentOptions {
   raw?: boolean;
   /** The harness whose worker header wraps the prompt; orchd composes it from that adapter. */
   harness?: AdapterId;
-  context?: WorkerHeaderContext;
+  context?: WorkerCallerContext;
   gov?: WriteGovernance;
 }
 
@@ -103,7 +103,7 @@ export interface SmokeSteps {
 
 /** What opening one plexer home for a space or a pack needs. */
 export interface OpenHomeRequest {
-  readonly services: DaemonClient;
+  readonly services: DaemonContext;
   readonly subject: HomeSubject;
   readonly plexerId: string;
   /** The caller gates on the environment holding a home at all (E13); an
@@ -303,7 +303,7 @@ export interface HomeToOpen {
 
 /** What deciding a {@link SpawnPlacement} needs. */
 export interface SpawnPlacementRequest {
-  readonly services: DaemonClient;
+  readonly services: DaemonContext;
   readonly backend: Backend;
   /** The space the caller named, or null. Never invented here. */
   readonly space: string | null;
@@ -326,7 +326,7 @@ export interface SpawnPlacementRequest {
 
 /** What opening the home a {@link SpawnPlacement} owes needs. */
 export interface OpenFleetHomeRequest {
-  readonly services: DaemonClient;
+  readonly services: DaemonContext;
   readonly backend: Backend;
   readonly home: HomeToOpen;
   /** The first agent's directory: the home's root place is where it launches. */

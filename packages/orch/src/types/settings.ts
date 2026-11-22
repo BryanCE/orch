@@ -1,7 +1,7 @@
 import type { z } from "zod";
 // Type-only: `z.infer` over the runtime schemas, erased at compile time, so
 // this creates no runtime edge out of the types layer.
-import type { HostSchema, NotifyEntrySchema } from "../settings/schema.ts";
+import type { HostSchema, InstallOnlyFleetKey, InstallOnlySection, NotifyEntrySchema } from "../settings/schema.ts";
 import type { FormId } from "./form.ts";
 import type { AdapterId } from "./adapter.ts";
 import { AGENT_STATES } from "../agent-state.ts";
@@ -69,6 +69,7 @@ export interface OrchSettings {
   gated_commands: string[];
   denied_commands: { commands: string[]; applies_to: readonly Role[] };
   settings_file: { typo_max_edits: number };
+  project: { file: string };
   hosts: Record<string, HostSettings>;
   links: { ssh_command: string; ssh_keygen_command: string; ssh_keyscan_command: string; connect_timeout_s: number; keepalive_interval_s: number; keepalive_count: number; request_timeout_ms: number; deliver_timeout_ms: number; receipt_ttl_ms: number; ping_interval_ms: number; silence_timeout_ms: number; retry_after_loss_ms: number; retry_reset_after_ms: number; retry_floor_ms: number; retry_cap_ms: number; resume_max_age_ms: number };
   spaces: Record<string, string>;
@@ -83,14 +84,21 @@ export interface OrchSettings {
   skills: { install: boolean; store: string; link: string[] };
 }
 
-export interface SettingsWatchOptions {
-  onChange: (config: OrchSettings) => void;
+/** The install-only settings: all orchd may read with no project in view. A project key is
+ *  read through the merged settings of that project's directory. */
+export type InstallSettings = Pick<OrchSettings, InstallOnlySection> & {
+  fleet: Pick<OrchSettings["fleet"], InstallOnlyFleetKey>;
+};
+
+/** What a settings watch loads and hands on: orchd's install settings, or a client's whole value. */
+export interface SettingsWatchOptions<T extends InstallSettings = InstallSettings> {
+  onChange: (config: T) => void;
   onWarn?: (message: string) => void;
   debounceMs?: number;
   pollMs?: number;
   /** Load the current settings. The daemon passes `() => services.settings.reload()` so the
    *  watcher and the manager agree on one value. */
-  load: () => OrchSettings;
+  load: () => T;
 };
 
 export interface SettingsWatch {
@@ -99,8 +107,10 @@ export interface SettingsWatch {
   reload: () => void;
 };
 
-/** Where a resolved setting's winning value came from. */
-export type SettingSource = "flag" | "settings.json" | "default";
+/** Where a resolved setting's winning value came from: a flag, the project file, the
+ *  install file `$ORCH_DIR/settings.json`, or orch's default. Both files are named
+ *  settings.json, so the source names which. */
+export type SettingSource = "flag" | "project" | "install" | "default";
 
 /**
  * The declared shape of one setting is the contract.
@@ -144,6 +154,8 @@ export interface SettingSpec {
   /** One line, shown under the cursor. */
   readonly help: string;
   readonly type: SettingKind;
+  /** `install` for a key only the install file may hold; `project` for every other key. */
+  readonly scope: "project" | "install";
   readonly read: (config: OrchSettings) => unknown;
   /** Absent means read-only BY DECLARATION — never by omission. */
   readonly write?: (settings: SettingsManager, value: unknown) => void;

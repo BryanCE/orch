@@ -1,4 +1,5 @@
 import * as filesystem from "node:fs";
+import * as path from "node:path";
 import { settingsPath, settingsTemporaryPath, type SettingsFilePath } from "./schema.ts";
 import { ensurePrivateDir, errnoCode } from "../util.ts";
 import type { OrchDir } from "../types/core.ts";
@@ -21,7 +22,15 @@ export interface SettingsStorage {
 /** `$orchDir/settings.json`. Absent file is null. A legacy `config.toml` next to
  *  an absent settings.json is an error, never read, never migrated (Rule 8). */
 export function fileSettingsStorage(orchDir: OrchDir): SettingsStorage {
-  const file = settingsPath(orchDir);
+  return fileStorageAt(settingsPath(orchDir), () => ensurePrivateDir(orchDir));
+}
+
+/** A project's settings file. Its directory is made on the first write. */
+export function projectSettingsStorage(file: SettingsFilePath): SettingsStorage {
+  return fileStorageAt(file, () => filesystem.mkdirSync(path.dirname(file), { recursive: true }));
+}
+
+function fileStorageAt(file: SettingsFilePath, ensureDir: () => void): SettingsStorage {
   const read = (): string | null => {
     try {
       return filesystem.readFileSync(file, "utf8");
@@ -34,7 +43,7 @@ export function fileSettingsStorage(orchDir: OrchDir): SettingsStorage {
     file,
     read,
     withLock: (policy, fn) => {
-      ensurePrivateDir(orchDir);
+      ensureDir();
       const lock = `${file}.lock`;
       let fd: number | undefined;
       let failures = 0;
@@ -71,7 +80,7 @@ export function fileSettingsStorage(orchDir: OrchDir): SettingsStorage {
         }
       }
       try {
-        ensurePrivateDir(orchDir);
+        ensureDir();
         const next = fn(read());
         const temporary = settingsTemporaryPath(file);
         filesystem.writeFileSync(temporary, next);

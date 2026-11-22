@@ -6,10 +6,10 @@ import "../../backends/registry.ts";
 import { createBuiltinNotifiers } from "../../notify/sinks.ts";
 import { notifierRemediation } from "../../notify/remediation.ts";
 import type { NotifierChoice } from "../../types/notify.ts";
-import type { OrchSettings } from "../../types/settings.ts";
+import type { InstallSettings } from "../../types/settings.ts";
 
 /** Probe each built-in integration; rejected probes are reported as unavailable. */
-export async function probeNotifiers(settings: OrchSettings | null): Promise<NotifierChoice[]> {
+export async function probeNotifiers(settings: InstallSettings | null): Promise<NotifierChoice[]> {
   return Promise.all(createBuiltinNotifiers().map(async (notifier) => {
     let available = false;
     try {

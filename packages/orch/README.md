@@ -149,7 +149,7 @@ agents". The skill tells the agent how to size the fleet, split the work, watch 
 
 Each dispatch starts with a short worker header, unless you pass `--raw`. The header tells
 the worker that nobody watches its pane, that it must not start its own sub-agents, and
-which commands verify its work (`workers.verify_commands`).
+which commands verify its work (`workers.verify_commands`, from the worker's project).
 
 A worker also gets orch's tools inside its harness:
 
@@ -264,6 +264,10 @@ orch settings thinking high --harness claude
   example a test suite). orch holds the others until the lock is free.
 - `gated_commands`: commands an agent may run only after a human approves with `orch grant`.
 - `denied_commands`: commands an agent may never run.
+
+These four are a project's: set them from the project's directory and they land in its
+`.orch/settings.json`, so each project keeps its own checks and locks. `orch help settings`
+has the two files.
 
 `applies_to` names the roles a rule covers: `orch` (an orchestrating agent) and `slave` (a
 worker).

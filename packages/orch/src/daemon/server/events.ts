@@ -3,7 +3,7 @@ import { notify } from "../../notify/router.ts";
 import { abstractAgentLabel, spaceLabelForKey } from "../../notify/format.ts";
 import type { NotifyEvent } from "../../types/notify.ts";
 import type { NotifyEntry } from "../../types/settings.ts";
-import type { SettingsManager } from "../../types/services.ts";
+import type { InstallSettingsManager } from "../../types/services.ts";
 import type { DaemonState } from "./state.ts";
 
 /** How many events this daemon has published for each agent. The publish point is the
@@ -65,7 +65,7 @@ export function emitAndNotify(
   sinks: NotifyEntry[],
   event: NotifyEvent,
   orchDir: OrchDir | undefined,
-  settings: SettingsManager,
+  settings: InstallSettingsManager,
   now = Date.now(),
   logger?: Logger,
 ): void {
@@ -79,7 +79,7 @@ function deliverEvent(
   sinks: NotifyEntry[],
   event: NotifyEvent,
   orchDir: OrchDir | undefined,
-  settings: SettingsManager,
+  settings: InstallSettingsManager,
   logger?: Logger,
 ): void {
   const space = event.space ?? spaceLabelForKey(event.key);

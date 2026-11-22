@@ -2,7 +2,7 @@ import type { Logger, OrchDir } from "../../types/core.ts";
 import { acceptMail } from "./mail.ts";
 import { attemptsOf, taskById, type AttemptRow } from "../../store/task-rows.ts";
 import { agentById } from "../../store/agent-rows.ts";
-import type { OrchSettings } from "../../types/settings.ts";
+import type { InstallSettings } from "../../types/settings.ts";
 
 /**
  * Cq4 — "Results go to the enqueuer, not the runner — cross-pack delivery is
@@ -17,7 +17,7 @@ import type { OrchSettings } from "../../types/settings.ts";
  * Best-effort on purpose: the task is already settled when this runs, and an
  * undeliverable result must never unsettle it or throw into the work loop.
  */
-export function deliverTaskResult(orchDir: OrchDir, settings: OrchSettings | null, taskId: string, logger?: Logger): void {
+export function deliverTaskResult(orchDir: OrchDir, settings: InstallSettings | null, taskId: string, logger?: Logger): void {
   const task = taskById(orchDir, taskId);
   if (!task) return;
   const attempts = attemptsOf(orchDir, taskId);

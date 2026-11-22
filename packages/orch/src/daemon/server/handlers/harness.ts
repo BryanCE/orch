@@ -1,3 +1,4 @@
+import { installSettings } from "../project-settings.ts";
 // Harness questions only an adapter can answer: what each harness can run, and the files orch's
 // settings build for it. The adapters run here, in orchd; the CLI asks and prints.
 import { refreshAdapterCatalogues, resolveAdapter, syncAdapterSettingsFiles } from "../../../adapters/registry.ts";
@@ -40,5 +41,5 @@ export async function refreshCatalogues(state: DaemonState): Promise<ResultOf<"c
 export function syncHarnessFiles(state: DaemonState): ResultOf<"harness-files-sync"> {
   if (state.settingsWatch === undefined) state.services.settings.reload();
   else state.settingsWatch.reload();
-  return { written: syncAdapterSettingsFiles(state.directory, state.services.settings.current()) };
+  return { written: syncAdapterSettingsFiles(state.directory, installSettings(state)) };
 }

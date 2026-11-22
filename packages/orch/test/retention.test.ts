@@ -1,3 +1,4 @@
+import { settingsForProjects } from "../src/settings/project.ts";
 import { recordingLogger } from "./helpers/logger.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
@@ -63,6 +64,7 @@ function settingsFixture(days: Partial<OrchSettings["retention"]> = {}): OrchSet
     gated_commands: [],
     denied_commands: { commands: [], applies_to: ["slave"] },
     settings_file: { typo_max_edits: 2 },
+    project: { file: ".orch/settings.json" },
     hosts: {},
     links: SETTINGS_DEFAULTS.links,
     attach: SETTINGS_DEFAULTS.attach,
@@ -336,6 +338,7 @@ describe("retention sweep", () => {
       const baseSettings = inMemorySettingsManager(JSON.stringify({ schemaVersion: SETTINGS_SCHEMA, ...settings }), settingsPath(orchDir));
       const settingsManager = {
         file: baseSettings.file,
+        scope: { kind: "install" as const },
         current: () => {
           ticks += 1;
           if (ticks === 2) upsertRun(orchDir, run("inserted-after-sweep", "2020-01-01T00:00:00.000Z"));
@@ -354,6 +357,7 @@ describe("retention sweep", () => {
         continuous: true,
         signal: controller.signal,
         settings: settingsManager,
+        settingsFor: settingsForProjects(settingsManager),
         models: testDaemonServices({ orchDir }).models,
       });
       await loop;

@@ -10,7 +10,7 @@ import type { Logger } from "./core.ts";
 import type { PipesProvider } from "./pipes.ts";
 import type { QuestionOption } from "./question.ts";
 import type { AgentAdapter, SessionView, SessionViewEntry } from "./adapter.ts";
-import type { OrchSettings } from "./settings.ts";
+import type { InstallSettings, OrchSettings } from "./settings.ts";
 
 /** How a turn ended, in presence terms. */
 export interface TurnOutcome {
@@ -54,7 +54,7 @@ export type SessionOpen =
 /** What orchd lends a driver while it starts and opens a session. */
 export interface SessionOpenContext {
   readonly logger: Logger;
-  readonly settings: OrchSettings;
+  readonly settings: InstallSettings;
   readonly pipes: PipesProvider;
 }
 

@@ -1,7 +1,8 @@
+import { fileSettingsManager, projectViewSettingsManager } from "../src/settings/manager.ts";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { writeSettingsFixture } from "../test/helpers/settings.ts";
+import { writeProjectSettingsFixture, writeProjectSettingsText, writeSettingsFixture } from "../test/helpers/settings.ts";
 import * as registry from "../src/settings/registry.ts";
 import { SETTINGS_REGISTRY } from "../src/settings/registry.ts";
 import { cmdSettings } from "../src/commands/settings.ts";
@@ -41,7 +42,7 @@ const CALLER_VARS = [LAUNCH_ENV, ...HARNESS_SESSION_VARS];
 /** Run one `orch settings` in-process with the CLI's environment, against an orchd serving
  *  this dir: the runner's env minus the caller vars, plus what the test sets on purpose. A fresh
  *  Services per run reads the file the way a fresh CLI process does. */
-async function runSettingsCli(orchDir: OrchDir, extraEnv: Record<string, string>, args: readonly string[]): Promise<string> {
+async function runSettingsCli(orchDir: OrchDir, extraEnv: Record<string, string>, args: readonly string[], project: string | null = null): Promise<string> {
   const saved = Object.fromEntries(CALLER_VARS.map((name) => [name, process.env[name]]));
   for (const name of CALLER_VARS) delete process.env[name];
   process.env.ORCH_DIR = orchDir;
@@ -50,7 +51,7 @@ async function runSettingsCli(orchDir: OrchDir, extraEnv: Record<string, string>
   const servers: RpcServer[] = [];
   await serveFileDaemon(orchDir, servers);
   try {
-    return await captureStdout(() => cmdSettings(createServices({ orchDir }), [...args]));
+    return await captureStdout(() => cmdSettings(project === null ? createServices({ orchDir }) : createServices({ orchDir, settings: projectViewSettingsManager(project, fileSettingsManager(orchDir)) }), [...args]));
   } finally {
     while (servers.length > 0) await servers.pop()!.close();
     for (const name of CALLER_VARS) {
@@ -127,8 +128,8 @@ describe("orch settings", () => {
     });
 
     const report = settingsReport(await runSettings(directory, {}, "--json"));
-    expect(report["defaults.adapter"]).toEqual({ value: "pi", source: "settings.json", agentWritable: false });
-    expect(report["defaults.backend"]).toEqual({ value: "headless", source: "settings.json", agentWritable: false });
+    expect(report["defaults.adapter"]).toEqual({ value: "pi", source: "install", agentWritable: false });
+    expect(report["defaults.backend"]).toEqual({ value: "headless", source: "install", agentWritable: false });
     expect(report["model (pi)"]!.source).toBe("default");
     expect(report["model (claude)"]!.source).toBe("default");
     expect(report["fleet.max_depth"]).toEqual({ value: 1, source: "default", agentWritable: false });
@@ -295,7 +296,7 @@ describe("orch settings", () => {
 
 describe("orch settings from an agent", () => {
   const fixture = { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } };
-  const asAgent = (): Record<string, string> => ({ [LAUNCH_ENV]: mintAgentId() });
+
 
   test("the human sets any writable key", async () => {
     const directory = tempDir();
@@ -374,5 +375,74 @@ describe("orch settings from an agent", () => {
     const report = settingsReport(await runSettings(directory, {}, "--json"));
     expect(report["workers.verify_commands"]?.agentWritable).toBe(true);
     expect(report["fleet.max_depth"]?.agentWritable).toBe(false);
+  });
+});
+
+const asAgent = (): Record<string, string> => ({ [LAUNCH_ENV]: mintAgentId() });
+
+function runProjectSettings(orchDir: OrchDir, project: string, extraEnv: Record<string, string>, ...args: string[]): Promise<string> {
+  return runSettingsCli(orchDir, extraEnv, args, project);
+}
+
+async function runProjectSettingsExpectingFailure(orchDir: OrchDir, project: string, extraEnv: Record<string, string>, ...args: string[]): Promise<{ message: string }> {
+  try {
+    await runSettingsCli(orchDir, extraEnv, args, project);
+  } catch (error: unknown) {
+    if (error instanceof CommandRefusal) return { message: error.message };
+    throw error;
+  }
+  throw new Error("orch settings succeeded, expected a refusal");
+}
+
+describe("orch settings in a project", () => {
+  let dir: OrchDir;
+  let project: OrchDir;
+  beforeEach(() => {
+    dir = tempDir();
+    project = tempDir();
+    writeSettingsFixture(dir, { defaults: { adapter: "pi", backend: "headless" } });
+  });
+
+  test("a write lands in the project file, created on first write", async () => {
+    expect(await runProjectSettings(dir, project, {}, "workers.verify_commands", '["bunx oxlint"]')).toContain(path.join(project, ".orch", "settings.json"));
+    const parsed: unknown = JSON.parse(fs.readFileSync(path.join(project, ".orch", "settings.json"), "utf8"));
+    expect(parsed).toMatchObject({ workers: { verify_commands: ["bunx oxlint"] } });
+    expect(fs.readFileSync(path.join(dir, "settings.json"), "utf8")).not.toContain("bunx oxlint");
+  });
+
+  test("an install-only key lands in the install file", async () => {
+    await runProjectSettings(dir, project, {}, "daemon.tcp_port", "4000");
+    expect(fs.readFileSync(path.join(dir, "settings.json"), "utf8")).toContain("4000");
+    expect(fs.existsSync(path.join(project, ".orch", "settings.json"))).toBe(false);
+  });
+
+  test("--install writes the install file's value", async () => {
+    await runProjectSettings(dir, project, {}, "workers.verify_commands", '["go vet"]', "--install");
+    expect(fs.readFileSync(path.join(dir, "settings.json"), "utf8")).toContain("go vet");
+    expect(fs.existsSync(path.join(project, ".orch", "settings.json"))).toBe(false);
+  });
+
+  test("--install is refused for an agent", async () => {
+    expect((await runProjectSettingsExpectingFailure(dir, project, asAgent(), "workers.verify_commands", '["go vet"]', "--install")).message).toContain("--install");
+  });
+
+  test("--clear removes the project's value", async () => {
+    await runProjectSettings(dir, project, {}, "workers.verify_commands", '["bunx oxlint"]');
+    expect(await runProjectSettings(dir, project, {}, "workers.verify_commands", "--clear")).toContain("cleared");
+    const parsed: unknown = JSON.parse(fs.readFileSync(path.join(project, ".orch", "settings.json"), "utf8"));
+    if (!isRecord(parsed) || !isRecord(parsed.workers)) throw new Error("missing workers object");
+    expect(parsed.workers).not.toHaveProperty("verify_commands");
+  });
+
+  test("the table and --json name the project as the source", async () => {
+    writeProjectSettingsFixture(project, { workers: { verify_commands: ["bunx oxlint"] } });
+    expect(settingsReport(await runProjectSettings(dir, project, {}, "--json"))["workers.verify_commands"]).toEqual({ value: ["bunx oxlint"], source: "project", agentWritable: true });
+    expect(await runProjectSettings(dir, project, {})).toContain(`project   ${path.join(project, ".orch", "settings.json")}`);
+  });
+
+  test("an invalid project file shows its error and refuses a write", async () => {
+    writeProjectSettingsText(project, '{"runtime":"node"}');
+    expect(await runProjectSettings(dir, project, {})).toContain("install-only");
+    expect((await runProjectSettingsExpectingFailure(dir, project, {}, "workers.verify_commands", '["x"]')).message).toContain("install-only");
   });
 });

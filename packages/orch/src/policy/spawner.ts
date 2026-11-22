@@ -1,9 +1,9 @@
 import { LAUNCH_ENV } from "../identity/launch.ts";
 import { ENVIRONMENT_ENV } from "../shared/environment.ts";
 import type { BackendSpawnOpts } from "../types/backend.ts";
-import { workerPlaceContext, workerRules, type WorkerPlace } from "../worker-prompt.ts";
+import { workerPlaceContext, type WorkerPlace } from "../worker-prompt.ts";
 import type { ResultOf } from "../daemon/client/protocol.ts";
-import type { WorkerHeaderContext } from "../types/core.ts";
+import type { WorkerCallerContext } from "../types/core.ts";
 import type { OrchSettings } from "../types/settings.ts";
 
 type CallerSelf = ResultOf<"self">;
@@ -19,9 +19,9 @@ export function maySpawnBelow(self: CallerSelf, maxDepth: number): boolean {
   return self.depth + 1 < maxDepth;
 }
 
-/** The header context for a worker this caller dispatches to. */
-export function workerHeaderContextOf(self: CallerSelf, settings: OrchSettings, place: WorkerPlace | undefined): WorkerHeaderContext {
-  return { maySpawn: maySpawnBelow(self, settings.fleet.max_depth), ...workerPlaceContext(place), spawnerRepliable: self.id !== null, ...workerRules(settings) };
+/** The header context a caller sends with work for a worker. orchd adds the worker's project rules. */
+export function workerHeaderContextOf(self: CallerSelf, settings: OrchSettings, place: WorkerPlace | undefined): WorkerCallerContext {
+  return { maySpawn: maySpawnBelow(self, settings.fleet.max_depth), ...workerPlaceContext(place), spawnerRepliable: self.id !== null };
 }
 
 /**

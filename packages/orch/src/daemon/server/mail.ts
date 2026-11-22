@@ -7,7 +7,7 @@ import { selfIdentityOf } from "../../identity/self.ts";
 import { agentView } from "../../store/agent-view.ts";
 import { resolveTargetRoute } from "../../control/dispatch.ts";
 import { joinsLeadingOrchs, requireOrchPeers } from "./peer-orchs.ts";
-import type { MailDelivery, OrchSettings } from "../../types/settings.ts";
+import type { InstallSettings, MailDelivery, OrchSettings } from "../../types/settings.ts";
 import type { HereAgent } from "../../types/agent-place.ts";
 
 function requiredMailString(value: string, name: string): string {
@@ -62,7 +62,7 @@ export function readMail(directory: OrchDir, credential: CallerCredential, code:
 /** Queue one agent's message to another. Mail is governed by the space wall or the orch-peers
  * switch, never by the lease: it is not a driving verb (Rule 11). The row is picked up by the
  * outbox drain or by the caller's own delivery attempt, and `mailDelivery` decides its route then. */
-export function acceptMail(directory: OrchDir, settings: OrchSettings | null, from: string, target: string, text: string, logger?: Logger): { id: string } {
+export function acceptMail(directory: OrchDir, settings: InstallSettings | null, from: string, target: string, text: string, logger?: Logger): { id: string } {
   const sender = requiredMailString(from, "from");
   const recipient = requiredMailString(target, "target");
   const body = requiredMailString(text, "text");

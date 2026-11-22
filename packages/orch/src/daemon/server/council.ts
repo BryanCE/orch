@@ -73,7 +73,7 @@ async function sendToEach(members: readonly SittingMember[], send: (sitting: Sit
 
 /** Where the council a request names keeps its files. */
 function directoryOf(state: DaemonState, ref: CouncilRef): string {
-  return councilDirectory(ref.cwd, state.services.settings.current().council.directory, ref.name);
+  return councilDirectory(ref.cwd, state.services.settingsFor(ref.cwd).settings.council.directory, ref.name);
 }
 
 /** The council a request names. One that was never convened from that directory is refused. */
@@ -103,7 +103,7 @@ async function unseat(state: DaemonState, params: ParamsOf<"council-convene">, s
  *  `fleet.max_agents_per_tab`. A launch that fails closes the members already seated and
  *  records no council. */
 export async function conveneCouncil(state: DaemonState, params: ParamsOf<"council-convene">): Promise<ResultOf<"council-convene">> {
-  const settings = state.services.settings.current();
+  const settings = state.services.settingsFor(params.cwd).settings;
   const { scale } = settings.council;
   const directory = directoryOf(state, params);
   if (councilAt(state.directory, directory) !== undefined) throw new CommandRefusal(`a council named ${params.name} already has ${directory}. Pick another name`);
@@ -159,7 +159,7 @@ export async function councilRound(state: DaemonState, params: ParamsOf<"council
   const last = lastRound(directory, council.id);
   const running = councilReviewsOf(directory, council.id).filter((review) => review.round === last && review.scoredAt === null).map((review) => review.member);
   if (running.length > 0) throw new CommandRefusal(`round ${last} of council ${council.name} is still running. Not finished: ${running.join(", ")}`);
-  const settings = state.services.settings.current();
+  const settings = state.services.settingsFor(params.cwd).settings;
   const { rounds } = settings.council;
   if (last >= rounds) throw new CommandRefusal(`council ${council.name} has run its ${rounds} rounds. Close it, or raise the council.rounds setting to go on`);
   const sitting = sittingMembers(directory, council);
@@ -210,7 +210,7 @@ export function councilScores(state: DaemonState, params: ParamsOf<"council-scor
     const run = selectRun(directory, review.dispatchId);
     return { round: review.round, member: review.member, score: review.score, problem: review.problem, scoredAt: review.scoredAt, model: run?.model ?? null, cost: run?.cost ?? null };
   });
-  return { name: council.name, directory: council.directory, scale: council.scale, rounds: state.services.settings.current().council.rounds, closedAt: council.closedAt, members: councilMembersOf(directory, council.id).map((member) => member.name), reviews };
+  return { name: council.name, directory: council.directory, scale: council.scale, rounds: state.services.settingsFor(params.cwd).settings.council.rounds, closedAt: council.closedAt, members: councilMembersOf(directory, council.id).map((member) => member.name), reviews };
 }
 
 /** `council-close`: close every member still running, then the council. Who may close a member

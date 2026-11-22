@@ -18,7 +18,7 @@ import { parseSetupOptions } from "../setup/flags.ts";
 import { parseCommand } from "./registry.ts";
 import { usageError } from "../cli/usage.ts";
 import type { SetupOptions } from "../setup/flags.ts";
-import { countOf, errorMessage } from "../util.ts";
+import { countOf, errorMessage, projectRoot } from "../util.ts";
 import { runSetupSmoke } from "../setup/smoke.ts";
 import { askDaemon } from "./daemon.ts";
 import { askDoctor } from "./doctor.ts";
@@ -89,7 +89,7 @@ async function offerReapMalformedRecords(
     process.stdout.write("  kept - orch clean can reap them later\n");
     return null;
   }
-  const { results: after } = await askDoctor(services, { fix: true, only: [malformed.id] });
+  const { results: after } = await askDoctor(services, { fix: true, only: [malformed.id], project: projectRoot() });
   process.stdout.write(`  reaped ${countOf(records.length, "record")}\n`);
   return after;
 }
@@ -170,7 +170,7 @@ async function installSetupComposition(services: Services, composition: SetupCom
 
 async function runDoctorPass(services: Services, interactive: boolean): Promise<void> {
   process.stdout.write("Running doctor checks...\n");
-  let { results } = await askDoctor(services, { fix: false });
+  let { results } = await askDoctor(services, { fix: false, project: projectRoot() });
   // Re-run after a reap so the passed/total count reflects the reaped records, not the pre-reap state.
   results = await offerReapMalformedRecords(services, results, interactive) ?? results;
   process.stdout.write(`Doctor: ${results.filter((result) => result.status === "ok" || result.status === "skip").length}/${results.length} checks passed\n`);

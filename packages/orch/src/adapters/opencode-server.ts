@@ -13,7 +13,7 @@ import { definedEnv, isRecord, sleep, textValue } from "../util.ts";
 import type { DriverIdentity, SessionOpenContext } from "../types/held-session.ts";
 import type { JsonRecord, Logger } from "../types/core.ts";
 import type { PipesProcess } from "../types/pipes.ts";
-import type { OrchSettings } from "../types/settings.ts";
+import type { InstallSettings, OrchSettings } from "../types/settings.ts";
 
 /** `opencode serve` in stdio mode: it prints `{"url": ...}` on one line once it listens, on a
  *  loopback port the OS picks, and exits when its stdin closes. */
@@ -313,7 +313,7 @@ export class OpencodeServerOwner {
     }
   }
 
-  private release(lent: Promise<RunningServer>, settings: OrchSettings): void {
+  private release(lent: Promise<RunningServer>, settings: InstallSettings): void {
     const left = (this.borrowers.get(lent) ?? 0) - 1;
     if (!this.borrowers.has(lent)) return;
     this.borrowers.set(lent, Math.max(0, left));

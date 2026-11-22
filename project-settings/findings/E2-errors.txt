@@ -1,0 +1,29 @@
+src/daemon/server/council.ts(76,70): error TS2339: Property 'council' does not exist on type 'InstallSettings'.
+src/daemon/server/council.ts(107,30): error TS2339: Property 'council' does not exist on type 'InstallSettings'.
+src/daemon/server/council.ts(112,33): error TS2551: Property 'max_agents_per_tab' does not exist on type 'Pick<{ max_agents_per_pack: number; max_agents_per_tab: number; max_depth: number; max_agents_
+src/daemon/server/council.ts(163,31): error TS2339: Property 'council' does not exist on type 'InstallSettings'.
+src/daemon/server/council.ts(179,121): error TS2740: Type 'InstallSettings' is missing the following properties from type 'OrchSettings': defaults, models, workers, agents, and 5 more.
+src/daemon/server/council.ts(213,126): error TS2339: Property 'council' does not exist on type 'InstallSettings'.
+src/daemon/server/handlers/close.ts(8,5): error TS2740: Type 'InstallSettings' is missing the following properties from type 'OrchSettings': defaults, models, workers, agents, and 5 more.
+src/daemon/server/handlers/drive.ts(28,57): error TS2740: Type 'InstallSettings' is missing the following properties from type 'OrchSettings': defaults, models, workers, agents, and 5 more.
+src/daemon/server/handlers/fleet.ts(26,58): error TS2740: Type 'InstallSettings' is missing the following properties from type 'OrchSettings': defaults, models, workers, agents, and 5 more.
+src/daemon/server/handlers/fleet.ts(40,54): error TS2740: Type 'InstallSettings' is missing the following properties from type 'OrchSettings': defaults, models, workers, agents, and 5 more.
+src/daemon/server/handlers/fleet.ts(48,35): error TS2740: Type 'InstallSettings' is missing the following properties from type 'OrchSettings': defaults, models, workers, agents, and 5 more.
+src/daemon/server/handlers/harness.ts(43,63): error TS2740: Type 'InstallSettings' is missing the following properties from type 'OrchSettings': defaults, models, workers, agents, and 5 more.
+src/daemon/server/handlers/machine.ts(48,132): error TS2345: Argument of type 'InstallSettings' is not assignable to parameter of type 'OrchSettings | null'.
+src/daemon/server/handlers/machine.ts(59,51): error TS2345: Argument of type 'DaemonServices' is not assignable to parameter of type 'Pick<Services, "logger" | "orchDir" | "settings">'.
+src/daemon/server/handlers/machine.ts(60,68): error TS2345: Argument of type 'InstallSettings | null' is not assignable to parameter of type 'OrchSettings | null'.
+src/daemon/server/handlers/owned.ts(13,41): error TS2740: Type 'InstallSettings' is missing the following properties from type 'OrchSettings': defaults, models, workers, agents, and 5 more.
+src/daemon/server/handlers/resolve.ts(20,52): error TS2740: Type 'InstallSettings' is missing the following properties from type 'OrchSettings': defaults, models, workers, agents, and 5 more.
+src/daemon/server/handlers/resolve.ts(50,62): error TS2740: Type 'InstallSettings' is missing the following properties from type 'OrchSettings': defaults, models, workers, agents, and 5 more.
+src/daemon/server/handlers/review.ts(58,52): error TS2339: Property 'worktrees' does not exist on type 'InstallSettings'.
+src/daemon/server/handlers/review.ts(73,52): error TS2339: Property 'worktrees' does not exist on type 'InstallSettings'.
+src/daemon/server/handlers/review.ts(125,81): error TS2339: Property 'worktrees' does not exist on type 'InstallSettings'.
+src/daemon/server/handlers/space.ts(28,39): error TS2740: Type 'InstallSettings' is missing the following properties from type 'OrchSettings': defaults, models, workers, agents, and 5 more.
+src/daemon/server/handlers/space.ts(52,14): error TS2322: Type 'DaemonServices' is not assignable to type 'DaemonClient'.
+src/daemon/server/handlers/table.ts(127,68): error TS2345: Argument of type 'InstallSettings' is not assignable to parameter of type 'LockSettings'.
+src/daemon/server/handlers/table.ts(213,90): error TS2339: Property 'worktrees' does not exist on type 'InstallSettings'.
+src/daemon/server/handlers/table.ts(226,55): error TS2740: Type 'InstallSettings' is missing the following properties from type 'OrchSettings': defaults, models, workers, agents, and 5 more.
+src/daemon/server/handlers/write.ts(137,53): error TS2740: Type 'InstallSettings' is missing the following properties from type 'OrchSettings': defaults, models, workers, agents, and 5 more.
+src/daemon/server/handlers/write.ts(364,42): error TS2345: Argument of type 'InstallSettings | null' is not assignable to parameter of type 'OrchSettings | null'.
+src/daemon/server/handlers/write.ts(398,53): error TS2740: Type 'InstallSettings' is missing the following properties from type 'OrchSettings': defaults, models, workers, agents, and 5 more.

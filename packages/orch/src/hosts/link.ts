@@ -18,7 +18,7 @@ import { bindHostName, closeHostLink, forgetHostEventCursor, hostEventCursor, ho
 import { spawnRemoteOrch } from "./ssh.ts";
 import type { Logger, OrchDir } from "../types/core.ts";
 import type { HostGreeting, HostLinkView } from "../types/host.ts";
-import type { HostSettings, OrchSettings } from "../types/settings.ts";
+import type { HostSettings, InstallSettings } from "../types/settings.ts";
 import type { HostId } from "../types/host.ts";
 import type { HostedProcess, LinkedHost } from "../types/process.ts";
 import type { NotifyEvent } from "../types/notify.ts";
@@ -46,7 +46,7 @@ export interface LinkProcess {
   kill(): void;
 }
 
-export type LinkSpawner = (orchDir: OrchDir, host: HostSettings, links: OrchSettings["links"], args: readonly string[]) => LinkProcess;
+export type LinkSpawner = (orchDir: OrchDir, host: HostSettings, links: InstallSettings["links"], args: readonly string[]) => LinkProcess;
 
 function linkProcessOf(child: ChildProcessWithoutNullStreams): LinkProcess {
   const exited = new Promise<number | null>((resolve) => {
@@ -95,7 +95,7 @@ export type HostAgentsSink = (host: LinkedHost, rows: readonly StatusRow[], aske
 
 export interface HostLinkDeps {
   readonly orchDir: OrchDir;
-  readonly settings: () => OrchSettings;
+  readonly settings: () => InstallSettings;
   readonly logger: Logger;
   readonly events: HostEventSink;
   readonly agents: HostAgentsSink;
@@ -725,7 +725,7 @@ export class HostLinks {
   }
 
   /** Drop links to hosts settings no longer names; retarget the rest. */
-  reconcile(settings: OrchSettings): void {
+  reconcile(settings: InstallSettings): void {
     for (const [name, link] of this.links) {
       const host = settings.hosts[name];
       if (host === undefined) {

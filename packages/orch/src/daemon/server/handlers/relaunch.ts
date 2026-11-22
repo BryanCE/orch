@@ -1,6 +1,7 @@
 // Reload and restart: the harness relaunched in place, where the agent runs. This orchd does it
 // for its own agents through their plexer and records the relaunch; an agent on a linked host is
 // that host's orchd's to reload or restart, with its own settings and code.
+import { agentSettings, installSettings } from "../project-settings.ts";
 import { errorMessage, shellLine } from "../../../util.ts";
 import { refreshStaleShims } from "../doctor/runner.ts";
 import { resolveTargetRoute } from "../../../control/dispatch.ts";
@@ -87,7 +88,7 @@ function recordedHarness(state: DaemonState, key: string, verb: LifecycleVerb): 
  *  exists to pick up new code. */
 async function reloadHere(state: DaemonState, agent: HereAgent): Promise<LifecycleOutcome> {
   const { adapter } = recordedHarness(state, agent.id, "reload");
-  await refreshStaleShims(state.directory, state.services.logger, [adapter.id], state.services.settings.current());
+  await refreshStaleShims(state.directory, state.services.logger, [adapter.id], installSettings(state));
   return verbAndAwaitBridge(state, agent, "reload", null);
 }
 
@@ -95,7 +96,7 @@ async function reloadHere(state: DaemonState, agent: HereAgent): Promise<Lifecyc
  *  named, else the tuning the agent holds, which another harness never inherits. */
 function planRelaunch(state: DaemonState, key: string, recorded: AgentAdapter, request: RestartRequest): { readonly adapter: AgentAdapter; readonly relaunch: Relaunch; readonly command: string } {
   const view = agentView(state.directory, key);
-  const settings = state.services.settings.current();
+  const settings = agentSettings(state, key);
   const named = request.harness === null ? null : resolveAdapterOrDie(request.harness);
   const switched = named === null || named.id === recorded.id ? null : named;
   const adapter = switched ?? recorded;
@@ -154,7 +155,7 @@ async function restartAttached(state: DaemonState, agent: HereAgent, recorded: A
   const { relaunch } = planRelaunch(state, key, recorded, request);
   const sessionId = selectAgentStatus(state.directory, key)?.sessionId ?? null;
   await endSessionAgent(key);
-  const workers = relaunchPolicy(state.directory, state.services.settings.current(), recorded, key);
+  const workers = relaunchPolicy(state.directory, agentSettings(state, key), recorded, key);
   const opts: BackendSpawnOpts = {
     form,
     key,
@@ -207,7 +208,7 @@ async function restartHere(state: DaemonState, agent: HereAgent, request: Restar
   if (inForm !== null) return inForm;
   const attached = await restartAttached(state, agent, recorded, request);
   if (attached !== null) return attached;
-  if (request.harness !== null) await refreshStaleShims(state.directory, state.services.logger, [resolveAdapterOrDie(request.harness).id], state.services.settings.current());
+  if (request.harness !== null) await refreshStaleShims(state.directory, state.services.logger, [resolveAdapterOrDie(request.harness).id], installSettings(state));
   const route = resolveTargetRoute(state.directory, agent);
   const relaunching = route?.backend.relaunching ?? null;
   if (route !== undefined && relaunching !== null) return relaunchInPlace(state, agent, recorded, request, { role: relaunching, handle: route.handle });

@@ -1,7 +1,7 @@
 import { FORM_IDS } from "../types/form.ts";
 import { schemaNode, jsonSchemaNode, type JsonSchemaNode } from "./schema-tree.ts";
 import { clearSettingsValue, writeSettingsDefault, writeSettingsValue } from "./write.ts";
-import { NOTIFY_DEFAULT_ON, NOTIFY_IDS, NOTIFY_SINK_FIELD, NotifyEntrySchema } from "./schema.ts";
+import { isInstallOnlyKey, NOTIFY_DEFAULT_ON, NOTIFY_IDS, NOTIFY_SINK_FIELD, NotifyEntrySchema } from "./schema.ts";
 import { isRecord, valueAtPath } from "../util.ts";
 import { isAdapterId } from "../shared/harness.ts";
 import { isBackendId } from "../shared/plexer.ts";
@@ -153,6 +153,7 @@ function setting(key: string, group: string, help: string, writable = true, writ
     group,
     help,
     type: kindFor(key),
+    scope: isInstallOnlyKey(key) ? "install" : "project",
     read: readerFor(key) ?? ((settings) => readAt(settings, key)),
     ...(writable ? { write: writer ?? ((settings: SettingsManager, value: unknown) => writeSettingsValue(settings, key, value)) } : {}),
   };
@@ -245,6 +246,7 @@ const HELP: Readonly<Record<string, string>> = {
   "denied_commands.commands": "Commands an agent may never run, with no grant. A pattern matches only the whole command: bun test refuses the full suite, bun test <file> runs.",
   "denied_commands.applies_to": `Who denied_commands refuses: ${term("slave")} (agents orch spawned), ${term("orch")} (sessions orch did not spawn), or both. The human's own shell is never refused.`,
   "settings_file.typo_max_edits": "An unknown key in settings.json this many edits from a real key is a typo, and orch refuses the file. Any other unknown key is one a newer orch added, and this orch ignores it.",
+  "project.file": "Where a project keeps its own settings, relative to the project directory. A key there overrides this file, except an install-only key, which only this file may hold.",
   "timeouts.lock_wait_ms": "How long an agent waits for a locked command's lock before it gives up, in milliseconds. The agent then does its other work and runs the command again later.",
   "timeouts.lock_poll_ms": "How often orch lock asks orchd whether the lock is free, in milliseconds.",
   "timeouts.reset_ready_ms": "How long reset waits for an agent to become ready, in milliseconds.",

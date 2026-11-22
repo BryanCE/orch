@@ -1,3 +1,4 @@
+import { installSettings } from "./project-settings.ts";
 // The tabs of the caller's plexer, which runs on this machine, worked by orchd: listed, opened,
 // renamed, closed, focused, and the tab a `tile` fills. Where the caller sits is the place orch
 // recorded for it, never a probe of orchd's own environment.
@@ -94,7 +95,7 @@ function newTab(state: DaemonState, backend: Backend, home: GroupHomeRole, calle
 
 /** `tab`: one tab verb on the caller's plexer, the one settings name. */
 export function tabVerb(state: DaemonState, params: ParamsOf<"tab">): TabResult {
-  const backend = selectBackend(null, state.services.settings.current());
+  const backend = selectBackend(null, installSettings(state));
   const home = backend.groupHome;
   if (!home) return { kind: "answer", reason: "no-environment-role", text: "this environment does not provide groups" };
   const caller = credentialOf(params.caller);

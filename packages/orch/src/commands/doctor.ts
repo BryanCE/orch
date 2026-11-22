@@ -3,7 +3,7 @@ import { askDaemon } from "./daemon.ts";
 import { renderDoctorResults, pickFixes } from "../setup/doctor-wizard.ts";
 import { withSpinner } from "../setup/io.ts";
 import { timeoutMs } from "./machine.ts";
-import { errorMessage } from "../util.ts";
+import { errorMessage, projectRoot } from "../util.ts";
 import type { DaemonClient } from "../types/services.ts";
 import { renderTable } from "../table.ts";
 import type { CheckFinding } from "../types/doctor.ts";
@@ -38,7 +38,7 @@ async function runInteractiveDoctor(initial: readonly CheckFinding[], services: 
     const answer = await withSpinner(
       `Applying ${toApply.length} fix${toApply.length === 1 ? "" : "es"}...`,
       "fixes applied",
-      () => askDoctor(services, { fix: true, only: toApply }),
+      () => askDoctor(services, { fix: true, only: toApply, project: projectRoot() }),
     );
     results = answer.results;
     renderDoctorResults(results);
@@ -57,7 +57,7 @@ export async function cmdDoctor(services: DaemonClient, args: string[]) {
   const fix = !interactive && (flags.has("--fix") || yes);
   let answer: ResultOf<"doctor">;
   try {
-    answer = await askDoctor(services, { fix });
+    answer = await askDoctor(services, { fix, project: projectRoot() });
   } catch (error: unknown) {
     answer = { results: [unreachedOrchd(error)], changes: [] };
   }

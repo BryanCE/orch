@@ -1,3 +1,5 @@
+import type { SettingsManager } from "../../../types/services.ts";
+import { projectSettings, type ProjectSettings } from "../../../settings/project.ts";
 import type { OrchDir } from "../../../types/core.ts";
 import { fileSettingsManager } from "../../../settings/manager.ts";
 import { settingsDefects } from "../../../settings/defects.ts";
@@ -17,7 +19,7 @@ import { checkHelpDocs } from "./help-docs.ts";
 import { checkProvenanceDepth } from "./provenance-depth.ts";
 import { checkUnclaimedAgents } from "./unclaimed-agents.ts";
 import { checkHarnessModels } from "./models.ts";
-import { checkCommandLocks, checkSettingsFile, checkOrchDirLocation, checkSpawnLimits, checkWorktreeGitignore, checkWorktreeProvider } from "./settings-file.ts";
+import { checkCommandLocks, checkProjectSettings, checkSettingsFile, checkOrchDirLocation, checkSpawnLimits, checkWorktreeGitignore, checkWorktreeProvider } from "./settings-file.ts";
 import { checkStore } from "./store.ts";
 import { checkNotifications, checkNotifiers, checkNotifySinks } from "./notify.ts";
 import { checkDaemonLock, checkDaemonPresence, checkDaemonRegistration, checkDaemonSocket, checkDaemonStaleness, checkOsExecutors } from "./daemon.ts";
@@ -77,6 +79,8 @@ async function checkLiveFleetPairs(orchDir: OrchDir, settings: OrchSettings, log
 
 /** What orchd runs doctor with: its own services, and the transport its server answers on. */
 export interface DoctorContext extends Pick<DaemonServices, "orchDir" | "logger" | "models"> {
+  /** The project directory doctor checks the project file of: the asking CLI's. */
+  readonly project: string;
   readonly socket: string | null;
   /** Starts each installed ACP binding to ask who it is. */
   readonly pipes: PipesProvider;
@@ -88,17 +92,25 @@ export async function runDoctor(services: DoctorContext): Promise<CheckResult[]>
   // providers, and checkSettingsFile owns the user-facing failure result, so neither an absent nor a
   // malformed settings.json can prevent the neutral checks from running. doctor is the command
   // you reach for when the install is broken; it never refuses to run for want of configuration.
+  let install: SettingsManager | null = null;
   let settings: OrchSettings | null = null;
   let enabledAdapters: AdapterId[] = [];
   let enabledBackends: string[] = [];
   let configuredBackend: string | null = null;
   try {
-    settings = fileSettingsManager(orchDir).currentOrNull();
+    install = fileSettingsManager(orchDir);
+    settings = install.currentOrNull();
     enabledAdapters = settings?.enabled.adapters ?? [];
     enabledBackends = settings?.enabled.backends ?? [];
     configuredBackend = settings?.defaults.backend ?? null;
   } catch {}
   const bins = binaryStatus(enabledAdapters);
+  // Project overrides apply to the asking CLI's checks.
+  let projectFile: ProjectSettings | null = null;
+  try {
+    projectFile = install !== null && settings !== null ? projectSettings(services.project, install) : null;
+  } catch {}
+  const merged = projectFile?.settings ?? settings;
   const providerChecks = enabledAdapters.map((id) => [
     isolated(`bin-${id}`, `${id} binary`, () => bins[id]
       ? { id: `bin-${id}`, label: `${id} binary`, status: "ok", detail: `${id} is on PATH` }
@@ -140,6 +152,7 @@ export async function runDoctor(services: DoctorContext): Promise<CheckResult[]>
     isolated("extension-staleness", "Extension staleness", () => checkExtensionStaleness(orchDir)),
     isolated("help-docs", "Help docs", checkHelpDocs),
     isolated("settings", "Settings validity", () => checkSettingsFile(orchDir)),
+    isolated("project-settings", "Project settings", () => checkProjectSettings(projectFile)),
     isolated("runtime", "Declared runtime", () => settings
       ? checkRuntime(settings)
       : { id: "runtime", label: "Declared runtime", status: "skip", detail: "settings unavailable" }),
@@ -147,7 +160,7 @@ export async function runDoctor(services: DoctorContext): Promise<CheckResult[]>
     settingsDependent(orchDir, settings, "spawn-limits", "Spawn limits", (current) => checkSpawnLimits(current)),
     settingsDependent(orchDir, settings, "provenance-depth", "Provenance depth", (current) => checkProvenanceDepth(orchDir, current)),
     settingsDependent(orchDir, settings, "unclaimed-agents", "Unclaimed agents", (current) => checkUnclaimedAgents(orchDir, current, Date.now())),
-    settingsDependent(orchDir, settings, "command-locks", "Command locks", (current) => checkCommandLocks(current, (id) => resolveAdapter(id).commandGate)),
+    settingsDependent(orchDir, merged, "command-locks", "Command locks", (current) => checkCommandLocks(current, (id) => resolveAdapter(id).commandGate)),
     isolated("notifications", "Desktop notifications", () => checkNotifications(bins)),
     settingsDependent(orchDir, settings, "notify-sinks", "Notification sinks", (current) => checkNotifySinks(current, bins)),
     settingsDependent(orchDir, settings, "notifiers", "Notifiers", (current) => checkNotifiers(orchDir, current, logger)),
@@ -158,7 +171,7 @@ export async function runDoctor(services: DoctorContext): Promise<CheckResult[]>
     isolated("orchd-lock", "orchd lock", () => checkDaemonLock(orchDir)),
     isolated("orchd-socket", "orchd socket", () => checkDaemonSocket(services.socket)),
     isolated("os-executors", "OS-side executors", checkOsExecutors),
-    settingsDependent(orchDir, settings, "worktree-gitignore", "Worktree gitignore", checkWorktreeGitignore),
+    settingsDependent(orchDir, merged, "worktree-gitignore", "Worktree gitignore", (current) => checkWorktreeGitignore(current, services.project)),
     settingsDependent(orchDir, settings, "worktree-provider", "Worktree provider", checkWorktreeProvider),
   ]);
 }

@@ -2,7 +2,6 @@
 // task, and report. Everything here asks orchd; nothing touches an agent.
 import { rpcCall } from "../../daemon/client/rpc.ts";
 import { maySpawnBelow } from "../../policy/spawner.ts";
-import { workerRules } from "../../worker-prompt.ts";
 import { dispatchToAgent } from "../control.ts";
 import { writeDelivery } from "../delivery.ts";
 import { errorMessage, sleep } from "../../util.ts";
@@ -158,7 +157,7 @@ async function dispatchSpawnPrompts(services: Pick<Services, "orchDir" | "settin
     try {
       const { id, ack } = await dispatchToAgent(services, logger, agent.key, prompt, {
         harness: agent.harness,
-        context: { maySpawn, cwd: agent.cwd, ...(agent.branch === null ? {} : { worktreeBranch: agent.branch }), spawnerRepliable: self.id !== null, ...workerRules(settingsFile) },
+        context: { maySpawn, cwd: agent.cwd, ...(agent.branch === null ? {} : { worktreeBranch: agent.branch }), spawnerRepliable: self.id !== null },
       });
       dispatches.push({ name: agent.name, key: agent.key, id, ack });
       if (!request.json) writeDelivery({ target: agent.key, name: agent.name, action: "dispatch", id, ack }, { json: false });

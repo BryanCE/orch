@@ -17,6 +17,7 @@ function setting(
     group: key.split(".")[0] ?? "settings",
     help: `Help for ${key}`,
     type,
+    scope: "project",
     read: settingsReader(value),
     write,
   };
@@ -29,6 +30,7 @@ function readOnlySetting(key: string, type: SettingKind, value: unknown): Editor
     group: key.split(".")[0] ?? "settings",
     help: `Help for ${key}`,
     type,
+    scope: "project",
     read: settingsReader(value),
   };
   return { spec, value, agentWritable: false };

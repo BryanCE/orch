@@ -1,3 +1,4 @@
+import { installSettings } from "../project-settings.ts";
 // One target, resolved inside orchd for the caller the credential names.
 import { lifecycleResolutionFor, type LifecycleResolution } from "../../../entities/lifecycle.ts";
 import { placeAgentIfAny } from "../../../process-place.ts";
@@ -15,7 +16,7 @@ function ownershipOf(directory: DaemonState["directory"], credential: ParamsOf<"
 }
 
 export function resolveTargetEntity(state: DaemonState, params: ParamsOf<"resolve-target">): ResultOf<"resolve-target"> {
-  const settings = state.services.settings.current();
+  const settings = installSettings(state);
   const opts = { ...(params.all === true ? { all: true } : {}), ...(params.crossSpace === true ? { crossSpace: true } : {}) };
   const entity = resolveTargetFor(state.directory, settings, params.caller, params.target, opts);
   return {
@@ -47,7 +48,7 @@ function lifecyclePlace(directory: DaemonState["directory"], resolution: Lifecyc
 }
 
 export function resolveLifecycleEntity(state: DaemonState, params: ParamsOf<"resolve-lifecycle">): ResultOf<"resolve-lifecycle"> {
-  const resolution = lifecycleResolutionFor(state.directory, state.services.settings.current(), params.caller, params.target);
+  const resolution = lifecycleResolutionFor(state.directory, installSettings(state), params.caller, params.target);
   const { entity, key, view } = resolution;
   return { entity, key, view, place: lifecyclePlace(state.directory, resolution), ...ownershipOf(state.directory, params.caller, key) };
 }

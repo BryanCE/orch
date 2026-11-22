@@ -9,7 +9,7 @@ import { CompactionTableSchema, ExtensionExclusionsSchema, HostSchema } from "..
 import { AGENT_STATES } from "../../agent-state.ts";
 import { AGENT_STATUS_ROW, AGENT_VIEW, ENTITY, HOST_ID, HOST_IDENTITY, PRESENCE_ENTRY, RUN_RECORD } from "./fleet-schemas.ts";
 import { CALLER_KINDS, type ThinkingLevel, type WorkerPolicy } from "../../types/policy.ts";
-import type { CallerCredential, CallerSession, LogLevel, LogRecord, TokenTotals, WorkerHeaderContext } from "../../types/core.ts";
+import type { CallerCredential, CallerSession, LogLevel, LogRecord, TokenTotals, WorkerCallerContext, WorkerRequest } from "../../types/core.ts";
 import { isLogLevel, isLogRecord } from "../../log.ts";
 import { HOST_LINK_STATES, SIGNAL_OUTCOMES, type HostGreeting, type HostLinkView } from "../../types/host.ts";
 import type { FleetCapacity } from "../../policy/capacity.ts";
@@ -104,10 +104,12 @@ const WORKER_HEADER_CONTEXT = z.object({
   maySpawn: z.boolean(),
   cwd: z.string().optional(),
   worktreeBranch: z.string().optional(),
-  gatedCommands: z.array(z.string()).readonly().optional(),
-  verifyCommands: z.array(z.string()).readonly().optional(),
   spawnerRepliable: z.boolean().optional(),
-}) satisfies z.ZodType<WorkerHeaderContext>;
+}) satisfies z.ZodType<WorkerCallerContext>;
+
+/** Work wrapped in the worker header for that harness and context. orchd adds the rules of
+ *  the agent's project where the agent runs. */
+const WORKER_REQUEST = z.object({ harness: z.enum(ADAPTER_IDS).nullable(), context: WORKER_HEADER_CONTEXT }) satisfies z.ZodType<WorkerRequest>;
 
 const nonBlank = z.string().refine((value) => value.trim().length > 0, "must not be blank");
 const optionalText = z.string().transform((value) => value.length === 0 ? undefined : value).optional();
@@ -473,7 +475,7 @@ const WORKTREES_CLEANED = z.union([
  *  the agent it resolved the caller to, or null for one with no row, kept for this host's records. */
 const PEER_DRIVE_TARGET = z.object({ key: nonBlank, actor: z.string().min(1).nullable() });
 const PEER_DRIVE = z.discriminatedUnion("action", [
-  PEER_DRIVE_TARGET.extend({ action: z.literal("dispatch"), text: nonBlank }),
+  PEER_DRIVE_TARGET.extend({ action: z.literal("dispatch"), text: nonBlank, worker: WORKER_REQUEST.optional() }),
   PEER_DRIVE_TARGET.extend({ action: z.literal("steer"), text: nonBlank }),
   PEER_DRIVE_TARGET.extend({ action: z.literal("answer"), text: nonBlank, questionId: nonBlank.nullable() }),
   PEER_DRIVE_TARGET.extend({ action: z.literal("model"), model: nonBlank }),
@@ -668,7 +670,7 @@ export const RPC_PARAMS = {
   status: z.object({ caller: z.string().nullable() }),
   attach: z.object({ key: nonBlank }),
   /** `worker` wraps the text in the worker header for that harness and context; absent sends it as written. */
-  dispatch: GOVERNANCE.extend({ target: nonBlank, text: nonBlank, worker: z.object({ harness: z.enum(ADAPTER_IDS).nullable(), context: WORKER_HEADER_CONTEXT }).optional() }),
+  dispatch: GOVERNANCE.extend({ target: nonBlank, text: nonBlank, worker: WORKER_REQUEST.optional() }),
   steer: GOVERNANCE.extend({ target: nonBlank, text: nonBlank }),
   message: GOVERNANCE.extend({ from: nonBlank, target: nonBlank, text: nonBlank }),
   answer: GOVERNANCE.extend({ target: nonBlank, text: nonBlank, questionId: nonBlank.optional() }),
@@ -688,7 +690,8 @@ export const RPC_PARAMS = {
   "harness-files-sync": z.undefined(),
   /** Run doctor's checks in orchd. `fix` applies every safe fix and each one those uncover;
    *  `only` narrows it to the named checks' fixes, destructive ones included, applied once. */
-  doctor: z.object({ fix: z.boolean(), only: z.array(nonBlank).optional() }),
+  /** `project` is the CLI's project directory: doctor checks its project file, never orchd's own directory. */
+  doctor: z.object({ fix: z.boolean(), only: z.array(nonBlank).optional(), project: nonBlank }),
   /** Probe this machine for the selected harnesses' and plexers' binaries. */
   "setup-prerequisites": z.object({ adapters: z.array(z.enum(ADAPTER_IDS)), backends: z.array(z.enum(BACKEND_IDS)) }),
   /** Install the named missing prerequisites of the selected harnesses and plexers, in order. */
@@ -715,6 +718,8 @@ export const RPC_PARAMS = {
     thinking: z.custom<ThinkingLevel>(isThinkingLevel),
     /** The first prompt. Null only for a spawn on a linked host, whose agent idles there for a dispatch. */
     prompt: nonBlank.nullable(),
+    /** The prompt's worker header, composed where the agent launches with its project's rules. Absent: the prompt is sent as written. */
+    worker: WORKER_REQUEST.optional(),
     cwd: optionalText,
     /** The agent's project directory on the host that launches it. */
     project: nonBlank,

@@ -13,7 +13,7 @@ import { splitThinkingSuffix } from "../policy/thinking.ts";
 import type { AdapterId } from "../types/adapter.ts";
 import { SETTINGS_DEFAULTS, SETTINGS_SCHEMA, type SettingsFile, settingsPath } from "./schema.ts";
 import { checkSettingsKeys, type UnknownKey } from "./unknown-keys.ts";
-import type { OrchSettings, SettingSource } from "../types/settings.ts";
+import type { InstallSettings, OrchSettings, SettingSource } from "../types/settings.ts";
 import type { LogLevel, OrchDir } from "../types/core.ts";
 
 /** Describe a rejected provider id so the operator sees the value and the closed set,
@@ -133,7 +133,7 @@ export function requireEnabledComposition(file: string, root: SettingsFile): voi
 
 /** A council's lineup is a subset of what each harness may launch. A harness with no allowlist
  *  allows every model, so its lineup is not held to one. */
-export function requireCouncilModelsAllowed(file: string, root: SettingsFile): void {
+export function requireCouncilModelsAllowed(file: string, root: Pick<SettingsFile, "models" | "defaults" | "council">): void {
   for (const harness of ADAPTER_IDS) {
     const allowed = allowlistWithDefault(root.models?.allowed?.[harness] ?? [], root.defaults?.models?.[harness]);
     if (allowed.length === 0) continue;
@@ -241,6 +241,7 @@ const settingsValueExtractors = {
   settings_file: (root: Partial<SettingsFile>) => ({
     typo_max_edits: root.settings_file?.typo_max_edits ?? SETTINGS_DEFAULTS.settings_file.typo_max_edits,
   }),
+  project: (root: Partial<SettingsFile>) => ({ file: root.project?.file ?? SETTINGS_DEFAULTS.project.file }),
   hosts: (root: Partial<SettingsFile>) => root.hosts ?? {},
   links: (root: Partial<SettingsFile>) => ({
     ...SETTINGS_DEFAULTS.links,
@@ -318,6 +319,7 @@ export function settingsValues(root: Partial<SettingsFile>): Omit<OrchSettings, 
     gated_commands: settingsValueExtractors.gated_commands(root),
     denied_commands: settingsValueExtractors.denied_commands(root),
     settings_file: settingsValueExtractors.settings_file(root),
+    project: settingsValueExtractors.project(root),
     hosts: settingsValueExtractors.hosts(root),
     links: settingsValueExtractors.links(root),
     spaces: settingsValueExtractors.spaces(root),
@@ -366,17 +368,18 @@ function hasFallbackShape<T>(value: unknown, fallback: T): value is T {
   return isRecord(fallback) && isRecord(value);
 }
 
-/** Resolve a setting with its winning source. The ONE precedence order — flag > settings.json > default; `resolveSetting` delegates here so the two can never drift. */
-export function resolveWithSource<T>(opts: { flag?: T; settings?: unknown; fallback: T }): { value: T; source: SettingSource } {
+/** Resolve a setting with its winning source. The ONE precedence order: flag, then the project
+ *  file, then the install file, then the default. `resolveSetting` delegates here so the two
+ *  can never drift. A value of the wrong shape is skipped. */
+export function resolveWithSource<T>(opts: { flag?: T; project?: unknown; install?: unknown; fallback: T }): { value: T; source: SettingSource } {
   if (opts.flag !== undefined) return { value: opts.flag, source: "flag" };
-  if (opts.settings !== undefined && hasFallbackShape(opts.settings, opts.fallback)) {
-    return { value: opts.settings, source: "settings.json" };
-  }
+  if (opts.project !== undefined && hasFallbackShape(opts.project, opts.fallback)) return { value: opts.project, source: "project" };
+  if (opts.install !== undefined && hasFallbackShape(opts.install, opts.fallback)) return { value: opts.install, source: "install" };
   return { value: opts.fallback, source: "default" };
 }
 
-/** Resolve a setting with flag, settings, and fallback precedence. */
-export function resolveSetting<T>(opts: { flag?: T; settings?: T; fallback: T }): T {
+/** Resolve a setting with flag, project, install, and fallback precedence. */
+export function resolveSetting<T>(opts: { flag?: T; project?: T; install?: T; fallback: T }): T {
   return resolveWithSource(opts).value;
 }
 
@@ -416,7 +419,7 @@ export function matchesModelPattern(patterns: readonly string[], bareModel: stri
  * to outrank the file the user actually wrote.
  */
 /** ORCH_LOG_LEVEL outranks the file; an unrecognised env value does not. */
-export function logLevelFor(settings: OrchSettings | null): LogLevel {
+export function logLevelFor(settings: InstallSettings | null): LogLevel {
   const env = process.env.ORCH_LOG_LEVEL;
   if (env !== undefined && isLogLevel(env)) return env;
   return settings?.logging.level ?? SETTINGS_DEFAULTS.logging.level;

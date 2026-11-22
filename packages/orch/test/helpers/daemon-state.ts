@@ -1,4 +1,5 @@
 import type { DaemonState } from "../../src/daemon/server/state.ts";
+import { settingsForProjects } from "../../src/settings/project.ts";
 import { createWakeSignal } from "../../src/daemon/server/wake.ts";
 import { PtyHold } from "../../src/daemon/server/held.ts";
 import type { PtyProvider } from "../../src/types/pty.ts";
@@ -45,7 +46,7 @@ export async function serveFileDaemon(orchDir: OrchDir, servers: RpcServer[]): P
  *  from `pty`, a fake unless the test hands in its own. */
 export function idleDaemonState(services: Services | DaemonServices, directory: OrchDir, pty: PtyProvider = new FakePtyProvider(), pipes: PipesProvider = fakePipes().provider): DaemonState {
   // A client's services gain the catalogue orchd builds at its root; a test's own listing stays.
-  const daemon: DaemonServices = "models" in services ? services : { ...services, models: createModelCatalogue(services.orchDir, services.logger) };
+  const daemon: DaemonServices = "models" in services ? services : { ...services, settingsFor: settingsForProjects(services.settings), models: createModelCatalogue(services.orchDir, services.logger) };
   const state: DaemonState = {
     services: daemon,
     directory,

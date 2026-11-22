@@ -53,7 +53,7 @@ describe("every agent has an attached link", () => {
     const handleless = agent(directory);
 
     for (const target of [placed, headless, handleless]) {
-      await deliverControl(directory, testDaemonServices({ orchDir: directory, settings: { defaults: { adapter: "pi", backend: "headless" } } }).settings.current(), testDaemonServices({ orchDir: directory }).models, placeHere(directory, target.key), { kind: "run", text: "go", id: `dispatch-${target.key}` });
+      await deliverControl(directory, testDaemonServices({ orchDir: directory, settings: { defaults: { adapter: "pi", backend: "headless" } } }).settingsFor(null).settings, testDaemonServices({ orchDir: directory }).models, placeHere(directory, target.key), { kind: "run", text: "go", id: `dispatch-${target.key}` });
       expect(target.deliveries).toEqual([{
         id: `dispatch-${target.key}`,
         message: { action: "dispatch", text: "go" },
@@ -65,7 +65,7 @@ describe("every agent has an attached link", () => {
     const directory = storeDir();
     const target = agent(directory);
 
-    expect((await deliverControl(directory, testDaemonServices({ orchDir: directory, settings: { defaults: { adapter: "pi", backend: "headless" } } }).settings.current(), testDaemonServices({ orchDir: directory }).models, placeHere(directory, target.key), { kind: "steer", text: "adjust", id: "steer-1" }))).toEqual({
+    expect((await deliverControl(directory, testDaemonServices({ orchDir: directory, settings: { defaults: { adapter: "pi", backend: "headless" } } }).settingsFor(null).settings, testDaemonServices({ orchDir: directory }).models, placeHere(directory, target.key), { kind: "steer", text: "adjust", id: "steer-1" }))).toEqual({
       outcome: "invoke",
       ack: "expected",
     });

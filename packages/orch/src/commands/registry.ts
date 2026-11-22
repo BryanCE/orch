@@ -433,9 +433,11 @@ const MAINTENANCE: readonly CommandSpec[] = [
     ],
   },
   {
-    name: "settings", section: "maintenance", args: "[<key> <value>]",
+    name: "settings", section: "maintenance", args: "[<key> [<value>]]",
     summary: "Every effective setting and its source.",
-    flags: [{ ...HARNESS, help: "Switch the default harness." }, { ...PLEXER, help: "Switch the default plexer." }],
+    flags: [{ ...HARNESS, help: "Switch the default harness." }, { ...PLEXER, help: "Switch the default plexer." },
+      { name: "--install", arity: "none", help: "Write or clear the install file's value, which every project without its own inherits." },
+      { name: "--clear", arity: "none", help: "Remove the key so it falls back: from the project file, or with --install from the install file." }],
     subcommands: [
       {
         name: "models",

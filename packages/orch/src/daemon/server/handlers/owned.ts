@@ -1,3 +1,4 @@
+import { installSettings } from "../project-settings.ts";
 // The agents a caller holds, by identity key: what `--all` on a drive verb means.
 import { buildEntities } from "../../../entities/inventory.ts";
 import { viewForKey } from "../../../shared/lookup.ts";
@@ -10,7 +11,7 @@ import type { DaemonState } from "../state.ts";
 export function ownedAgents(state: DaemonState, params: ParamsOf<"owned-agents">): ResultOf<"owned-agents"> {
   const directory = state.directory;
   const views = spawnedRecords(directory);
-  const keys = buildEntities(directory, state.services.settings.current())
+  const keys = buildEntities(directory, installSettings(state))
     .filter((entity) => entity.presence !== null && (!params.live || notDead(entity.presence)))
     .filter((entity) => callerOwns(directory, params.caller, entity.key, viewForKey(views, entity.key)?.heldBy?.orchId ?? null))
     .map((entity) => entity.key);

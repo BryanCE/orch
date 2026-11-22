@@ -1,6 +1,7 @@
 // Type-only: `keyof typeof` over a runtime binding, erased at compile time, so
 // this creates no runtime edge out of the types layer.
 import type { EXTENSION_SOURCE_DIR } from "../bridge-bundles/metadata.ts";
+import type { AdapterId } from "./adapter.ts";
 import type { HostIdentity } from "./host.ts";
 import type { ReadOnly } from "../policy/read-only.ts";
 
@@ -217,6 +218,17 @@ export interface WorkerHeaderContext {
 
 /** The half of a worker header that comes from settings rather than from this spawn. */
 export type WorkerRules = Pick<WorkerHeaderContext, "gatedCommands" | "verifyCommands">;
+
+/** The header context a caller sends with work: where the agent sits and what its spawner can
+ *  do. The rules are its project's, and orchd adds them on the agent's host. */
+export type WorkerCallerContext = Omit<WorkerHeaderContext, keyof WorkerRules>;
+
+/** Work to wrap in the worker header for one harness, with the caller's context. orchd adds the
+ *  rules of the agent's project where the agent runs. */
+export interface WorkerRequest {
+  readonly harness: AdapterId | null;
+  readonly context: WorkerCallerContext;
+}
 
 /** One `--with` reference: where the agent looks for context, never what it is told. */
 export interface ContextReference {

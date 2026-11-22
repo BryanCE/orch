@@ -1,0 +1,33 @@
+src/daemon/server/events.ts(97,106): error TS2345: Argument of type 'InstallSettingsManager' is not assignable to parameter of type 'SettingsManager'.
+src/daemon/server/events.ts(104,105): error TS2345: Argument of type 'InstallSettingsManager' is not assignable to parameter of type 'SettingsManager'.
+src/daemon/server/orchd.ts(111,23): error TS2740: Type 'InstallSettings' is missing the following properties from type 'OrchSettings': defaults, models, workers, agents, and 5 more.
+src/daemon/server/orchd.ts(158,42): error TS2345: Argument of type 'InstallSettings' is not assignable to parameter of type 'OrchSettings | null'.
+src/daemon/server/orchd.ts(191,37): error TS2345: Argument of type 'InstallSettings | null' is not assignable to parameter of type 'OrchSettings | null'.
+src/daemon/server/orchd.ts(193,5): error TS2322: Type '() => InstallSettings' is not assignable to type '() => OrchSettings'.
+src/daemon/server/orchd.ts(255,5): error TS2322: Type 'InstallSettingsManager' is not assignable to type 'SettingsManager'.
+src/daemon/server/session-agents.ts(162,57): error TS2740: Type 'InstallSettings' is missing the following properties from type 'OrchSettings': defaults, models, workers, agents, and 5 more.
+src/daemon/server/state.ts(62,34): error TS2740: Type 'InstallSettings' is missing the following properties from type 'OrchSettings': defaults, models, workers, agents, and 5 more.
+src/daemon/server/tabs.ts(97,39): error TS2740: Type 'InstallSettings' is missing the following properties from type 'OrchSettings': defaults, models, workers, agents, and 5 more.
+test/answer-dispatch.test.ts(130,44): error TS2740: Type 'InstallSettings' is missing the following properties from type 'OrchSettings': defaults, models, workers, agents, and 5 more.
+test/answer-dispatch.test.ts(145,44): error TS2740: Type 'InstallSettings' is missing the following properties from type 'OrchSettings': defaults, models, workers, agents, and 5 more.
+test/answer-dispatch.test.ts(155,54): error TS2740: Type 'InstallSettings' is missing the following properties from type 'OrchSettings': defaults, models, workers, agents, and 5 more.
+test/answer-dispatch.test.ts(170,54): error TS2740: Type 'InstallSettings' is missing the following properties from type 'OrchSettings': defaults, models, workers, agents, and 5 more.
+test/answer-dispatch.test.ts(184,44): error TS2740: Type 'InstallSettings' is missing the following properties from type 'OrchSettings': defaults, models, workers, agents, and 5 more.
+test/control-dispatch.test.ts(70,40): error TS2740: Type 'InstallSettings' is missing the following properties from type 'OrchSettings': defaults, models, workers, agents, and 5 more.
+test/dispatch-channel-first.test.ts(52,53): error TS2740: Type 'InstallSettings' is missing the following properties from type 'OrchSettings': defaults, models, workers, agents, and 5 more.
+test/dispatch-channel-first.test.ts(65,53): error TS2740: Type 'InstallSettings' is missing the following properties from type 'OrchSettings': defaults, models, workers, agents, and 5 more.
+test/event-identity.test.ts(39,85): error TS2345: Argument of type 'InstallSettingsManager' is not assignable to parameter of type 'SettingsManager'.
+test/event-identity.test.ts(40,85): error TS2345: Argument of type 'InstallSettingsManager' is not assignable to parameter of type 'SettingsManager'.
+test/event-identity.test.ts(41,85): error TS2345: Argument of type 'InstallSettingsManager' is not assignable to parameter of type 'SettingsManager'.
+test/event-identity.test.ts(68,9): error TS2322: Type 'InstallSettingsManager' is not assignable to type 'SettingsManager'.
+test/every-agent-has-a-link.test.ts(56,39): error TS2740: Type 'InstallSettings' is missing the following properties from type 'OrchSettings': defaults, models, workers, agents, and 5 more.
+test/every-agent-has-a-link.test.ts(68,45): error TS2740: Type 'InstallSettings' is missing the following properties from type 'OrchSettings': defaults, models, workers, agents, and 5 more.
+test/helpers/daemon-state.ts(48,9): error TS2322: Type 'DaemonServices | { orchDir: OrchDir; settings: SettingsManager; logger: Logger; host: Host; models: ModelCatalogue; }' is not assignable to type
+test/helpers/daemon-state.ts(63,23): error TS2740: Type 'InstallSettings' is missing the following properties from type 'OrchSettings': defaults, models, workers, agents, and 5 more.
+test/helpers/held-far.ts(198,30): error TS2740: Type 'InstallSettings' is missing the following properties from type 'OrchSettings': defaults, models, workers, agents, and 5 more.
+test/helpers/services.ts(30,3): error TS2741: Property 'settingsFor' is missing in type '{ orchDir: OrchDir; settings: SettingsManager; logger: Logger; host: Host; models: ModelCatalogue; }' but requi
+test/work-loop-binding.test.ts(80,7): error TS2322: Type 'InstallSettingsManager' is not assignable to type 'SettingsManager'.
+test/work-loop-binding.test.ts(102,9): error TS2322: Type 'InstallSettingsManager' is not assignable to type 'SettingsManager'.
+test/work-loop-identity.test.ts(58,9): error TS2322: Type 'InstallSettingsManager' is not assignable to type 'SettingsManager'.
+test/work-loop-identity.test.ts(82,9): error TS2322: Type 'InstallSettingsManager' is not assignable to type 'SettingsManager'.
+test/work-loop-identity.test.ts(101,9): error TS2322: Type 'InstallSettingsManager' is not assignable to type 'SettingsManager'.

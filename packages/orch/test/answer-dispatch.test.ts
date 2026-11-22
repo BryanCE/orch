@@ -59,7 +59,7 @@ function attach(directory: OrchDir, key: string): BridgeDelivery[] {
  * it is no longer what an answer correlates against.
  */
 function settingsFor(directory: OrchDir) {
-  return testDaemonServices({ orchDir: directory, settings: {} }).settings.current();
+  return testDaemonServices({ orchDir: directory, settings: {} }).settingsFor(null).settings;
 }
 
 function answerStatus(directory: OrchDir, key: string, asking?: { readonly id: string }): void {

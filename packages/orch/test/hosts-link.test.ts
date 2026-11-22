@@ -14,6 +14,7 @@ import { processStartToken } from "../src/process-identity.ts";
 import { errorMessage } from "../src/util.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { testServices } from "./helpers/services.ts";
+import { writeProjectSettingsFixture } from "./helpers/settings.ts";
 import type { AgentOrigin, HostGreeting } from "../src/types/host.ts";
 import type { NotifyEvent } from "../src/types/notify.ts";
 import type { LinkedHost } from "../src/types/process.ts";
@@ -532,6 +533,28 @@ describe("driving an agent wherever it runs", () => {
     expect(answer.accepted).toBe(true);
     expect(selectOutboxMessage(far.orchDir, answer.id)).toMatchObject({ target: key, payload: { action: "dispatch", text: "do the far thing" } });
     expect(selectOutboxMessage(near.orchDir, answer.id)).toBeUndefined();
+  });
+
+  test("a worker dispatch to a linked agent is composed there, with that host's project rules", async () => {
+    const far = await startFarOrchd(greeting("far-worker"));
+    fars.push(far);
+    const cwd = tempOrchDir("orch-far-project-");
+    otherDirs.push(cwd);
+    writeProjectSettingsFixture(cwd, { workers: { verify_commands: ["far-check"] } });
+    const key = mintAgentId();
+    registerSpawnedAgent(far.orchDir, {
+      form: "tui", key, harnessId: "pi", placed: false, cwd, name: key, model: "openai/gpt-5.6", spawner: null,
+      process: { host: hostIdentity().id, pid: process.pid, startToken: processStartToken(process.pid) ?? null },
+      origin: { askedBy: hostIdentity().id, spawner: null },
+    });
+    const near = await nearDriving(far, key);
+    const answer = await dispatch(near.state, { target: key, text: "do the far thing", worker: { harness: "pi", context: { maySpawn: false } } });
+    const payload = selectOutboxMessage(far.orchDir, answer.id)?.payload;
+    expect(payload?.action).toBe("dispatch");
+    if (payload?.action !== "dispatch") throw new Error("expected dispatch payload");
+    expect(payload.text).toContain("far-check");
+    expect(payload.text).toContain("[orch worker]");
+    expect(payload.text.endsWith("do the far thing")).toBe(true);
   });
 
   test("closing an agent on a linked host closes it there, then records the ending here", async () => {

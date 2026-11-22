@@ -11,7 +11,8 @@ The user sees the scores after each one and may stop it early.
     orch council close plan-review
 
 Who sits on a council is the `council.models` setting: models by harness, one member per
-model, each with its thinking level, each one in that harness's `models.allowed`. The user
+model, each with its thinking level, each one in that harness's `models.allowed`. Both
+`council.models` and `council.rounds` can be a project's own, set from its directory. The user
 picks it: the `council.models` row of `orch settings` walks each enabled harness, checks
 members off the models it lists and may launch, then asks each member's thinking level. With
 no terminal it is JSON, the level after the model's name:

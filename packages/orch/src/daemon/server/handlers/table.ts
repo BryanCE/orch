@@ -1,5 +1,6 @@
 // The one handler table orchd serves: every RPC method, bound to one daemon state.
 // It lives apart from the boot so a test can serve the real daemon in-process.
+import { installSettings, lockRulingSettings } from "../project-settings.ts";
 import { bootCodeHash, startedAt } from "../state.ts";
 import type { DaemonState } from "../state.ts";
 import { agentView } from "../../../store/agent-view.ts";
@@ -124,7 +125,7 @@ export function rpcHandlers(state: DaemonState): RpcHandlers {
     "report-status": waking(state, (params) => harnessReportIgnored(directory, params.key) ? { ok: true } : acceptStatusReport(directory, params.key, params.status, publish)),
     "report-result": waking(state, (params) => harnessReportIgnored(directory, params.key) ? { ok: true } : acceptResultReport(directory, params.key, params.result)),
     "report-prompt": waking(state, (params) => acceptPromptReport(directory, params.key, params.prompt, publish)),
-    "command-lock": ({ pid, ...params }) => lockCommand(directory, services.settings.current(), { ...params, process: hostedPid(pid) }, publish),
+    "command-lock": ({ pid, ...params }) => lockCommand(directory, lockRulingSettings(state, params.agent, params.cwd), { ...params, process: hostedPid(pid) }, publish),
     "command-unlock": (params) => unlockCommand(directory, hostedPid(params.pid)),
     status: (params) => statusAnywhere(state, params),
     "peer-status": (_params, _emit, context) => peerStatus(state, context),
@@ -210,7 +211,7 @@ export function rpcHandlers(state: DaemonState): RpcHandlers {
     "queue-take-on": governed(state, (params) => takeOnQueued(directory, params)),
     "queue-reap": governed(state, (params) => reapQueued(directory, params)),
     "queue-intake": governed(state, (params) => intakeQueued(directory, params)),
-    clean: governed(state, (params) => cleanStore(directory, services.settings.current().worktrees, services.logger, params)),
+    clean: governed(state, (params) => cleanStore(directory, installSettings(state).worktrees, services.logger, params)),
     fleet: (params) => fleetSnapshot(state, params),
     capacity: (params) => capacityOf(state, params),
     runs: (params) => runsOf(state, params),
@@ -223,7 +224,7 @@ export function rpcHandlers(state: DaemonState): RpcHandlers {
     "close-targets": (params) => closeTargets(state, params),
     "owned-agents": (params) => ownedAgents(state, params),
     orphans: () => orphans(state),
-    orchs: (params) => ({ orchs: peerOrchs(directory, services.settings.current(), params.caller) }),
+    orchs: (params) => ({ orchs: peerOrchs(directory, installSettings(state), params.caller) }),
     "mail-text": (params) => readMail(directory, params.caller, params.code),
     question: (params) => recordAgentQuestion(directory, params),
     questions: (params) => listPendingQuestions(state, params),

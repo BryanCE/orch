@@ -1,3 +1,4 @@
+import { installSettings } from "../project-settings.ts";
 // orch's own grouping, written by orchd. A space is user-created, optional and
 // named by orch; a plexer may additionally HOLD it as a home. orchd drives the home in the
 // caller's plexer, which runs on this machine, and writes the rows that record it.
@@ -25,7 +26,7 @@ export function spaceListing(directory: OrchDir, params: { readonly target: stri
 
 /** The plexer the caller works in, which settings name, and its home role when it composes one. */
 function homePlexer(state: DaemonState): { readonly id: string; readonly home: SpaceHomeRole | null } {
-  const backend = selectBackend(null, state.services.settings.current());
+  const backend = selectBackend(null, installSettings(state));
   return { id: backend.id, home: backend.spaceHome };
 }
 

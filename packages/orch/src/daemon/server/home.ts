@@ -7,7 +7,7 @@ import type { OrchDir } from "../../types/core.ts";
 import type { GrantAction } from "../../types/store.ts";
 import type { CreatedHome, HomeSubject, SpaceHomeRole } from "../../types/backend.ts";
 import type { OpenHomeRequest } from "../../types/command.ts";
-import type { DaemonClient } from "../../types/services.ts";
+import type { DaemonContext } from "../../types/services.ts";
 
 /** The mark every home orch opens carries: allowable, but never unmarked.
  *  Without it a fleet's home is indistinguishable from the human's own panes and
@@ -38,7 +38,7 @@ export function openHome(request: OpenHomeRequest): CreatedHome {
 /** The recorded home coordinate the plexer still lists. A home the human closed
  *  from the plexer side leaves its row open; that row is dropped here so the
  *  subject is owed a fresh home instead of a spawn into a coordinate that is gone. */
-export function listedHomeHandle(services: DaemonClient, subject: HomeSubject, plexerId: string, role: SpaceHomeRole | null): string | null {
+export function listedHomeHandle(services: DaemonContext, subject: HomeSubject, plexerId: string, role: SpaceHomeRole | null): string | null {
   const handle = homeHandle(services.orchDir, subject, plexerId);
   if (handle === null) return null;
   if (role === null || role.list().some((home) => home.coordinate === handle)) return handle;

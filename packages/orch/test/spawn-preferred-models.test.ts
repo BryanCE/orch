@@ -46,7 +46,7 @@ afterEach(async () => {
 });
 
 const QUICKLIST = ["anthropic/claude-sonnet-4.5", "openai/gpt-5.6"];
-const HEADLESS_BASE = { form: null, key: "agent-a", name: "agent-a", spawner: null, adapter: "pi", model: "openai/gpt-5.6", thinking: "medium", prompt: "go" };
+const HEADLESS_BASE = { form: null, key: "agent-a", name: "agent-a", spawner: null, adapter: "pi", model: "openai/gpt-5.6", thinking: "medium", prompt: "go", project: "/repo" };
 
 const settings = (preferred: string[]): OrchSettings => ({
   ...SETTINGS_DEFAULTS,

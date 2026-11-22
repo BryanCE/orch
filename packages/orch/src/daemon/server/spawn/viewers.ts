@@ -8,7 +8,7 @@ import { freeTabLabel, liveTabLabels } from "./tab-label.ts";
 import type { Backend, BackendGroup, CommandPlacementRole, GroupHomeRole, GroupLayoutRole, LabelRole, TileFirstSplit } from "../../../types/backend.ts";
 import type { CreatedAgent } from "../../../types/command.ts";
 import type { Logger, OrchDir } from "../../../types/core.ts";
-import type { DaemonClient } from "../../../types/services.ts";
+import type { DaemonContext } from "../../../types/services.ts";
 import type { AgentEnvironment } from "../../../types/store.ts";
 import { FORM_STDIO } from "../../../types/form.ts";
 import type { SpawnAgentPlan, SpawnSettings } from "./plan.ts";
@@ -36,7 +36,7 @@ export interface ViewerPlan {
 
 /** What planning the viewer panes reads. */
 export interface ViewerPlanRequest {
-  readonly services: DaemonClient;
+  readonly services: DaemonContext;
   readonly settings: SpawnSettings;
   /** Where the caller is, as orch recorded it. */
   readonly environment: AgentEnvironment;

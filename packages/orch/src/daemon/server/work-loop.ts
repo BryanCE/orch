@@ -1,3 +1,5 @@
+import { validProjectSettings } from "../../settings/project.ts";
+import { agentProjectDirectory } from "./project-settings.ts";
 import type { OrchDir } from "../../types/core.ts";
 import { randomUUID } from "node:crypto";
 import { deliverControl } from "../../control/dispatch.ts";
@@ -102,7 +104,7 @@ function buildTaskHeader(orchDir: OrchDir, view: ReturnType<typeof agentView>, o
   const spawnerKey = view?.spawnedBy;
   const spawnerRepliable = typeof spawnerKey === "string" && recordedProcessIsLive(orchDir, spawnerKey);
   const adapterId = view?.harnessId;
-  const rules = workerRules(options.settings.current());
+  const rules = workerRules(validProjectSettings(options.settingsFor(runnerId === undefined ? null : agentProjectDirectory(orchDir, runnerId))));
   return workerHeaderFor(adapterId ? getAdapter(adapterId) : undefined, { spawnerRepliable, ...workerPlaceContext(view ?? undefined), ...rules, ...(runnerId === undefined ? {} : storedHeaderContext(orchDir, runnerId)) });
 }
 
@@ -140,7 +142,7 @@ async function dispatchTask(options: WorkOptions, entry: PresenceEntry, task: Ta
   const { prompt, dispatchId, log } = prepareTaskDispatch(options, entry, task, orchDir);
   const sendPrompt = async (): Promise<void> => {
     log.info("dispatch.delivering", { target: entry.key, handle: entry.key });
-    const outcome = await deliverControl(orchDir, options.settings.current(), options.models, placeHere(orchDir, entry.key), { kind: "run", text: prompt, id: dispatchId });
+    const outcome = await deliverControl(orchDir, options.settingsFor(agentProjectDirectory(orchDir, entry.key)).settings, options.models, placeHere(orchDir, entry.key), { kind: "run", text: prompt, id: dispatchId });
     if (outcome.outcome === "answer") {
       log.debug("boundary.answer", { target: entry.key, reason: outcome.reason });
     }

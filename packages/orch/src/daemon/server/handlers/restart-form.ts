@@ -1,6 +1,7 @@
 // Restart in a held form: an agent whose process orchd holds is relaunched on its recorded session,
 // in its own form or in another. The agent keeps its id, its lease and its backend; only the
 // process, the channel and, on a switch, the open `agent_forms` row change.
+import { agentSettings, installSettings } from "../project-settings.ts";
 import { getBackend, startHeldAgent, type HeldProgram } from "../../../backends/registry.ts";
 import { agentView } from "../../../store/agent-view.ts";
 import { selectAgentStatus } from "../../../store/status-rows.ts";
@@ -61,7 +62,7 @@ function formRole(adapter: AgentAdapter, form: FormId): FormRole | null {
 function restartOpts(state: DaemonState, adapter: AgentAdapter, agent: HereAgent, view: AgentView, form: FormId): BackendSpawnOpts {
   const { model, thinking } = view.tuning;
   const worktree = worktreeOf(state.directory, agent);
-  const settings = state.services.settings.current();
+  const settings = agentSettings(state, view.id);
   const workers = relaunchPolicy(state.directory, settings, adapter, view.id);
   return {
     ...(worktree === null ? {} : { worktree }),
@@ -80,7 +81,7 @@ function restartOpts(state: DaemonState, adapter: AgentAdapter, agent: HereAgent
 
 /** Refuse unless the form's driver can reopen a recorded session. */
 async function requireReopen(state: DaemonState, view: AgentView, adapter: AgentAdapter, form: FormId, driver: HeldSessionDriver): Promise<void> {
-  if (!await driver.reopens(state.pipes, state.services.settings.current())) throw new Error(`cannot switch ${view.name} to ${form}: the ${adapter.id} binding does not offer session load`);
+  if (!await driver.reopens(state.pipes, installSettings(state))) throw new Error(`cannot switch ${view.name} to ${form}: the ${adapter.id} binding does not offer session load`);
 }
 
 /** End the agent's process and its channel, and wait until orchd holds nothing under its key. */

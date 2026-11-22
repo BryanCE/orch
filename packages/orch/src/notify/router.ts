@@ -5,7 +5,7 @@ import { oneLine } from "./format.ts";
 import type { AgentState } from "../shared/harness.ts";
 import type { Notifier, NotifyEvent } from "../types/notify.ts";
 import type { NotifyEntry } from "../types/settings.ts";
-import type { OrchSettings } from "../types/settings.ts";
+import type { InstallSettings } from "../types/settings.ts";
 import { eventState } from "./event.ts";
 
 function warning(logger: Logger, message: string): void { logger.warn("notify.failed", { message }); }
@@ -38,9 +38,9 @@ class NotifierRegistry {
 
   /** The settings every availability probe is judged against. What a sink reads
    *  from them is the sink's business; the router only carries them through the port. */
-  private readonly settings: OrchSettings | null;
+  private readonly settings: InstallSettings | null;
 
-  constructor(orchDir: OrchDir, settings: OrchSettings | null, notifiers: readonly Notifier[] = createBuiltinNotifiers(), options: { warn?: (message: string) => void; logger?: Logger } = {}) {
+  constructor(orchDir: OrchDir, settings: InstallSettings | null, notifiers: readonly Notifier[] = createBuiltinNotifiers(), options: { warn?: (message: string) => void; logger?: Logger } = {}) {
     this.settings = settings;
     const logger = options.logger;
     this.emitWarning = options.warn ?? (logger === undefined ? () => undefined : (message) => warning(logger, message));
@@ -100,14 +100,14 @@ class NotifierRegistry {
   }
 }
 
-export function createNotifierRegistry(orchDir: OrchDir, settings: OrchSettings | null, notifiers: readonly Notifier[] = createBuiltinNotifiers(), options: { warn?: (message: string) => void; logger?: Logger } = {}): NotifierRegistry {
+export function createNotifierRegistry(orchDir: OrchDir, settings: InstallSettings | null, notifiers: readonly Notifier[] = createBuiltinNotifiers(), options: { warn?: (message: string) => void; logger?: Logger } = {}): NotifierRegistry {
   return new NotifierRegistry(orchDir, settings, notifiers, options);
 }
 
-export async function deliver(orchDir: OrchDir, settings: OrchSettings | null, entry: NotifyEntry, event: NotifyEvent, logger?: Logger): Promise<boolean> {
+export async function deliver(orchDir: OrchDir, settings: InstallSettings | null, entry: NotifyEntry, event: NotifyEvent, logger?: Logger): Promise<boolean> {
   return createNotifierRegistry(orchDir, settings, undefined, { logger }).deliver(entry, event);
 }
 
-export function notify(orchDir: OrchDir, settings: OrchSettings | null, entries: readonly NotifyEntry[], event: NotifyEvent, logger?: Logger): void {
+export function notify(orchDir: OrchDir, settings: InstallSettings | null, entries: readonly NotifyEntry[], event: NotifyEvent, logger?: Logger): void {
   createNotifierRegistry(orchDir, settings, undefined, { logger }).notify(entries, event);
 }

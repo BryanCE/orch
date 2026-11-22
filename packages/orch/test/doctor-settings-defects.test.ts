@@ -1,10 +1,12 @@
+import { projectSettings } from "../src/settings/project.ts";
+import { fileSettingsManager } from "../src/settings/manager.ts";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
-import { checkSettingsFile } from "../src/daemon/server/doctor/settings-file.ts";
+import { checkProjectSettings, checkSettingsFile } from "../src/daemon/server/doctor/settings-file.ts";
 import { runTestDoctor } from "./helpers/doctor.ts";
-import { writeSettingsFixture } from "./helpers/settings.ts";
+import { writeProjectSettingsFixture, writeProjectSettingsText, writeSettingsFixture } from "./helpers/settings.ts";
 
 import type { OrchDir } from "../src/types/core.ts";
 const directories: OrchDir[] = [];
@@ -143,5 +145,46 @@ describe("doctor settings defects", () => {
       detail: "settings.json has 1 unreadable key(s); fix: orch settings",
     });
     expect(result.detail).not.toContain("Zod");
+  });
+});
+
+describe("project settings", () => {
+  function fixture() {
+    const orchDir = tempDir();
+    const directory = tempDir();
+    writeSettingsFixture(orchDir);
+    return { directory, install: fileSettingsManager(orchDir) };
+  }
+
+  test("accepts no project file", async () => {
+    const { directory, install } = fixture();
+    const result = await checkProjectSettings(projectSettings(directory, install));
+    expect(result.status).toBe("ok");
+    expect(result.detail.startsWith("no ")).toBe(true);
+  });
+
+  test("rejects install-only keys", async () => {
+    const { directory, install } = fixture();
+    writeProjectSettingsText(directory, '{"runtime":"node"}');
+    const result = await checkProjectSettings(projectSettings(directory, install));
+    expect(result.status).toBe("fail");
+    expect(result.detail).toContain("runtime");
+    expect(result.detail).toContain("install-only");
+  });
+
+  test("rejects bad JSON", async () => {
+    const { directory, install } = fixture();
+    writeProjectSettingsText(directory, "{");
+    const result = await checkProjectSettings(projectSettings(directory, install));
+    expect(result.status).toBe("fail");
+    expect(result.detail).toContain("expected valid JSON");
+  });
+
+  test("rejects council models outside allowed models", async () => {
+    const { directory, install } = fixture();
+    writeProjectSettingsFixture(directory, { models: { allowed: { pi: ["openai-codex/gpt-6-luna"] } }, council: { models: { pi: ["openai-codex/gpt-6.2-sol:medium"] } } });
+    const result = await checkProjectSettings(projectSettings(directory, install));
+    expect(result.status).toBe("fail");
+    expect(result.detail).toContain("council.models.pi");
   });
 });

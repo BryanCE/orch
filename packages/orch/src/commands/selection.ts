@@ -37,7 +37,7 @@ export function adapterIdOrDie(id: string): AdapterId {
 }
 
 export function pickAdapter(flags: AgentFlags, settings: OrchSettings): AdapterId {
-  const selected = resolveSetting({ flag: flags.adapterFlag, settings: settings.defaults.adapter, fallback: "" });
+  const selected = resolveSetting({ flag: flags.adapterFlag, install: settings.defaults.adapter, fallback: "" });
   if (!selected) die("no harness selected - pass --harness <harness> or run `orch setup` to pick one");
   // Validate the id here, at the boundary, so everything downstream carries AdapterId.
   return adapterIdOrDie(selected);

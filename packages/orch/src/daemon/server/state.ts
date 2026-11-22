@@ -1,3 +1,4 @@
+import { installSettings } from "./project-settings.ts";
 import type { OrchDir } from "../../types/core.ts";
 import { computeCodeHash } from "../client/process.ts";
 import { fileURLToPath } from "node:url";
@@ -59,7 +60,7 @@ export function fleetStatus(state: DaemonState, caller: string | null): FleetSta
   const clock = phaseClock();
   const facts = fleetLeaseFacts(directory, agentViewIndex(directory));
   clock.lap("leases");
-  const fleet = buildFleetStatus(state.services.settings.current(), { directory, leaseFacts: facts, caller, onPhase: (phase) => { clock.lap(phase); } });
+  const fleet = buildFleetStatus(installSettings(state), { directory, leaseFacts: facts, caller, onPhase: (phase) => { clock.lap(phase); } });
   state.services.logger.trace("status.phases", clock.phases());
   return { names: fleet.names, rows: fleet.rows.map((row) => ({ ...row, bridgeAttached: linkAttached(row.key) })) };
 }

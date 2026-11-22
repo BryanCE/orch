@@ -98,7 +98,7 @@ once they answer:
 
 - A subject or a goal the request leaves open.
 - `council.models` is empty and `convene` says so. The user picks the members, in the
-  `council.models` row of `orch settings`.
+  `council.models` row of `orch settings`, in its Project view.
 - Two members want opposite changes, and choosing between them changes the goal.
 - An improvement most members ask for reaches outside the subject.
 - A command exits with `orch grant <id>`. Give the user that line, wait until they say it

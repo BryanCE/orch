@@ -9,6 +9,7 @@ import { upsertRun } from "../src/store/run-rows.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { idleDaemonState } from "./helpers/daemon-state.ts";
 import { testServices } from "./helpers/services.ts";
+import { writeProjectSettingsFixture } from "./helpers/settings.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import type { DaemonState } from "../src/daemon/server/state.ts";
 
@@ -69,6 +70,14 @@ describe("the council handlers", () => {
       scoreReview(dir, `d${round}`, round, { score: 7 });
     }
     return expect(councilRound(state, { ...ref(dir), subject: "go" })).rejects.toThrow("council plan has run its 3 rounds. Close it, or raise the council.rounds setting to go on");
+  });
+
+  test("a council's round limit is its directory's project setting", () => {
+    const { dir, state } = seeded(["ada"]);
+    writeProjectSettingsFixture(dir, { council: { rounds: 1 } });
+    askReview(dir, { dispatchId: "d1", councilId: "c1", round: 1, member: "ada", askedAt: 1 });
+    scoreReview(dir, "d1", 1, { score: 7 });
+    return expect(councilRound(state, { ...ref(dir), subject: "go" })).rejects.toThrow("has run its 1 rounds");
   });
 
   test("a closed council takes no round", () => {

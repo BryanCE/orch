@@ -14,7 +14,7 @@ import type { AgentAdapter } from "../../../types/adapter.ts";
 import type { WorkerPolicy } from "../../../types/policy.ts";
 import type { Backend, BackendGroup, BackendHandle, BackendSpawnOpts, CreatedHome, GroupLayoutRole, TileFirstSplit } from "../../../types/backend.ts";
 import type { Logger, OrchDir } from "../../../types/core.ts";
-import type { DaemonClient } from "../../../types/services.ts";
+import type { DaemonContext } from "../../../types/services.ts";
 import { listedHomeHandle, openHome } from "../home.ts";
 import { terminalClientEnv } from "../session-agents.ts";
 import type { FormId } from "../../../types/form.ts";
@@ -153,7 +153,7 @@ function launchSpawnBackend(spec: TabSpawnSpec, opts: BackendSpawnOpts, place: B
   return handle;
 }
 
-function registerSpawnedTabAgent(services: DaemonClient, spec: TabSpawnSpec, key: string, handle: BackendHandle, thinking: NonNullable<TabSpawnSpec["thinking"]>): CreatedAgent {
+function registerSpawnedTabAgent(services: DaemonContext, spec: TabSpawnSpec, key: string, handle: BackendHandle, thinking: NonNullable<TabSpawnSpec["thinking"]>): CreatedAgent {
   // ONE writer for one record (2.1). This states every axis the agent has —
   // harness, plexer, handle, space, model, worktree, holder, process — because a
   // second writer filling in the rest is how the two came to disagree about
@@ -172,7 +172,7 @@ function registerSpawnedTabAgent(services: DaemonClient, spec: TabSpawnSpec, key
   return { key, handle: String(handle), name: spec.name, cwd: spec.cwd, branch: spec.worktree?.branch ?? null };
 }
 
-export async function spawnOneIntoTab(services: DaemonClient, spec: TabSpawnSpec): Promise<CreatedAgent> {
+export async function spawnOneIntoTab(services: DaemonContext, spec: TabSpawnSpec): Promise<CreatedAgent> {
   const orchDir = services.orchDir;
   const { views, presence } = liveFleet(orchDir);
   assertNameFree(views, presence, spec.name, spec.space);
@@ -199,7 +199,7 @@ export async function spawnOneIntoTab(services: DaemonClient, spec: TabSpawnSpec
  *  group's live geometry. This is the whole of `orch tile`, and growing a fleet
  *  is tiling one agent at a time — the balance only holds while every agent is
  *  placed by the same planner reading the same layout. */
-async function tileAgentIntoGroup(services: DaemonClient, spec: Omit<TabSpawnSpec, "placement">, firstSplit: TileFirstSplit, role: GroupLayoutRole): Promise<CreatedAgent> {
+async function tileAgentIntoGroup(services: DaemonContext, spec: Omit<TabSpawnSpec, "placement">, firstSplit: TileFirstSplit, role: GroupLayoutRole): Promise<CreatedAgent> {
   return await spawnOneIntoTab(services, { ...spec, placement: nextTilePlacement(role, spec.group, firstSplit) });
 }
 
@@ -224,7 +224,7 @@ export function discardUnusedWorkspace(logger: Logger, intent: WorktreeIntent | 
 }
 
 /** Tile one of this launch's named agents, in its own worktree when asked. */
-async function placeAgent(services: DaemonClient, settings: SpawnSettings, plan: LocalSpawnAgentPlan, space: string | null, workspace: string | undefined, group: string, backend: Backend, self: CallerSelf, role: GroupLayoutRole, prepareTerminal: TerminalPreparer): Promise<CreatedAgent> {
+async function placeAgent(services: DaemonContext, settings: SpawnSettings, plan: LocalSpawnAgentPlan, space: string | null, workspace: string | undefined, group: string, backend: Backend, self: CallerSelf, role: GroupLayoutRole, prepareTerminal: TerminalPreparer): Promise<CreatedAgent> {
   const name = plan.name;
   const adapter = resolveAdapterOrDie(plan.adapter);
   const { cwd, worktree } = prepareWorkspace(settings.cwd, settings.worktree, name, adapter, plan.cmd);
@@ -259,7 +259,7 @@ async function placeAgent(services: DaemonClient, settings: SpawnSettings, plan:
 
 /** Fill a group with named agents. An agent that fails to come up is named and the
  *  rest still launch — a fleet short one worker beats no fleet. */
-export async function growFleetIntoGroup(services: DaemonClient, settings: SpawnSettings, place: { space: string | null; workspace: string | undefined; group: string }, backend: Backend, names: readonly string[], self: CallerSelf, role: GroupLayoutRole, notes: SpawnNotes, prepareTerminal: TerminalPreparer): Promise<CreatedAgent[]> {
+export async function growFleetIntoGroup(services: DaemonContext, settings: SpawnSettings, place: { space: string | null; workspace: string | undefined; group: string }, backend: Backend, names: readonly string[], self: CallerSelf, role: GroupLayoutRole, notes: SpawnNotes, prepareTerminal: TerminalPreparer): Promise<CreatedAgent[]> {
   const { space, workspace, group } = place;
   const logger = services.logger;
   const created: CreatedAgent[] = [];

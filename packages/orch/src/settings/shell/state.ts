@@ -17,23 +17,34 @@ function rawValue(root: unknown, key: string): unknown {
   return current;
 }
 
-function sourceFor(spec: SettingSpec, raw: Record<string, unknown>): SettingSource {
-  return rawValue(raw, spec.key) === undefined ? "default" : "settings.json";
+/** A settings file's raw root. A project file that is absent or unreadable is empty: its error
+ *  shows where the file is used, and a write to it is refused. An unreadable install file is an error. */
+function rawRoot(file: string, absentIsEmpty: boolean): Record<string, unknown> {
+  try {
+    const parsed: unknown = JSON.parse(files.readFileSync(file, "utf8"));
+    return isRecord(parsed) ? parsed : {};
+  } catch (error: unknown) {
+    if (absentIsEmpty) return {};
+    throw new Error(`Could not read ${file}: ${errorMessage(error)}`);
+  }
 }
 
-/** Rebuild every row from disk so value and provenance always show what settings.json holds.
- *  The manager re-parses after each write, so its current value is the file's, never a snapshot. */
+/** Where a row's value comes from: the project file, the install file, or the default. */
+function sourceFor(spec: SettingSpec, project: Record<string, unknown>, install: Record<string, unknown>): SettingSource {
+  if (rawValue(project, spec.key) !== undefined) return "project";
+  return rawValue(install, spec.key) === undefined ? "default" : "install";
+}
+
+/** Rebuild every row from disk so value and provenance show what the files hold. A project
+ *  manager's rows are the keys a project may set, each with the value it has or inherits. */
 export function loadEntries(manager: SettingsManager): EditorSetting[] {
-  let raw: Record<string, unknown> = {};
-  try {
-    const parsed: unknown = JSON.parse(files.readFileSync(manager.file, "utf8"));
-    if (isRecord(parsed)) raw = parsed;
-  } catch (error: unknown) {
-    throw new Error(`Could not read ${manager.file}: ${errorMessage(error)}`);
-  }
+  const scope = manager.scope;
+  const project = scope.kind === "project" ? rawRoot(manager.file, true) : {};
+  const install = rawRoot(scope.kind === "install" ? manager.file : scope.install.file, false);
   const settings = manager.current();
-  return SETTINGS_REGISTRY.map((spec) => ({
-    spec, value: spec.read(settings), source: sourceFor(spec, raw), agentWritable: agentMayWriteSetting(settings, spec.key),
+  const specs = scope.kind === "project" ? SETTINGS_REGISTRY.filter((spec) => spec.scope === "project") : SETTINGS_REGISTRY;
+  return specs.map((spec) => ({
+    spec, value: spec.read(settings), source: sourceFor(spec, project, install), agentWritable: agentMayWriteSetting(settings, spec.key),
   }));
 }
 
@@ -47,6 +58,27 @@ export interface Session {
   quit: boolean;
   /** Enter or Escape was spent on the filter, so the submit or cancel it triggered opens nothing and quits nothing. */
   filterKeySpent: boolean;
+  /** The files the editor can show. `project` is null in the install's own directory. */
+  readonly views: { readonly install: SettingsManager; readonly project: SettingsManager | null };
+  /** Which file the rows show and a save writes. */
+  view: "project" | "install";
+}
+
+/** The manager the shown view reads and writes. */
+export function activeManager(session: Session): SettingsManager {
+  return session.view === "project" && session.views.project !== null ? session.views.project : session.views.install;
+}
+
+/** `Tab`: show the other file's settings, keeping the focused key when it is in both. */
+export function switchView(session: Session): void {
+  if (session.views.project === null) {
+    session.status = "this directory holds the install file, so it has only the Install view";
+    return;
+  }
+  const focusKey = session.state.settings[session.state.focusedIndex]?.spec.key ?? "";
+  session.view = session.view === "project" ? "install" : "project";
+  reloadRows(session, activeManager(session), focusKey);
+  session.status = session.view === "project" ? `Project: ${session.views.project.file}` : `Install: ${session.views.install.file}`;
 }
 
 export function asBrowsing(state: EditorState): BrowsingState {

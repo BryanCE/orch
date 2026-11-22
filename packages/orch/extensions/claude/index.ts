@@ -20,6 +20,8 @@ import { reportOnce, reportUntilAccepted } from "orch/core/daemon/client/socket.
 import { isRecord, projectRoot, textValue, truncate, truncateOptional } from "orch/core/util.ts";
 import { lastAssistantFromJsonl, trailingQuestion } from "orch/core/shared/transcript.ts";
 import { readOnlyGate } from "orch/core/policy/read-only.ts";
+import { projectSettings } from "orch/core/settings/project.ts";
+import { fileSettingsManager } from "orch/core/settings/manager.ts";
 import { preToolUse } from "./tool-gate.ts";
 import { transcriptUsage, type TranscriptUsage } from "./transcript-usage.ts";
 import { CLAUDE_TOOLS } from "./vocabulary.ts";
@@ -83,9 +85,11 @@ function reportStatus(status: StatusPatch): Promise<boolean> {
   return report("report-status", { key, status: { ...sessionRefs, ...status } });
 }
 
-/** PreToolUse prints what the tool gate decides. Printing nothing lets the call run as it is. */
+/** PreToolUse prints what the tool gate decides. Printing nothing lets the call run as it is.
+ *  The lists are this project's, read at this call: a project file changed since the last call applies. */
 function gateToolCall(): void {
-  const output = preToolUse(input, settings, readOnlyGate(process.env, textValue(input.cwd) ?? process.cwd(), CLAUDE_TOOLS));
+  const gate = projectSettings(projectRoot(), fileSettingsManager(orchDir)).settings;
+  const output = preToolUse(input, gate, readOnlyGate(process.env, textValue(input.cwd) ?? process.cwd(), CLAUDE_TOOLS));
   if (output !== undefined) process.stdout.write(JSON.stringify(output));
 }
 

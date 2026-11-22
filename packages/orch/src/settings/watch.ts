@@ -2,7 +2,7 @@ import * as filesystem from "node:fs";
 import { dirname } from "node:path";
 import { ensurePrivateDir, errorMessage } from "../util.ts";
 import { namesSettingsFile } from "./schema.ts";
-import type { SettingsWatch, SettingsWatchOptions } from "../types/settings.ts";
+import type { InstallSettings, SettingsWatch, SettingsWatchOptions } from "../types/settings.ts";
 import type { SettingsManager } from "../types/services.ts";
 
 
@@ -21,7 +21,7 @@ import type { SettingsManager } from "../types/services.ts";
  */
 /** Watches the file the manager reads. Taking the manager, not a path, is what keeps an
  *  orch dir from being handed in as the file: the watch then guards the dir's parent. */
-export function watchSettings(settings: Pick<SettingsManager, "file">, opts: SettingsWatchOptions): SettingsWatch {
+export function watchSettings<T extends InstallSettings>(settings: Pick<SettingsManager, "file">, opts: SettingsWatchOptions<T>): SettingsWatch {
   const { onChange, onWarn } = opts;
   const file = settings.file;
   const directory = dirname(file);

@@ -4,14 +4,15 @@ import type { BackendId } from "../types/backend.ts";
 import type { OrchRuntime } from "../runtimes.ts";
 import { isRecord } from "../util.ts";
 import {
-  SETTINGS_DEFAULTS, SETTINGS_FILE_SCHEMA, SETTINGS_SCHEMA,
-  type SettingsFile,
+  SETTINGS_DEFAULTS, SETTINGS_SCHEMA,
+  type ProjectSettingsFile, type SettingsFile,
 } from "./schema.ts";
 import { allowlistWithDefault, parseSettingsRoot, parseSettingsText, settingsValues, requireCouncilModelsAllowed, requireEnabledComposition } from "./read.ts";
 import { withKeys } from "./unknown-keys.ts";
 import type { NotifyEntry, SettingsRepair } from "../types/settings.ts";
 import type { ThinkingLevel } from "../types/policy.ts";
-import type { SettingsManager } from "../types/services.ts";
+import type { SettingsManager, SettingsScope } from "../types/services.ts";
+import { mergeProjectSettings, parseProjectSettingsRoot, parseProjectSettingsText } from "./project.ts";
 
 /** Drop the harnesses whose list is empty: for both model maps an empty list means the same
  *  thing as no entry, and recording `[]` leaves settings.json claiming a selection nobody made. */
@@ -58,8 +59,24 @@ function serializeSettingsRoot(file: string, candidate: unknown): string {
   return JSON.stringify(withKeys(updated, newer), null, 2) + "\n";
 }
 
+/** Validate and serialize a project file's root. An install-only key is refused by name, and a
+ *  council lineup outside the merged `models.allowed` is refused as the install write refuses it. */
+function serializeProjectRoot(file: string, scope: Extract<SettingsScope, { kind: "project" }>, candidate: unknown): string {
+  const parsed = parseProjectSettingsRoot(candidate, file, scope.install.file);
+  requireCouncilModelsAllowed(file, mergeProjectSettings(file, scope.install.current(), parsed));
+  return JSON.stringify({ ...parsed, schemaVersion: SETTINGS_SCHEMA }, null, 2) + "\n";
+}
+
 /** Apply one schema-validated mutation under the settings storage lock. */
-function updateSettingsFile(settings: SettingsManager, mutate: (root: Partial<SettingsFile>) => Partial<SettingsFile>): void {
+function updateSettingsFile(settings: SettingsManager, mutate: (root: Partial<SettingsFile>) => object): void {
+  const scope = settings.scope;
+  if (scope.kind === "project") {
+    settings.update((current) => {
+      const root: ProjectSettingsFile = current === null ? { schemaVersion: SETTINGS_SCHEMA } : parseProjectSettingsText(current, settings.file, scope.install.file);
+      return serializeProjectRoot(settings.file, scope, mutate(root));
+    });
+    return;
+  }
   settings.update((current) => {
     const parsed = current === null ? null : parseSettingsText(current, settings.file);
     const root: Partial<SettingsFile> = parsed?.settings ?? { schemaVersion: SETTINGS_SCHEMA };
@@ -103,8 +120,8 @@ function setSettingsPathRecord(root: object, segments: readonly string[], value:
   return candidate;
 }
 
-function setSettingsPath(root: Partial<SettingsFile>, segments: readonly string[], value: unknown): Partial<SettingsFile> {
-  return SETTINGS_FILE_SCHEMA.parse(setSettingsPathRecord(root, segments, value));
+function setSettingsPath(root: Partial<SettingsFile>, segments: readonly string[], value: unknown): Record<string, unknown> {
+  return setSettingsPathRecord(root, segments, value);
 }
 
 /** Write one schema setting through the same whole-file validator as every specialised writer. */
@@ -122,8 +139,8 @@ function deleteSettingsPathRecord(root: object, segments: readonly string[]): Re
   return candidate;
 }
 
-function deleteSettingsPath(root: Partial<SettingsFile>, segments: readonly string[]): Partial<SettingsFile> {
-  return SETTINGS_FILE_SCHEMA.parse(deleteSettingsPathRecord(root, segments));
+function deleteSettingsPath(root: Partial<SettingsFile>, segments: readonly string[]): Record<string, unknown> {
+  return deleteSettingsPathRecord(root, segments);
 }
 
 interface SettingsPathValue {

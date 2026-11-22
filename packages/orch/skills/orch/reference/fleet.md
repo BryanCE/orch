@@ -2,8 +2,9 @@
 
 ## Project checks
 
-Before the first wave, set the checks from the project's scripts. Keep what `orch settings`
-already shows. For a Bun project:
+Before the first wave, set the project's checks from its scripts. Keep what
+`orch settings` already shows. The values land in the project's own `.orch/settings.json`, so
+they change no other project. For a Bun project:
 
 ```bash
 orch settings workers.verify_commands '["bunx oxlint"]'

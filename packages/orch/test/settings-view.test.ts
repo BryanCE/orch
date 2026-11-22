@@ -25,6 +25,7 @@ function entry(key: string, value: unknown, options?: {
     group: key.split(".")[0] ?? key,
     help: `Help for ${key}`,
     type: options?.kind ?? { kind: "text" },
+    scope: "project",
     read: () => value,
     ...(options?.writable === false ? {} : { write: () => undefined }),
   };

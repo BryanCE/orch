@@ -18,6 +18,7 @@ import { acquireDaemonLock, acquireDaemonRegistration, releaseDaemonLock, releas
 import { startRpcServer } from "./rpc.ts";
 import { Receipts } from "./receipts.ts";
 import { absentSettingsMessage, logLevelFor } from "../../settings/read.ts";
+import { settingsForProjects } from "../../settings/project.ts";
 import { createServices } from "../../services.ts";
 import { createModelCatalogue } from "../../adapters/model-catalogue.ts";
 import type { DaemonServices } from "../../types/services.ts";
@@ -83,7 +84,11 @@ function modelChoicesOf(settings: OrchSettings | null): string {
 
 export async function startDaemon(): Promise<DaemonState> {
   const client = createServices({ proc: "orchd" });
-  const services: DaemonServices = { ...client, models: createModelCatalogue(client.orchDir, client.logger) };
+  const services: DaemonServices = {
+    ...client,
+    settingsFor: settingsForProjects(client.settings),
+    models: createModelCatalogue(client.orchDir, client.logger),
+  };
   const directory = services.orchDir;
   const held = new PtyHold(nodePtyProvider(), () => services.settings.current().pty);
   // A reset, reload or answer typed into a held agent reaches its PTY through the held backend.
@@ -183,7 +188,7 @@ export async function startDaemon(): Promise<DaemonState> {
   warmAdapterCatalogues(state.services.models);
 
   let settingsLoaded = false;
-  let modelChoices = modelChoicesOf(services.settings.currentOrNull());
+  let modelChoices = modelChoicesOf(services.settings.currentOrNull() === null ? null : services.settingsFor(null).settings);
   state.settingsWatch = watchSettings(services.settings, {
     load: () => {
       const next = services.settings.reload();
@@ -197,7 +202,7 @@ export async function startDaemon(): Promise<DaemonState> {
       if (settingsLoaded) state.services.logger.info("config.reloaded");
       // A model settings change reaches the next spawn, never a running agent: re-asking the
       // harnesses is what lets a newly named model be offered and admitted.
-      const nextChoices = modelChoicesOf(settings);
+      const nextChoices = modelChoicesOf(services.settingsFor(null).settings);
       if (settingsLoaded && nextChoices !== modelChoices) {
         refreshAdapterCatalogues(state.services.models).catch((error: unknown) => {
           state.services.logger.warn("models.refresh-failed", { error: errorMessage(error) });
@@ -248,6 +253,7 @@ export async function startDaemon(): Promise<DaemonState> {
     wake: state.wake,
     tickMs: services.settings.current().daemon.work_tick_ms,
     settings: services.settings,
+    settingsFor: (directory) => services.settingsFor(directory),
     models: services.models,
     signal: state.workController.signal,
     continuous: true,

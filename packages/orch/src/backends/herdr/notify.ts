@@ -1,4 +1,4 @@
-import type { NotificationPosition, OrchSettings } from "../../types/settings.ts";
+import type { InstallSettings, NotificationPosition } from "../../types/settings.ts";
 import { SETTINGS_DEFAULTS } from "../../settings/schema.ts";
 import type { HerdrCli } from "./cli.ts";
 import { notificationText } from "../../notify/format.ts";
@@ -6,7 +6,7 @@ import { isRecord } from "../../util.ts";
 import type { NotificationIo, Notifier } from "../../types/notify.ts";
 
 /** True when herdr is one of the plexers orch launches agents into. */
-function herdrRunsAgents(settings: OrchSettings | null): boolean {
+function herdrRunsAgents(settings: InstallSettings | null): boolean {
   return settings?.enabled.backends.includes("herdr") ?? false;
 }
 

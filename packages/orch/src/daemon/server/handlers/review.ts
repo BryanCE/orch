@@ -1,3 +1,4 @@
+import { agentSettings } from "../project-settings.ts";
 // Review of the branches finished agents leave in their worktrees. A worktree is on the host its
 // agent runs on, so that host's orchd reads, lands and removes it: this one for an agent here,
 // the linked host's over its link for one there.
@@ -55,7 +56,7 @@ interface WorktreeActedOn {
 }
 
 async function actOnWorktree(state: DaemonState, key: string, action: WorktreeAction): Promise<WorktreeActedOn> {
-  const config = state.services.settings.current().worktrees;
+  const config = agentSettings(state, key).worktrees;
   return await atAgentHost<WorktreeActedOn>(state, key, {
     here: (agent) => ({ host: null, acted: actOnWorktreeHere(state.directory, config, agent, action) }),
     there: async (link, host) => ({ host: host.name, acted: await link.deliver("peer-worktree", { key, action }, config.timeout_ms) }),
@@ -70,10 +71,10 @@ function reviewTarget(key: string, branch: string, prefix: string): string {
 /** Every finished agent's branch that is ahead of its base. A worktree that cannot be read, or
  *  is on a host orch cannot reach now, is not reviewable. */
 export async function reviewsOf(state: DaemonState): Promise<ResultOf<"reviews">> {
-  const prefix = state.services.settings.current().worktrees.branch_prefix;
   const presence = indexPresenceById(loadPresence(state.directory).values());
   const reviews: ReviewItem[] = [];
   for (const view of agentViews(state.directory)) {
+    const prefix = agentSettings(state, view.id).worktrees.branch_prefix;
     // A worktree is read where its agent runs; one on a linked host is not made yet.
     const here = hereAgentIfAny(state.directory, view.id);
     const worktree = here === null ? null : worktreeOf(state.directory, here);
@@ -122,6 +123,6 @@ export async function agentWorktree(state: DaemonState, params: ParamsOf<"agent-
 export function peerWorktreeHandler(state: DaemonState): RpcHandler<"peer-worktree"> {
   return (params, _emit, context) => {
     requireOriginPeer(state.directory, context, params.key);
-    return actOnWorktreeHere(state.directory, state.services.settings.current().worktrees, placeHere(state.directory, params.key), params.action);
+    return actOnWorktreeHere(state.directory, agentSettings(state, params.key).worktrees, placeHere(state.directory, params.key), params.action);
   };
 }

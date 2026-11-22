@@ -4,7 +4,7 @@ import type { StatusRow } from "./command.ts";
 import type { NotifyEvent } from "./notify.ts";
 import type { OrchDir } from "./core.ts";
 import type { HostOs } from "./host.ts";
-import type { SettingsManager } from "./services.ts";
+import type { DaemonServices, InstallSettingsManager } from "./services.ts";
 import type { ModelCatalogue } from "./adapter.ts";
 import type { PresenceEntry } from "./presence.ts";
 import type { TaskRec } from "./queue.ts";
@@ -289,7 +289,9 @@ export interface WorkOptions {
   /** Suppress human progress output for machine-readable callers. */
   json?: boolean;
   /** Settings for each loop iteration. The daemon passes its manager so reloads are seen. */
-  settings: SettingsManager;
+  settings: InstallSettingsManager;
+  /** The settings of a project directory, or with null the install's alone. */
+  settingsFor: DaemonServices["settingsFor"];
   models: ModelCatalogue;
   dispatch?: (entry: PresenceEntry, task: TaskRec) => Promise<void>;
   /** Emit canonical work lifecycle events through the daemon fan-out. */

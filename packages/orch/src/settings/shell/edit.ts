@@ -20,7 +20,7 @@ import { editModels } from "./models.ts";
 import { editCompaction } from "./compaction.ts";
 import { editLineup } from "./lineup.ts";
 import type { HarnessOffers } from "../../setup/composition.ts";
-import { asBrowsing, cancelEdit, commitAndFlush, commitPick, refocusVisible, resetFocused, stepFocus, toggleAgentGrant, type Session } from "./state.ts";
+import { asBrowsing, cancelEdit, commitAndFlush, commitPick, refocusVisible, resetFocused, stepFocus, switchView, toggleAgentGrant, type Session } from "./state.ts";
 
 type BrowseOutcome = "open" | "again" | "quit";
 
@@ -74,6 +74,10 @@ function browseKey(session: Session, manager: SettingsManager, char: string | un
   if (info.name === "escape") {
     if (session.filter === "") session.quit = true;
     else clearFilter(session);
+    return;
+  }
+  if (info.name === "tab") {
+    switchView(session);
     return;
   }
   if (info.name === "up" || info.name === "down") {

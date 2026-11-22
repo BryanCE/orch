@@ -1,3 +1,4 @@
+import { agentSettings, installSettings } from "../project-settings.ts";
 // The launch decisions only an adapter can make: the command a harness launches under, and
 // whether orch's model policy admits a model on it, checked against orchd's own catalogue.
 import { linkTakes } from "../../../control/agent-links.ts";
@@ -96,8 +97,8 @@ export function admitAgentModel(settings: OrchSettings, adapterId: AdapterId, ca
  *  and whether a running session of that harness can change its model. Naming an agent asks
  *  for the running-agent refusal, which points at the harness that offers the model. */
 export function admitModelFor(state: DaemonState, params: ParamsOf<"admit-model">): ResultOf<"admit-model"> {
-  const { settings, models } = state.services;
-  const current = settings.current();
+  const { models } = state.services;
+  const current = params.agent === null ? installSettings(state) : agentSettings(state, params.agent);
   const model = params.agent === null
     ? admitLaunchModel(current, params.harness, models, params.model)
     : admitAgentModel(current, params.harness, models, params.model, params.agent);

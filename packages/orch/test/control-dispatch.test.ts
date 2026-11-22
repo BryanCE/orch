@@ -67,7 +67,7 @@ function detachLink(key: string, link: AgentLink): void {
 function deliverControl(targetKey: string, action: Parameters<typeof daemonDeliverControl>[4]): ReturnType<typeof daemonDeliverControl> {
   const orchDir = requiredOrchDir();
   const services = testDaemonServices({ orchDir, settings: {} });
-  return daemonDeliverControl(orchDir, services.settings.current(), services.models, placeHere(orchDir, targetKey), action);
+  return daemonDeliverControl(orchDir, services.settingsFor(null).settings, services.models, placeHere(orchDir, targetKey), action);
 }
 
 /** A live agent: registered with this runner as its process, plus its status. */

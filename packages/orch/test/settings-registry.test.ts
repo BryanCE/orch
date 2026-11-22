@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 
 
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
-import { SETTINGS_FILE_SCHEMA, settingsPath } from "../src/settings/schema.ts";
+import { INSTALL_ONLY_KEYS, isInstallOnlyKey, SETTINGS_FILE_SCHEMA, settingsPath } from "../src/settings/schema.ts";
 import { fileSettingsManager } from "../src/settings/manager.ts";
 import { writeSettingsFullTree } from "../src/settings/write.ts";
 import { SETTINGS_REGISTRY, writeRegisteredSetting } from "../src/settings/registry.ts";
@@ -237,5 +237,26 @@ describe("settings registry", () => {
     const spec = registered("council.models");
     expect(spec.type).toEqual({ kind: "lineup" });
     expect(parseSettingValue(spec, "{\"pi\":[\"openai-codex/gpt-6-luna\"]}").ok).toBe(true);
+  });
+});
+
+
+describe("setting scope", () => {
+  test("every install-only key is a registered setting, or a section of registered ones, all of scope install", () => {
+    for (const entry of INSTALL_ONLY_KEYS) {
+      const covered = SETTINGS_REGISTRY.filter((spec) => spec.key === entry || spec.key.startsWith(`${entry}.`));
+      expect({ entry, count: covered.length > 0 }).toEqual({ entry, count: true });
+      for (const spec of covered) expect({ key: spec.key, scope: spec.scope }).toEqual({ key: spec.key, scope: "install" });
+    }
+  });
+
+  test("every other registered setting has scope project", () => {
+    for (const spec of SETTINGS_REGISTRY.filter((entry) => !isInstallOnlyKey(entry.key))) {
+      expect({ key: spec.key, scope: spec.scope }).toEqual({ key: spec.key, scope: "project" });
+    }
+    expect(registered("workers.verify_commands").scope).toBe("project");
+    expect(registered("locked_commands.commands").scope).toBe("project");
+    expect(registered("fleet.max_agents_total").scope).toBe("install");
+    expect(registered("project.file").scope).toBe("install");
   });
 });

@@ -20,7 +20,7 @@ import type { OrchSettings } from "../../types/settings.ts";
 import type { BackendId } from "../../types/backend.ts";
 import type { ShimBoundaryPlan } from "../../types/command.ts";
 import type { ParamsOf, ResultOf } from "../client/protocol.ts";
-import type { Services } from "../../types/services.ts";
+import type { DaemonServices } from "../../types/services.ts";
 
 /** One line of setup output, for the CLI to print. */
 type Say = (line: string) => void;
@@ -326,10 +326,10 @@ function smokeBlocker(settings: OrchSettings): string | null {
 
 /** `setup-integrate`: each harness's integration, orch's bins, the entrypoint's runtime, then
  *  each integration's own diagnosis. Reads settings.json as setup just recorded it. */
-export async function setupIntegrate(services: Pick<Services, "orchDir" | "settings" | "logger">, params: ParamsOf<"setup-integrate">): Promise<ResultOf<"setup-integrate">> {
+export async function setupIntegrate(services: Pick<DaemonServices, "orchDir" | "settings" | "settingsFor" | "logger">, params: ParamsOf<"setup-integrate">): Promise<ResultOf<"setup-integrate">> {
   const { lines, say } = collector();
-  const settings = services.settings.reload();
-  if (settings === null) throw new Error(`setup recorded no settings in ${services.settings.file}`);
+  if (services.settings.reload() === null) throw new Error(`setup recorded no settings in ${services.settings.file}`);
+  const settings = services.settingsFor(null).settings;
   const gaps = await installAdapterShims(services.orchDir, settings, services.logger, params.adapters, params.copy, say);
   wireBinaries(packageRoot(), params.copy, say);
   alignEntrypointToRuntime(params.runtime, say);

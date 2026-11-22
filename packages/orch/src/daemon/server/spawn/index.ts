@@ -6,7 +6,6 @@ import { terminalAttach, terminalPreparer } from "../session-agents.ts";
 import { FORM_SESSION_OWNER, FORM_STDIO, type FormId } from "../../../types/form.ts";
 import { policyEnv, policyTools, workerPolicyFrom } from "../../../policy/workers.ts";
 import { withLaunchPoints } from "../../../policy/compaction.ts";
-import { workerPrompt, workerRules } from "../../../worker-prompt.ts";
 import { mintAgentId } from "../../../shared/agent-id.ts";
 import { takesModel } from "../../../shared/harness.ts";
 import { planTilePlacement } from "../../../shared/tiling.ts";
@@ -27,7 +26,7 @@ import type { AgentAdapter } from "../../../types/adapter.ts";
 import type { Backend, BackendGroup, CreatedHome, GroupHomeRole, GroupLayoutRole, TileFirstSplit } from "../../../types/backend.ts";
 import type { CreatedAgent, PreparedAgent, SpawnPlacement, TabSpawnSpec } from "../../../types/command.ts";
 import type { CallerCredential } from "../../../types/core.ts";
-import type { OrchSettings } from "../../../types/settings.ts";
+import { validProjectSettings } from "../../../settings/project.ts";
 import type { AgentEnvironment } from "../../../types/store.ts";
 import type { HarnessTraits, ParamsOf, ResultOf } from "../../client/protocol.ts";
 import type { DaemonState } from "../state.ts";
@@ -103,7 +102,7 @@ function spawnedResult(settings: SpawnSettings, created: readonly CreatedAgent[]
 // or here, is shown in a pane of the caller's own plexer.
 async function executeHeadlessSpawn(state: DaemonState, params: ParamsOf<"spawn">, self: CallerSelf, settings: SpawnSettings, environment: AgentEnvironment, notes: SpawnNotes): Promise<SpawnResult> {
   const services = state.services;
-  const settingsFile = services.settings.current();
+  const settingsFile = services.settingsFor(projectDirectory(state.directory, self.id, settings.cwd)).settings;
   if (settings.commandFlag) throw new SpawnRefusalError("--cmd requires a backend that places agents; headless launches use the selected adapter.");
   // A headless agent here has no TTY to idle on: it runs its prompt and exits, so work
   // dispatched after launch would arrive at a dead process. An agent on a linked host runs in
@@ -145,7 +144,8 @@ async function executeHeadlessSpawn(state: DaemonState, params: ParamsOf<"spawn"
         thinking: plan.thinking,
         preferredModels: [...plan.preferredModels],
         // An agent on a linked host spawned with no work idles there until its first dispatch.
-        prompt: plan.prompt?.trim() ? workerPrompt(plan.prompt, false, adapter, { maySpawn, cwd, ...(worktree === undefined ? {} : { worktreeBranch: worktree.branch }), spawnerRepliable: self.id !== null, ...workerRules(settingsFile), ...(plan.workers.readOnly === null ? {} : { readOnly: plan.workers.readOnly }) }) : null,
+        prompt: plan.prompt?.trim() ? plan.prompt : null,
+        ...(plan.prompt?.trim() ? { worker: { harness: plan.adapter, context: { maySpawn, cwd, ...(worktree === undefined ? {} : { worktreeBranch: worktree.branch }), spawnerRepliable: self.id !== null } } } : {}),
         tools: policyTools(plan.workers),
         workers: plan.workers,
         env: policyEnv(adapter, plan.model, plan.workers),
@@ -269,7 +269,7 @@ async function launchPrepared(state: DaemonState, prepared: readonly PreparedAge
  *  coordinate are never interchanged: capacity, names and the agent record are orch's; the
  *  group and placement requests take the coordinate. */
 function placeSpawn(state: DaemonState, settings: SpawnSettings, backend: Backend, self: CallerSelf, environment: AgentEnvironment): SpawnPlacement {
-  const settingsFile = state.services.settings.current();
+  const settingsFile = state.services.settingsFor(projectDirectory(state.directory, self.id, settings.cwd)).settings;
   const placement = resolveSpawnPlacement({
     services: state.services, backend, space: settings.space ?? self.space,
     packRootId: self.view?.rootAgentId ?? null,
@@ -325,8 +325,9 @@ async function spawnIntoNewTab(state: DaemonState, context: { self: CallerSelf; 
 /** `spawn`: admit, place and launch the caller's agents. */
 export async function spawnAgents(state: DaemonState, params: ParamsOf<"spawn">): Promise<SpawnResult> {
   const services = state.services;
-  const settingsFile = services.settings.current();
   const self = spawner(state, params.caller);
+  const project = services.settingsFor(projectDirectory(state.directory, self.id, params.cwd));
+  const settingsFile = params.agents.some((agent) => agent.prompt?.trim()) ? validProjectSettings(project) : project.settings;
   const environment = callerEnvironment(self);
   const notes: SpawnNotes = [];
   const requested = plexerRequest(params, settingsFile);
@@ -403,7 +404,7 @@ function tabLayout(backend: Backend, role: GroupLayoutRole, group: string): Extr
  *  geometry. Growing a fleet is tiling one agent at a time, so `spawn` places by the same planner. */
 export async function tileAgent(state: DaemonState, params: ParamsOf<"tile">): Promise<ResultOf<"tile">> {
   const services = state.services;
-  const settingsFile: OrchSettings = services.settings.current();
+  const settingsFile = services.settingsFor(projectDirectory(state.directory, spawner(state, params.caller).id, params.cwd)).settings;
   const backend = selectBackend(params.plexer, settingsFile);
   if (!backend.placementInventory) throw new SpawnRefusalError(`orch tile requires an environment that places agents; ${backend.id} places none.`);
   if (!backend.groupHome || !backend.groupLayout) return noEnvironmentRole("this environment does not provide groups");

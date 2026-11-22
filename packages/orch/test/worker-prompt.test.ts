@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { workerHeaderContextOf } from "../src/policy/spawner.ts";
+import { testServices } from "./helpers/services.ts";
 import { getAdapter } from "../src/adapters/registry.ts";
 import { prepareWorkerTask, stripWorkerHeader, taskWithReferences, TASK_MAX, workerPrompt } from "../src/worker-prompt.ts";
 import { workerHeaderFor } from "../src/worker-prompt.ts";
@@ -22,6 +24,17 @@ afterEach(() => {
 });
 
 describe("worker prompt capability composition", () => {
+  test("the context a caller sends carries no rules", () => {
+    const orchDir = makeTempOrchDir();
+    const self: Parameters<typeof workerHeaderContextOf>[0] = {
+      id: "caller", kind: "agent", space: null, view: null, depth: 0, stored: null,
+    };
+    const settings = testServices({ orchDir, settings: { workers: { verify_commands: ["bunx oxlint"] } } }).settings.current();
+    const context = workerHeaderContextOf(self, settings, undefined);
+    expect("verifyCommands" in context).toBe(false);
+    expect("gatedCommands" in context).toBe(false);
+  });
+
   test("a read-only worker is told what it is, and no verify command", () => {
     const header = workerHeaderFor(getAdapter("pi"), { readOnly: { out: null }, verifyCommands: ["bun check"], gatedCommands: ["git push"], maySpawn: true, worktreeBranch: "orch/a" });
     expect(header).toContain("You are read-only: you have the tools that read files, and no shell. You change no file. Your final reply is your result.");

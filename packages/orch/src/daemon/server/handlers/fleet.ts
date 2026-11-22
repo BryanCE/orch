@@ -1,3 +1,4 @@
+import { installSettings } from "../project-settings.ts";
 // The fleet as orchd holds it, served whole: a command reads views, presence
 // and entities from one answer instead of opening the store.
 import { buildEntities, sortEntities } from "../../../entities/inventory.ts";
@@ -17,7 +18,7 @@ import { recordedProcessIsLive } from "../../../process-place.ts";
 
 export function fleetSnapshot(state: DaemonState, params: ParamsOf<"fleet">): ResultOf<"fleet"> {
   const directory = state.directory;
-  const settings = state.services.settings.current();
+  const settings = installSettings(state);
   const clock = phaseClock();
   const views = agentViews(directory);
   clock.lap("views");
@@ -37,7 +38,7 @@ function reapedExactKey(directory: OrchDir, credential: CallerCredential, target
 }
 
 export function capacityOf(state: DaemonState, params: ParamsOf<"capacity">): ResultOf<"capacity"> {
-  return scopeCapacity(heldCapacity(state.directory, state.services.settings.current()), params);
+  return scopeCapacity(heldCapacity(state.directory, installSettings(state)), params);
 }
 
 export function runsOf(state: DaemonState, params: ParamsOf<"runs">): ResultOf<"runs"> {
@@ -45,7 +46,7 @@ export function runsOf(state: DaemonState, params: ParamsOf<"runs">): ResultOf<"
   const target = params.target;
   const agentKey = target === undefined ? undefined
     : reapedExactKey(directory, params.caller, target) ? target
-    : resolveTargetFor(directory, state.services.settings.current(), params.caller, target).key;
+    : resolveTargetFor(directory, installSettings(state), params.caller, target).key;
   return { runs: selectRuns(directory, { ...(agentKey === undefined ? {} : { agentKey }), ...(params.limit === undefined ? {} : { limit: params.limit }) }) };
 }
 

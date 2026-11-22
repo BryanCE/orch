@@ -1,6 +1,7 @@
 import type { OrchDir } from "../../src/types/core.ts";
 import { mkdirSync, writeFileSync } from "node:fs";
-import { SETTINGS_SCHEMA, settingsPath } from "../../src/settings/schema.ts";
+import * as path from "node:path";
+import { type ProjectSettingsFile, SETTINGS_SCHEMA, settingsPath } from "../../src/settings/schema.ts";
 import { isRecord } from "../../src/util.ts";
 
 /** Derive an `enabled` composition from `defaults.adapter`/`defaults.backend` so fixtures that only set
@@ -32,4 +33,17 @@ export function writeSettingsFixture(orchDir: OrchDir, settings: Record<string, 
   const file = settingsPath(orchDir);
   writeFileSync(file, settingsFixtureText(settings));
   return file;
+}
+
+/** Write raw text as `<directory>/.orch/settings.json`, the default project file. Returns its path. */
+export function writeProjectSettingsText(directory: string, text: string): string {
+  const file = path.join(directory, ".orch", "settings.json");
+  mkdirSync(path.dirname(file), { recursive: true });
+  writeFileSync(file, text);
+  return file;
+}
+
+/** Write a schemaVersion-stamped project file into `directory`. Returns its path. */
+export function writeProjectSettingsFixture(directory: string, settings: ProjectSettingsFile): string {
+  return writeProjectSettingsText(directory, JSON.stringify({ schemaVersion: SETTINGS_SCHEMA, ...settings }, null, 2) + "\n");
 }

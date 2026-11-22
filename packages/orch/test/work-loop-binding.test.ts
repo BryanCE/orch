@@ -78,6 +78,7 @@ describe("Cq4: results go to the enqueuer, not the runner", () => {
       continuous: true,
       json: true,
       settings: services.settings,
+      settingsFor: services.settingsFor,
       models: services.models,
     });
     const ticks = records.filter((record) => record.event === "tick.work");
@@ -100,6 +101,7 @@ describe("Cq4: results go to the enqueuer, not the runner", () => {
         once: true,
         json: true,
         settings: testDaemonServices({ orchDir: dir, settings: {} }).settings,
+        settingsFor: testDaemonServices({ orchDir: dir, settings: {} }).settingsFor,
         models: testDaemonServices({ orchDir: dir }).models,
         dispatch: () => {
           seedStatus(dir, RUNNER_KEY, { state: "done", label: "Runner" });

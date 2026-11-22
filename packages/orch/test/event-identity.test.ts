@@ -66,6 +66,7 @@ describe("the work loop is not a second presence-transition source", () => {
         tickMs: 10,
         continuous: true,
         settings: testDaemonServices({ orchDir, settings: { defaults: { adapter: "pi", backend: "headless" } } }).settings,
+        settingsFor: testDaemonServices({ orchDir, settings: { defaults: { adapter: "pi", backend: "headless" } } }).settingsFor,
         models: testDaemonServices({ orchDir }).models,
         signal: controller.signal,
         onEvent: (event) => published.push(event),

@@ -40,7 +40,7 @@ export interface SettingsScreen {
 
 // ASCII only, here and in every glyph below: a terminal that is not decoding UTF-8 renders
 // arrows and boxes as mojibake, and a settings editor nobody can read is not a fallback.
-export const BROWSE_KEYBAR = "up/down move | enter edit | ctrl+d use default | a agent may write | / search | esc quit";
+export const BROWSE_KEYBAR = "up/down move | tab project/install | enter edit | ctrl+d use default | a agent may write | / search | esc quit";
 export const SEARCH_KEYBAR = "type to narrow | up/down move | enter keep matches | esc clear";
 export const SELECT_KEYBAR = "up/down choose | enter save | esc cancel";
 export const MULTI_KEYBAR = "up/down move | space toggle | enter save | esc cancel";
@@ -83,7 +83,7 @@ function fit(text: string, width: number): string {
 function sourceTag(entry: EditorSetting): string {
   const tags: string[] = [];
   if (entry.spec.write === undefined) tags.push("[read-only]");
-  else if (entry.source !== undefined && entry.source !== "settings.json") tags.push(`[${entry.source}]`);
+  else if (entry.source !== undefined && entry.source !== "install") tags.push(`[${entry.source}]`);
   if (entry.agentWritable) tags.push("[agent]");
   return tags.join(" ");
 }

@@ -1,7 +1,7 @@
 import type { AgentState } from "../agent-state.ts";
 import type { TokenTotals } from "./core.ts";
 import type { HostIdentity } from "./host.ts";
-import type { OrchSettings } from "./settings.ts";
+import type { InstallSettings } from "./settings.ts";
 import type { TaskState } from "./queue.ts";
 
 /** What every event says about who it is about. */
@@ -70,12 +70,12 @@ export interface Notifier {
   remediation?: string;
   metadata: NotifierMetadata;
   /** A rejected availability probe is treated as unavailable by the registry. */
-  available(settings: OrchSettings | null): boolean | Promise<boolean>;
+  available(settings: InstallSettings | null): boolean | Promise<boolean>;
   /** Why it cannot deliver right now though it is set up to: what it delivers through is
    *  installed and enabled here, and is not running. Null when that is not the reason. Absent
    *  for a notifier that has no such state. */
-  dormant?(settings: OrchSettings | null): string | null;
-  deliver(event: NotifyEvent, config: Record<string, unknown>, settings: OrchSettings | null): Promise<boolean>;
+  dormant?(settings: InstallSettings | null): string | null;
+  deliver(event: NotifyEvent, config: Record<string, unknown>, settings: InstallSettings | null): Promise<boolean>;
 };
 
 export interface NotifierChoice {

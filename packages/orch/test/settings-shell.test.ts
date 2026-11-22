@@ -4,12 +4,12 @@ import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { readFileSync } from "node:fs";
 
 import { join } from "node:path";
-import { fileSettingsManager } from "../src/settings/manager.ts";
+import { fileSettingsManager, projectSettingsManager } from "../src/settings/manager.ts";
 import { shouldLaunchSettingsEditor } from "../src/commands/settings.ts";
 import { SETTINGS_REGISTRY, writeRegisteredSetting } from "../src/settings/registry.ts";
 import { createEditorState, editorReducer } from "../src/settings/editor.ts";
-import { commitAndFlush, loadEntries, toggleAgentGrant, type Session } from "../src/settings/shell/state.ts";
-import { writeSettingsFixture } from "./helpers/settings.ts";
+import { commitAndFlush, loadEntries, switchView, toggleAgentGrant, type Session } from "../src/settings/shell/state.ts";
+import { writeProjectSettingsFixture, writeSettingsFixture } from "./helpers/settings.ts";
 
 const dirs: OrchDir[] = [];
 
@@ -21,6 +21,48 @@ function tempDir(prefix: string): OrchDir {
 
 afterEach(() => {
   while (dirs.length) removeTempDir(dirs.pop() ?? "");
+});
+
+describe("the Project and Install views", () => {
+  test("the Project view lists only project keys and shows the project's source", () => {
+    const directory = tempDir("orch-settings-shell-");
+    const project = tempDir("orch-settings-project-");
+    writeSettingsFixture(directory, { workers: { verify_commands: ["go vet"] } });
+    writeProjectSettingsFixture(project, { workers: { verify_commands: ["bunx oxlint"] } });
+    const rows = loadEntries(projectSettingsManager(project, fileSettingsManager(directory)));
+    expect(rows.some((row) => row.spec.scope === "install")).toBe(false);
+    const verify = rows.find((row) => row.spec.key === "workers.verify_commands");
+    expect(verify?.value).toEqual(["bunx oxlint"]);
+    expect(verify?.source).toBe("project");
+    const fleet = rows.find((row) => row.spec.key === "fleet.max_agents_per_tab");
+    expect(fleet).toBeDefined();
+    expect(fleet?.source === "default" || fleet?.source === "install").toBe(true);
+  });
+
+  test("Tab switches the view and keeps the focused key", () => {
+    const directory = tempDir("orch-settings-shell-");
+    const project = tempDir("orch-settings-project-");
+    writeSettingsFixture(directory, {});
+    writeProjectSettingsFixture(project, {});
+    const install = fileSettingsManager(directory);
+    const manager = projectSettingsManager(project, install);
+    const state = createEditorState(loadEntries(manager));
+    const session: Session = { state: { ...state, focusedIndex: state.settings.findIndex((row) => row.spec.key === "workers.verify_commands") }, filter: "", searching: false, status: undefined, quit: false, filterKeySpent: false, views: { install, project: manager }, view: "project" };
+    switchView(session);
+    expect(session.view).toBe("install");
+    expect(session.state.settings[session.state.focusedIndex]?.spec.key).toBe("workers.verify_commands");
+    expect(session.state.settings.some((row) => row.spec.scope === "install")).toBe(true);
+  });
+
+  test("with no project file there is only the Install view", () => {
+    const directory = tempDir("orch-settings-shell-");
+    writeSettingsFixture(directory, {});
+    const manager = fileSettingsManager(directory);
+    const session: Session = { state: createEditorState(loadEntries(manager)), filter: "", searching: false, status: undefined, quit: false, filterKeySpent: false, views: { install: manager, project: null }, view: "install" };
+    switchView(session);
+    expect(session.view).toBe("install");
+    expect(session.status).toContain("only the Install view");
+  });
 });
 
 describe("settings shell decisions", () => {
@@ -43,7 +85,7 @@ describe("settings shell decisions", () => {
     const directory = tempDir("orch-settings-shell-");
     writeSettingsFixture(directory, { mail: { to_spawner: "prompt" } });
     const manager = fileSettingsManager(directory);
-    const session: Session = { state: createEditorState(loadEntries(manager)), filter: "", searching: false, status: undefined, quit: false, filterKeySpent: false };
+    const session: Session = { state: createEditorState(loadEntries(manager)), filter: "", searching: false, status: undefined, quit: false, filterKeySpent: false, views: { install: manager, project: null }, view: "install" };
     const index = session.state.settings.findIndex((entry) => entry.spec.key === "mail.to_spawner");
     const opened = editorReducer({ ...session.state, focusedIndex: index }, { type: "open" });
     expect(opened.mode).toBe("editing");
@@ -60,7 +102,7 @@ describe("settings shell decisions", () => {
     const directory = tempDir("orch-settings-shell-");
     writeSettingsFixture(directory, { defaults: { adapter: "pi", backend: "headless" } });
     const manager = fileSettingsManager(directory);
-    const session: Session = { state: createEditorState(loadEntries(manager)), filter: "", searching: false, status: undefined, quit: false, filterKeySpent: false };
+    const session: Session = { state: createEditorState(loadEntries(manager)), filter: "", searching: false, status: undefined, quit: false, filterKeySpent: false, views: { install: manager, project: null }, view: "install" };
     const focusOn = (key: string): void => {
       session.state = { ...session.state, focusedIndex: session.state.settings.findIndex((entry) => entry.spec.key === key) };
     };

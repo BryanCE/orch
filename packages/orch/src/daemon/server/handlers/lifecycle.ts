@@ -145,7 +145,7 @@ async function spawnOnHost(state: DaemonState, hostName: string, params: ParamsO
   const { key, name, spawner, adapter, model, thinking, prompt, worker, cwd, env, preferredModels, tools, workers, form } = params;
   // The agent's project is on that host's disk: the directory there it runs in.
   const launched = await link.call("spawn-headless", { key, name, spawner, adapter, model, thinking, prompt, ...(worker === undefined ? {} : { worker }), cwd, project: params.cwd, env, preferredModels, tools, workers, form });
-  registerHostedAgent(state.directory, { form: launched.form, key, harnessId: adapter, cwd: params.cwd, name, model, thinking, spawner, host: greeting.host });
+  registerHostedAgent(state.directory, { form: launched.form, key, harnessId: adapter, cwd: params.cwd, project: params.cwd, name, model, thinking, spawner, host: greeting.host });
   return launched;
 }
 

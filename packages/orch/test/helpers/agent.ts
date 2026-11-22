@@ -84,7 +84,7 @@ export function seedAgent(key: string, facts: AgentFacts = {}, directory: OrchDi
     ...(facts.handle === undefined ? {} : { handle: facts.handle }),
     ...(facts.space === undefined ? {} : { space: facts.space }),
     cwd: facts.cwd ?? process.cwd(),
-    name: facts.name ?? key,
+    project: null, name: facts.name ?? key,
     model: facts.model ?? "",
     spawner: facts.spawnedBy ?? null,
     ...(facts.owner === undefined ? {} : { owner: facts.owner }),

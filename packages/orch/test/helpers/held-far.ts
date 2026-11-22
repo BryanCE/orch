@@ -208,7 +208,7 @@ export async function nearOrchd(far: FarOrchd, key: string, options: NearOrchdOp
     key,
     harnessId: options.harness ?? "pi",
     cwd: options.cwd ?? far.orchDir,
-    name: options.name ?? key,
+    project: null, name: options.name ?? key,
     model: options.model ?? HELD_FAR_MODELS[0],
     thinking: options.thinking ?? "medium",
     spawner: operator,

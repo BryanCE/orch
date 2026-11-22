@@ -5,6 +5,8 @@ import { createEditorState, editorReducer } from "../editor.ts";
 import { clearRegisteredSetting, SETTINGS_REGISTRY, writeRegisteredSetting } from "../registry.ts";
 import { AGENT_SETTINGS_GRANT, agentMayWriteSetting, grantAgentSetting, revokeAgentSetting } from "../../policy/agent-settings.ts";
 import { visibleEntryIndices } from "../view.ts";
+import { projectSettings } from "../project.ts";
+import { oneLine } from "../../notify/format.ts";
 import type { SettingsScreen } from "../view.ts";
 import type { BrowsingState, EditingState, EditorSetting, EditorState, SettingSource, SettingSpec } from "../../types/settings.ts";
 
@@ -17,8 +19,8 @@ function rawValue(root: unknown, key: string): unknown {
   return current;
 }
 
-/** A settings file's raw root. A project file that is absent or unreadable is empty: its error
- *  shows where the file is used, and a write to it is refused. An unreadable install file is an error. */
+/** A settings file's raw root. A project file that is absent or unreadable is empty: `fileProblem`
+ *  shows its error, and a write to it is refused. An unreadable install file is an error. */
 function rawRoot(file: string, absentIsEmpty: boolean): Record<string, unknown> {
   try {
     const parsed: unknown = JSON.parse(files.readFileSync(file, "utf8"));
@@ -46,6 +48,15 @@ export function loadEntries(manager: SettingsManager): EditorSetting[] {
   return specs.map((spec) => ({
     spec, value: spec.read(settings), source: sourceFor(spec, project, install), agentWritable: agentMayWriteSetting(settings, spec.key),
   }));
+}
+
+/** The shown file's error: a project file that is there but invalid. Its rows show the install's
+ *  values, and a save to it is refused until it is fixed. */
+export function fileProblem(manager: SettingsManager): string | undefined {
+  const scope = manager.scope;
+  if (scope.kind !== "project") return undefined;
+  const state = projectSettings(scope.directory, scope.install).state;
+  return state.kind === "invalid" ? `${oneLine(state.message)} - fix the file to save here` : undefined;
 }
 
 /** Everything one editor run carries between prompts. Mutated by key handlers mid-render. */
@@ -129,7 +140,7 @@ export function screenOf(session: Session, manager: SettingsManager): SettingsSc
     focusedIndex: session.state.focusedIndex,
     filter: session.filter,
     searching: session.searching,
-    status: session.status,
+    status: session.status ?? fileProblem(manager),
   };
 }
 

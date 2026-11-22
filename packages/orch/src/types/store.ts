@@ -234,6 +234,9 @@ export interface SpawnRegistration {
   placed: boolean;
   handle?: string;
   cwd: string;
+  /** The project directory the launch decided: the one directory its fleet shares. Null for an
+   *  agent orch did not launch, which reports its own. */
+  project: string | null;
   name: string;
   /**
    * Environment: orch's own grouping for this agent.
@@ -290,7 +293,7 @@ export interface SpawnRegistration {
  * store. Here it is the agent row, its spawner's lease, the tuning it was launched
  * with, and the host it runs on: no process, no handle, no plexer.
  */
-export type HostedSpawnRegistration = Pick<SpawnRegistration, "form" | "key" | "harnessId" | "cwd" | "name" | "model" | "thinking" | "spawner" | "now"> & {
+export type HostedSpawnRegistration = Pick<SpawnRegistration, "form" | "key" | "harnessId" | "cwd" | "project" | "name" | "model" | "thinking" | "spawner" | "now"> & {
   /** The linked host that runs it, as that host names itself. */
   readonly host: HostIdentity;
 };

@@ -22,6 +22,7 @@ export function unplacedRegistration(backend: Backend, harnessId: string, key: s
     placed: false,
     handle: launched.handle,
     cwd: opts.cwd ?? process.cwd(),
+    project: opts.project,
     name: opts.name ?? key,
     model: opts.model ?? "",
     thinking: opts.thinking,

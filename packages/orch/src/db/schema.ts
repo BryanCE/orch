@@ -219,6 +219,14 @@ export const agentWorktrees = sqliteTable("agent_worktrees", {
   provider: text("provider", { enum: WORKTREE_PROVIDER_IDS }).notNull(),
 });
 
+/** The project directory an agent was launched for: the one directory its fleet shares, whose
+ *  project settings file its worker headers and command locks read. Written at registration,
+ *  so orchd knows it before the agent's first status report. */
+export const agentProjects = sqliteTable("agent_projects", {
+  agentId: text("agent_id").notNull().primaryKey().references(() => agents.id, { onDelete: "cascade" }),
+  path: text("path").notNull(),
+});
+
 export const agentEndings = sqliteTable("agent_endings", {
   agentId: text("agent_id").notNull().primaryKey().references(() => agents.id, { onDelete: "cascade" }),
   endedAt: integer("ended_at").notNull(),

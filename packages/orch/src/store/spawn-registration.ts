@@ -1,6 +1,6 @@
 import type { OrchDir } from "../types/core.ts";
 import { eq } from "drizzle-orm";
-import { agentById, ensureHarness, ensurePlexer, insertAgent, originOf, setOrigin, setWorktree } from "./agent-rows.ts";
+import { agentById, ensureHarness, ensurePlexer, insertAgent, originOf, setOrigin, setProject, setWorktree } from "./agent-rows.ts";
 import { recordProcess, setAgentPlexer, setForm, setHandle, setSpace, setTuning } from "./interval-rows.ts";
 import { hostIdentity } from "../hosts/identity.ts";
 import { placeHere } from "../process-place.ts";
@@ -73,7 +73,7 @@ function writeSpawnedAgent(directory: OrchDir, input: SpawnRegistration): string
 
 /** The agent row every spawn writes, wherever the agent runs, with its harness and the host
  *  it runs on recorded. Answers with the spawner, when it is an agent registered here. */
-function insertSpawnedRow(directory: OrchDir, input: Pick<SpawnRegistration, "key" | "harnessId" | "cwd" | "name" | "spawner">, host: HostIdentity, now: number): string | null {
+function insertSpawnedRow(directory: OrchDir, input: Pick<SpawnRegistration, "key" | "harnessId" | "cwd" | "project" | "name" | "spawner">, host: HostIdentity, now: number): string | null {
   const spawnerId = input.spawner && agentById(directory, input.spawner) ? input.spawner : null;
   ensureHarness(directory, input.harnessId, input.harnessId, now);
   insertAgent(directory, {
@@ -85,6 +85,7 @@ function insertSpawnedRow(directory: OrchDir, input: Pick<SpawnRegistration, "ke
     name: input.name,
     createdAt: now,
   });
+  if (input.project !== null) setProject(directory, input.key, input.project);
   return spawnerId;
 }
 

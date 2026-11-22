@@ -197,7 +197,7 @@ describe("restart in another form is refused before anything is ended", () => {
     const harness = setup();
     const key = mintAgentId();
     registerSpawnedAgent(harness.orchDir, {
-      form: "tui", key, harnessId: "pi", backendId: "headless", placed: false, cwd: harness.orchDir, name: "switcher", model: "test", spawner: null,
+      form: "tui", key, harnessId: "pi", backendId: "headless", placed: false, cwd: harness.orchDir, project: null, name: "switcher", model: "test", spawner: null,
       process: { host: hostIdentity().id, pid: process.pid, startToken: `restart-form-${key}` },
     });
 
@@ -296,7 +296,7 @@ describe("restart through the lifecycle handler", () => {
     if (withAcp === undefined) throw new Error("no registered adapter has an acp role");
     const key = mintAgentId();
     registerSpawnedAgent(harness.orchDir, {
-      form: "tui", key, harnessId: withAcp.id, backendId: "headless", placed: false, cwd: harness.orchDir, name: "switcher", model: "test", spawner: null,
+      form: "tui", key, harnessId: withAcp.id, backendId: "headless", placed: false, cwd: harness.orchDir, project: null, name: "switcher", model: "test", spawner: null,
       process: { host: hostIdentity().id, pid: process.pid, startToken: `restart-handler-${key}` },
     });
 

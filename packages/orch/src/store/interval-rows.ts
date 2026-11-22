@@ -2,7 +2,7 @@ import type { OrchDir } from "../types/core.ts";
 import { and, eq, isNull } from "drizzle-orm";
 import { orm, withTransaction, type Orm } from "./connection.ts";
 import { refreshAgent } from "./agent-view.ts";
-import { agentForms, agentHandles, agentHosts, agentPlexers, agentProcesses, agentSpaces, agentTunings, agentWorktrees } from "../db/schema.ts";
+import { agentForms, agentHandles, agentHosts, agentPlexers, agentProcesses, agentSpaces, agentProjects, agentTunings, agentWorktrees } from "../db/schema.ts";
 import type { TuningValues } from "../types/store.ts";
 import type { FormId } from "../types/form.ts";
 import type { HostedProcess, ProcessInstance } from "../types/process.ts";
@@ -48,7 +48,7 @@ export function openLocationIn(db: Orm, agentId: string, since: number, host: Ho
 
 /** Move an agent to another host and directory: its open row closes as the next opens. What
  *  only means something on the machine it was read on goes with the old host: the handle
- *  interval closes, and the plexer and worktree rows go. */
+ *  interval closes, and the plexer, worktree and project rows go. */
 export function relocateIn(db: Orm, agentId: string, now: number, host: HostId, cwd: string): void {
   const before = openLocationOf(db, agentId);
   const since = closeOpen(db, agentHosts, agentId, now);
@@ -57,6 +57,7 @@ export function relocateIn(db: Orm, agentId: string, now: number, host: HostId, 
   closeOpen(db, agentHandles, agentId, now);
   db.delete(agentPlexers).where(eq(agentPlexers.agentId, agentId)).run();
   db.delete(agentWorktrees).where(eq(agentWorktrees.agentId, agentId)).run();
+  db.delete(agentProjects).where(eq(agentProjects.agentId, agentId)).run();
 }
 
 function openLocationOf(db: Orm, agentId: string): AgentLocation | undefined {

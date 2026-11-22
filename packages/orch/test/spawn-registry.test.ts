@@ -34,7 +34,7 @@ function register(dir: OrchDir, overrides: Partial<Parameters<typeof registerSpa
     placed: true,
     handle: "%42",
     cwd: "/repo",
-    name: "worker-1",
+    project: null, name: "worker-1",
     model: "openai/gpt-5",
     thinking: "high",
     spawner: "orch-agent",

@@ -3,7 +3,7 @@ import { and, asc, eq, isNotNull, isNull, type SQL } from "drizzle-orm";
 import { agentIdFromRow, mintAgentId } from "../shared/agent-id.ts";
 import { isRecord } from "../util.ts";
 import { orm, storeExists, withTransaction } from "./connection.ts";
-import { agentEndings, agentHosts, agentOrigins, agentProcesses, agentWorktrees, agents, harnesses, hostPlexers as hostPlexerTable, hosts, plexers } from "../db/schema.ts";
+import { agentEndings, agentHosts, agentOrigins, agentProcesses, agentProjects, agentWorktrees, agents, harnesses, hostPlexers as hostPlexerTable, hosts, plexers } from "../db/schema.ts";
 import { environmentOf, paneOf, refreshAgent } from "./agent-view.ts";
 import { agentLocation, callerProcess, openLocationIn, recordCallerProcessIn, relocateIn, setAgentPlexer, setHandle, setSpace } from "./interval-rows.ts";
 import { hereOrNull, placeAgent } from "../process-place.ts";
@@ -173,6 +173,18 @@ export function worktreeOf(orchDir: OrchDir, agent: HereAgent): AgentWorktree | 
     .where(eq(agentWorktrees.agentId, agent.id))
     .get();
   return row ?? null;
+}
+
+/** Record the project directory `agentId` was launched for. */
+export function setProject(orchDir: OrchDir, agentId: string, path: string): void {
+  orm(orchDir).insert(agentProjects).values({ agentId, path })
+    .onConflictDoUpdate({ target: agentProjects.agentId, set: { path } })
+    .run();
+}
+
+/** The project directory `agentId` was launched for. Null for an agent orch did not launch. */
+export function projectOf(orchDir: OrchDir, agentId: string): string | null {
+  return orm(orchDir).select({ path: agentProjects.path }).from(agentProjects).where(eq(agentProjects.agentId, agentId)).get()?.path ?? null;
 }
 
 /** Relabel an agent by its immutable id; names are intentionally non-unique. */

@@ -15,6 +15,8 @@ export function adoptAgent(state: DaemonState, params: ParamsOf<"adopt-agent">):
   const running = backend.process.running(handle);
   registerSpawnedAgent(state.directory, {
     form: params.form, key, harnessId, backendId, handle, cwd, name, model, spawner,
+    // orch did not launch it, so it reports its own project.
+    project: null,
     ...(space === undefined ? {} : { space }),
     ...(thinking === undefined ? {} : { thinking }),
     ...(owner === undefined ? {} : { owner }),

@@ -200,6 +200,7 @@ export async function admitSpawn(
   directory: OrchDir,
   self: CallerSelf,
   settingsFile: OrchSettings,
+  install: OrchSettings,
   settings: SpawnSettings,
   logger: Logger,
   catalogue: ModelCatalogue,
@@ -213,8 +214,9 @@ export async function admitSpawn(
   const offered = offeredModels(catalogue);
   const agents = settings.agents.map((agent) => ({ ...agent, model: admitLaunchModel(settingsFile, agent.adapter, catalogue, agent.model), workers: withLaunchPoints(agent.workers, offered) }));
   // Shim refresh is a launch side effect, so it happens only after policy
-  // accepts, and only for the harnesses actually being launched.
-  await refreshStaleShims(directory, logger, [...new Set(agents.map((agent) => agent.adapter))], settingsFile);
+  // accepts, and only for the harnesses actually being launched. A shim is the install's, so it
+  // follows the install file: each launch carries its own project's worker policy.
+  await refreshStaleShims(directory, logger, [...new Set(agents.map((agent) => agent.adapter))], install);
   // A plexer may reject an invalid prefix, so no placement side effect may precede it.
   try {
     assertValidAgentName(settings.prefix);

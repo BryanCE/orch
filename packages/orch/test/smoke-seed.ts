@@ -36,7 +36,7 @@ registerSpawnedAgent(root, {
   harnessId: "pi",
   placed: false,
   cwd,
-  name: "smoke",
+  project: null, name: "smoke",
   model: "gpt-5",
   thinking: "medium",
   spawner: null,

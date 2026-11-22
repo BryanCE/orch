@@ -19,6 +19,7 @@ import { adapterCommand, admitLaunchModel, offeredModels, resolveAdapterOrDie } 
 import { localAgentPlan, planSpawn, plexerRequest, selectBackend, selectSpawnForm, worktreeIntent, type SpawnAgentPlan, type SpawnSettings } from "./plan.ts";
 import { admitSpawn, assertNewSpaceGranted, assertSpaceCapacity, assertSpawnCapacity, assertSpawnPolicy, assertTabCapacity, claimSpawnNames, liveFleet, type CallerSelf } from "./admission.ts";
 import { projectDirectory } from "./project.ts";
+import { installSettings } from "../project-settings.ts";
 import { discardUnusedWorkspace, findGroupInSpace, growFleetIntoGroup, openFleetHome, prepareWorkspace, resolveSpawnPlacement, spawnBackend, spawnEnv, spawnOneIntoTab, type SpawnNotes } from "./placement.ts";
 import { freeTabLabel, liveTabLabels } from "./tab-label.ts";
 import { needsViewer, openViewers, planViewers, viewerHost } from "./viewers.ts";
@@ -334,7 +335,7 @@ export async function spawnAgents(state: DaemonState, params: ParamsOf<"spawn">)
   const chosen = params.host === null
     ? spawnBackend(services.logger, { backend: requested.backend.id, space: params.space, backendChosen: requested.backendChosen }, environment.plexer, notes)
     : requested.backend;
-  const settings = await admitSpawn(state.directory, self, settingsFile, planSpawn(params, settingsFile, chosen), services.logger, services.models);
+  const settings = await admitSpawn(state.directory, self, settingsFile, installSettings(state), planSpawn(params, settingsFile, chosen), services.logger, services.models);
   const partitions = new Map<string, SpawnAgentPlan[]>();
   for (const agent of settings.agents) {
     const partition = partitions.get(agent.backend.id);

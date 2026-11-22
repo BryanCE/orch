@@ -203,6 +203,7 @@ const SPAWN_REGISTRATION = z.object({
   placed: z.boolean(),
   handle: z.string().optional(),
   cwd: z.string(),
+  project: z.string().nullable(),
   name: nonBlank,
   space: z.string().optional(),
   model: z.string(),
@@ -775,7 +776,7 @@ export const RPC_PARAMS = {
   "agent-closed": GOVERNANCE.extend({ key: nonBlank }),
   /** Record an agent orch did not spawn, found in a pane on this machine, as the caller's: orchd
    *  reads the process that pane runs. Every other axis is the registration's. */
-  "adopt-agent": SPAWN_REGISTRATION.omit({ process: true, placed: true }).extend({ backendId: nonBlank, handle: nonBlank }).extend(GOVERNANCE.shape),
+  "adopt-agent": SPAWN_REGISTRATION.omit({ process: true, placed: true, project: true }).extend({ backendId: nonBlank, handle: nonBlank }).extend(GOVERNANCE.shape),
   detach: GOVERNANCE.extend({ target: nonBlank }),
   adopt: GOVERNANCE.extend({ targets: z.array(nonBlank).optional(), all: z.boolean().optional() }),
   rename: GOVERNANCE.extend({ target: nonBlank, name: nonBlank }),

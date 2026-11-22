@@ -215,7 +215,7 @@ describe("A1: spawn registration records the space as an environment axis", () =
 
     registerSpawnedAgent(dir, {
       form: "tui", key, harnessId: "pi", backendId: "herdr", placed: true, handle: "%42",
-      cwd: "/repo", name: "worker-1", space: "wsA", model: "openai/gpt-5", spawner: null, process: { ...runnerProcess(), host: hostIdentity().id },  now: 10,
+      cwd: "/repo", project: null, name: "worker-1", space: "wsA", model: "openai/gpt-5", spawner: null, process: { ...runnerProcess(), host: hostIdentity().id },  now: 10,
     });
 
     // The space is its own open interval, not a column beside the plexer.
@@ -235,7 +235,7 @@ describe("A1: spawn registration records the space as an environment axis", () =
       // States no plexer and no space: a capless agent is in no plexer, and that
       // is an ANSWER, not a gap for a second writer to close.
       form: "oneshot", key, harnessId: "pi", placed: false,
-      cwd: "/repo", name: "detached-1", model: "openai/gpt-5", spawner: null, process: { ...runnerProcess(), host: hostIdentity().id },  now: 10,
+      cwd: "/repo", project: null, name: "detached-1", model: "openai/gpt-5", spawner: null, process: { ...runnerProcess(), host: hostIdentity().id },  now: 10,
     });
 
     // Not a NULL column, not the invented place called "local": no row at all.
@@ -252,7 +252,7 @@ describe("A1: spawn registration records the space as an environment axis", () =
 
     registerSpawnedAgent(dir, {
       form: "tui", key, harnessId: "pi", backendId: "herdr", placed: true, handle: "%42",
-      cwd: "/repo", name: "worker-1", space: "wsA", model: "openai/gpt-5", spawner: null, process: { ...runnerProcess(), host: hostIdentity().id },  now: 10,
+      cwd: "/repo", project: null, name: "worker-1", space: "wsA", model: "openai/gpt-5", spawner: null, process: { ...runnerProcess(), host: hostIdentity().id },  now: 10,
     });
     setSpace(dir, key, 20, "wsB");
 

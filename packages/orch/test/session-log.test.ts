@@ -61,7 +61,7 @@ describe("orchd session logs", () => {
     dirs.push(orchDir);
     const key = mintAgentId();
     const registration: SpawnRegistration & { readonly form: FormId } = {
-      key, harnessId: "pi", placed: false, cwd: orchDir, name: "reader", model: "test", spawner: null,
+      key, harnessId: "pi", placed: false, cwd: orchDir, project: null, name: "reader", model: "test", spawner: null,
       form: "acp",
       process: { host: hostIdentity().id, pid: process.pid, startToken: `session-log-${key}` },
     };

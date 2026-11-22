@@ -161,7 +161,7 @@ function registerSpawnedTabAgent(services: DaemonContext, spec: TabSpawnSpec, ke
   registerSpawnedAgent(services.orchDir, {
     form: spec.form,
     key, harnessId: spec.adapterId, backendId: spec.backend.id, placed: spec.backend.placementInventory !== null,
-    handle: String(handle), cwd: spec.cwd, name: spec.name, model: spec.model, thinking, space: spec.space ?? undefined,
+    handle: String(handle), cwd: spec.cwd, project: spec.project, name: spec.name, model: spec.model, thinking, space: spec.space ?? undefined,
     spawner: spec.spawner,
     owner: spec.owner,
     worktree: spec.worktree,

@@ -106,10 +106,7 @@ export async function runDoctor(services: DoctorContext): Promise<CheckResult[]>
   } catch {}
   const bins = binaryStatus(enabledAdapters);
   // Project overrides apply to the asking CLI's checks.
-  let projectFile: ProjectSettings | null = null;
-  try {
-    projectFile = install !== null && settings !== null ? projectSettings(services.project, install) : null;
-  } catch {}
+  const projectFile: ProjectSettings | null = install !== null && settings !== null ? projectSettings(services.project, install) : null;
   const merged = projectFile?.settings ?? settings;
   const providerChecks = enabledAdapters.map((id) => [
     isolated(`bin-${id}`, `${id} binary`, () => bins[id]

@@ -32,7 +32,7 @@ describe("the orca OSC pane HUD", () => {
       placed: true,
       handle,
       cwd: root,
-      name: "recon",
+      project: null, name: "recon",
       model: "test",
       spawner: null,
       process: { host: hostIdentity().id, pid: process.pid, startToken: "orca-hud-fixture" },

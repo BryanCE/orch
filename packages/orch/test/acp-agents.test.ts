@@ -120,7 +120,7 @@ describe("harness reports about an agent orchd holds", () => {
     const harness = setup();
     await serve(harness);
     registerSpawnedAgent(harness.orchDir, {
-      form: "tui", key, harnessId: "pi", placed: false, cwd: harness.orchDir, name: "tui-worker", model: "test", spawner: null,
+      form: "tui", key, harnessId: "pi", placed: false, cwd: harness.orchDir, project: null, name: "tui-worker", model: "test", spawner: null,
       process: { host: hostIdentity().id, pid: process.pid, startToken: `acp-tui-${key}` },
     });
 

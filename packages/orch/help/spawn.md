@@ -19,6 +19,11 @@ Traps:
   might touch the same files by accident, then collect with `orch review`. Each agent gets
   the branch `orch/<name>`, forked from what is checked out here, and sits in the same tab
   and the same `orch status` as any other agent.
+- `--read-only` starts an agent that reads and replies: it keeps its harness's read tools and
+  orch's own, with no shell, no MCP tool and no extension tool. `--out <dir>` also lets it
+  write files in that one directory, one value for all or one per name in order. Reach for it
+  on a lookup or a review. A harness that cannot refuse a tool call cannot run one, and the
+  refusal names the harnesses that can.
 - `--worktree-provider worktrunk` makes the worktree with worktrunk, so its location
   template and its hooks apply. `worktrees.provider` sets the default. Orch runs
   `WORKTRUNK_BIN`, else the first of `worktrees.worktrunk_commands` it finds: a name, a path,

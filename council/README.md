@@ -120,9 +120,11 @@ orch council close plan-review
   runs, and under the table what was wrong with any file that carried no score.
 - `close` closes every member still running, then the council.
 
-A council's rounds and its close belong to the agent that convened it, and to the human.
-orch owns the member prompt and the round-file layout in `src/council/`, so what a member is
-told to write is what the reader parses.
+Who may send a round is who may drive the members, and who may close the council is who may
+close them: the agent that convened it, an agent that adopted its members, and the human. A
+round that one member refuses still goes to the others, and the command says who it did not
+reach and why. orch owns the member prompt and the round-file layout in `src/council/`, so
+what a member is told to write is what the reader parses.
 
 ## Built
 
@@ -149,27 +151,28 @@ Source that has landed, each with its test.
 
 ## Waiting on Bryan
 
-- `bun db:gen`, then `bun db:mig`: one migration for `agent_read_only`, `councils`,
-  `council_members` and `council_reviews`. Four test files cannot pass before it:
-  `store-read-only-rows`, `store-council-rows`, `council-score-run`, `store-rebuild-schema`.
 - `bun run build:orch:dev`, then a first real council to try the verbs end to end.
 
 ## Next
 
-1. **Project settings.** The council's members, round count and criteria describe a project,
-   so they belong in the project settings file the `project-settings/` job adds. Until then
-   the members are named on `convene`, and a round runs when the lead sends it.
+1. **Project settings.** The council's members and round count describe a project, so they
+   belong in the project settings file the `project-settings/` job adds. Until then the
+   members are named on `convene`, and a round runs when the lead sends it.
 2. **The web UI.** A council page: members against rounds, each review a click away.
    `findings/L8-web.md`.
 
+## Decided
+
+- A council's members launch like any agent, so `models.allowed` rules which models they may
+  use. A council has no model list of its own.
+- A council's criteria are part of the convener's `--prompt`. They change with every council,
+  so they are not a setting.
+
 ## Open questions
 
-- Which models a council may use is set by `models.allowed`, which today allows pi three
-  OpenAI models and claude two. Does a council use that list or carry its own?
-- Should a council carry its criteria as a setting, so every round's prompt repeats them, or
-  is the convener's `--prompt` enough?
-- A member whose run errors has no way back into its round: the next `round` moves every
-  member on. Is a retry of one member's round wanted?
+- A member whose round carries no score (its run errored, or its file had no score line orch
+  could read) shows `?` for that round and takes the next round with the others. Nothing
+  re-scores that round. Whether that is needed waits on what real councils show.
 
 ## Working material
 

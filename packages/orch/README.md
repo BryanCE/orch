@@ -172,6 +172,7 @@ Run `orch help` for the full list, and `orch help <command>` for every flag of o
 | Give work | `dispatch`, `answer`, `steer`, `broadcast`, `pipe`, `model`, `wait` |
 | Read results | `result`, `tail`, `peek`, `session` |
 | Queue | `queue add\|list\|history\|cancel\|edit`, `work`, `review` |
+| Council | `council convene\|round\|scores\|close` |
 | Agents | `spawn`, `tile`, `rename`, `reset`, `restart`, `reload`, `abort`, `close`, `adopt`, `detach`, `reap`, `grant`, `lock` |
 | Panes and tabs | `pane`, `tab`, `focus`, `zoom`, `move`, `keys`, `space` |
 | Install | `setup`, `doctor`, `settings`, `models`, `notify`, `daemon`, `clean`, `version`, `whoami` |
@@ -183,6 +184,8 @@ Some useful ones:
 - `orch pipe <from> <to>`: hand one agent's result to another agent
 - `orch queue add "<task>"` then `orch work`: a durable queue that gives tasks to idle agents
 - `orch spawn <names> --worktree`: give each agent its own git worktree, made by git or worktrunk, then land it with `orch review`
+- `orch spawn <names> --read-only`: agents that read and reply, with no shell, for lookups and reviews
+- `orch council convene <council> <members>`: several models score one subject, round by round
 
 ## Concepts
 

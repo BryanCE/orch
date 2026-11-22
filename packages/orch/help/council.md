@@ -21,6 +21,10 @@ Traps:
   exits is refused.
 - A harness that cannot refuse a tool call cannot run a member, and the launch says which can.
 - `round` waits for every member of the round before it. `orch monitor` reports each finish.
+- A round one member refuses still goes to the others. The command names that member and
+  the reason; its cell in the scores shows `-` for the round.
+- Whoever may dispatch to the members may send a round, and whoever may close them may close
+  the council: the agent that convened it, an agent that adopted them, and the human.
 - The text of `round` says what changed since the last one. From round 2 each member also
   reads what the others wrote in the round before.
 - A `?` in the scores means a member's file carried no score orch could read; the line under

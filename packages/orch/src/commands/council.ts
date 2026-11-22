@@ -37,6 +37,7 @@ async function sendRound(services: Services, params: Pick<ParamsOf<"council-roun
   }
   for (const delivery of sent.deliveries) writeDelivery({ target: delivery.key, name: delivery.member, action: "dispatch", id: delivery.id, ack: delivery.ack }, { json: false });
   process.stdout.write(`Round ${sent.round} of council ${params.name} went to ${sent.deliveries.length} of its members.\n`);
+  for (const refusal of sent.refused) process.stdout.write(`Round ${sent.round} did not reach ${refusal.member}: ${refusal.reason}\n`);
 }
 
 async function convene(services: Services, invocation: Invocation): Promise<void> {

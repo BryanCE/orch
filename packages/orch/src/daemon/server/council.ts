@@ -15,6 +15,7 @@ import { isAdapterId } from "../../shared/harness.ts";
 import { agentView } from "../../store/agent-view.ts";
 import { askReview, closeCouncil, councilAt, councilMembersOf, councilReviewsOf, insertCouncil, lastRound, scoreReview, waitingReview } from "../../store/council-rows.ts";
 import { selectRun } from "../../store/run-rows.ts";
+import { errorMessage } from "../../util.ts";
 import { closeAnywhere } from "./handlers/drive.ts";
 import { callerSelf } from "./handlers/self.ts";
 import { dispatch } from "./handlers/write.ts";
@@ -43,6 +44,11 @@ function asker(params: Asker): Asker {
   };
 }
 
+type RoundResult = ResultOf<"council-round">;
+
+/** What sending a round to one member came to. */
+type RoundSend = { readonly delivery: RoundResult["deliveries"][number] } | { readonly refusal: RoundResult["refused"][number] };
+
 /** Where the council a request names keeps its files. */
 function directoryOf(state: DaemonState, ref: CouncilRef): string {
   return councilDirectory(ref.cwd, state.services.settings.current().council.directory, ref.name);
@@ -54,13 +60,6 @@ function councilNamed(state: DaemonState, ref: CouncilRef): CouncilRecord {
   const council = councilAt(state.directory, directory);
   if (council === undefined) throw new CommandRefusal(`no council named ${ref.name} was convened here: ${directory} belongs to none`);
   return council;
-}
-
-/** A council's rounds and its close belong to the agent that convened it, and to the human. */
-function requireConvener(state: DaemonState, council: CouncilRecord, params: Asker): void {
-  if (params.actorIsOperator === true || params.actor === council.convenedBy) return;
-  const convener = agentView(state.directory, council.convenedBy)?.name ?? council.convenedBy;
-  throw new CommandRefusal(`council ${council.name} was convened by ${convener}, and only its convener runs it`);
 }
 
 /** A council's members that still run, each with the name it sits under. */
@@ -101,12 +100,12 @@ export async function conveneCouncil(state: DaemonState, params: ParamsOf<"counc
 }
 
 /** `council-round`: send the next round onto each sitting member's conversation, and record
- *  the review each dispatch asks for. A round waits for the one before it to finish. */
+ *  the review each dispatch asks for. A round waits for the one before it to finish. Who may
+ *  send one is the dispatch gate's ruling: whoever may drive the members. */
 export async function councilRound(state: DaemonState, params: ParamsOf<"council-round">): Promise<ResultOf<"council-round">> {
   const directory = state.directory;
   const council = councilNamed(state, params);
   if (council.closedAt !== null) throw new CommandRefusal(`council ${council.name} is closed`);
-  requireConvener(state, council, params);
   const last = lastRound(directory, council.id);
   const running = councilReviewsOf(directory, council.id).filter((review) => review.round === last && review.scoredAt === null).map((review) => review.member);
   if (running.length > 0) throw new CommandRefusal(`round ${last} of council ${council.name} is still running. Not finished: ${running.join(", ")}`);
@@ -116,7 +115,8 @@ export async function councilRound(state: DaemonState, params: ParamsOf<"council
   if (params.caller === undefined) throw new CommandRefusal("a council's round names its convener, and this request carried no caller");
   const self = callerSelf(directory, { caller: params.caller });
   const settings = state.services.settings.current();
-  const deliveries = await Promise.all(sitting.map(async ({ member, view }) => {
+  // One member's refusal never hides what reached the others: each send answers for itself.
+  const sent = await Promise.all(sitting.map(async ({ member, view }): Promise<RoundSend> => {
     const text = memberPrompt({
       council: council.directory,
       member: member.name,
@@ -126,11 +126,18 @@ export async function councilRound(state: DaemonState, params: ParamsOf<"council
       subject: params.subject,
     });
     const worker = { harness: isAdapterId(view.harnessId) ? view.harnessId : null, context: workerHeaderContextOf(self, settings, view) };
-    const accepted = await dispatch(state, { ...asker(params), target: member.agentId, text, worker });
-    askReview(directory, { dispatchId: accepted.id, councilId: council.id, round, member: member.name, askedAt: Date.now() });
-    return { member: member.name, key: member.agentId, id: accepted.id, ack: accepted.ack };
+    try {
+      const accepted = await dispatch(state, { ...asker(params), target: member.agentId, text, worker });
+      askReview(directory, { dispatchId: accepted.id, councilId: council.id, round, member: member.name, askedAt: Date.now() });
+      return { delivery: { member: member.name, key: member.agentId, id: accepted.id, ack: accepted.ack } };
+    } catch (error) {
+      return { refusal: { member: member.name, reason: errorMessage(error) } };
+    }
   }));
-  return { round, deliveries };
+  const deliveries = sent.flatMap((send) => "delivery" in send ? [send.delivery] : []);
+  const refused = sent.flatMap((send) => "refusal" in send ? [send.refusal] : []);
+  if (deliveries.length === 0) throw new CommandRefusal(`round ${round} of council ${council.name} reached no member. ${refused.map((refusal) => `${refusal.member}: ${refusal.reason}`).join(". ")}`);
+  return { round, deliveries, refused };
 }
 
 /** `council-scores`: every review of a council, with the model and cost of the run behind each. */
@@ -144,10 +151,10 @@ export function councilScores(state: DaemonState, params: ParamsOf<"council-scor
   return { name: council.name, directory: council.directory, scale: council.scale, closedAt: council.closedAt, members: councilMembersOf(directory, council.id).map((member) => member.name), reviews };
 }
 
-/** `council-close`: close every member still running, then the council. */
+/** `council-close`: close every member still running, then the council. Who may close a member
+ *  is the close verb's ruling. */
 export async function closeCouncilNamed(state: DaemonState, params: ParamsOf<"council-close">): Promise<ResultOf<"council-close">> {
   const council = councilNamed(state, params);
-  requireConvener(state, council, params);
   const sitting = sittingMembers(state.directory, council);
   for (const { member } of sitting) await closeAnywhere(state, { ...asker(params), key: member.agentId });
   closeCouncil(state.directory, council.id, Date.now());

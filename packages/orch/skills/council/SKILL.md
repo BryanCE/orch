@@ -15,7 +15,7 @@ Read `orch help council` before the first command: it is the installed build's t
 ## The loop
 
 ```bash
-orch council convene plan-review ada bea cy --model sol,luna,opus \
+orch council convene plan-review \
   --prompt "Review the plan in plan.md. A good plan can be built without one question." --with plan.md
 orch monitor                          # arm through the Monitor tool, in this same message
 orch council scores plan-review       # once every member is done
@@ -23,9 +23,11 @@ orch council round plan-review "Rewrote section 2 and added the rollback steps."
 orch council close plan-review
 ```
 
-1. **Convene.** Name the council for its subject. Give each member a different model, because
-   members on one model agree with each other. The prompt says what the subject is and what a
-   good one looks like: the members score against that.
+1. **Convene.** Name the council for its subject. The members are the user's `council.models`
+   setting, one per model, each named for the council and its model. When that setting is
+   empty the command says so: ask the user to pick the members in the `council.models` row of
+   `orch settings`, and never pick them yourself. The prompt says what the subject is and what a good one looks like: the members
+   score against that.
 2. **Wait.** Arm `orch monitor`. Each member reports `DONE` when its review is written.
 3. **Read.** `orch council scores <council>` shows every score. Each member's review is the
    file `round-<n>.md` in its own directory under the council's directory. Read every one:

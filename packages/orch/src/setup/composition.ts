@@ -1,10 +1,11 @@
 import { writeSettingsDefault, writeSettingsFullTree, writeSettingsModels, writeSettingsAllowedModels, writeSettingsPreferredModels, writeSettingsEnabled, writeSettingsRuntime } from "../settings/write.ts";
 import { DEFAULT_RUNTIME, ORCH_RUNTIMES, type OrchRuntime } from "../runtime.ts";
 import { signedOutFix } from "../shared/prerequisites.ts";
-import { assertModelListed } from "../policy/model.ts";
+import { assertModelListed, isAllowedModel } from "../policy/model.ts";
+import { splitThinkingSuffix } from "../policy/thinking.ts";
 import { allowlistWithDefault } from "../settings/read.ts";
 import { logStep, logWarning } from "./io.ts";
-import { selectAdapters, selectDefaultAdapter, selectBackends, selectDefaultBackend, selectDefaultModel, selectAllowedModels, selectRuntime } from "./wizard.ts";
+import { selectAdapters, selectDefaultAdapter, selectBackends, selectDefaultBackend, selectDefaultModel, selectAllowedModels, selectCouncilModels, selectRuntime } from "./wizard.ts";
 import { errorMessage } from "../util.ts";
 import { die } from "../commands/target.ts";
 import { SetupFlagError, validateSetupFlag } from "./flags.ts";
@@ -112,6 +113,28 @@ export async function resolveHarnessModels(
     choices.preferred[id] = allowed;
   }
   return { ...choices, offers: readOffers };
+}
+
+/** Pick the council's lineup harness by harness, each from the models that harness lists and
+ *  may launch. A recorded effort suffix stays on a model that is kept. A harness with nothing
+ *  to offer keeps what is recorded for it. Null when the user cancels. */
+export async function resolveCouncilModels(
+  settings: OrchSettings,
+  offers: HarnessOffers,
+  harnesses: readonly AdapterId[],
+  pick: typeof selectCouncilModels = selectCouncilModels,
+): Promise<OrchSettings["council"]["models"] | null> {
+  let lineup = settings.council.models;
+  for (const id of harnesses) {
+    const launchable = (await readHarnessCatalogue(id, offers, true)).models.filter((model) => isAllowedModel(settings, id, model.spec));
+    if (!launchable.length) continue;
+    const recorded = new Map((lineup[id] ?? []).map((model) => [splitThinkingSuffix(model).bare, model]));
+    const picked = await pick(id, launchable, [...recorded.keys()]);
+    if (picked === null) return null;
+    const { [id]: _replaced, ...others } = lineup;
+    lineup = picked.length ? { ...others, [id]: picked.map((spec) => recorded.get(spec) ?? spec) } : others;
+  }
+  return lineup;
 }
 
 /** Tell the operator how to make an installed-but-signed-out harness usable, and what to

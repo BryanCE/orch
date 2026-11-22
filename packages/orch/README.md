@@ -185,7 +185,7 @@ Some useful ones:
 - `orch queue add "<task>"` then `orch work`: a durable queue that gives tasks to idle agents
 - `orch spawn <names> --worktree`: give each agent its own git worktree, made by git or worktrunk, then land it with `orch review`
 - `orch spawn <names> --read-only`: agents that read and reply, with no shell, for lookups and reviews
-- `orch council convene <council> <members>`: several models score one subject, round by round
+- `orch council convene <council>`: the models in `council.models` score one subject, round by round
 
 ## Concepts
 

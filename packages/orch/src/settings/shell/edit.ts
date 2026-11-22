@@ -18,6 +18,7 @@ import { askChoice, askMulti, promptFrame, submittedText } from "./ask.ts";
 import { editSinks } from "./sinks.ts";
 import { editModels } from "./models.ts";
 import { editCompaction } from "./compaction.ts";
+import { editLineup } from "./lineup.ts";
 import type { HarnessOffers } from "../../setup/composition.ts";
 import { asBrowsing, cancelEdit, commitAndFlush, commitPick, refocusVisible, resetFocused, stepFocus, toggleAgentGrant, type Session } from "./state.ts";
 
@@ -171,6 +172,8 @@ export async function editFocused(session: Session, manager: SettingsManager, of
       return editModels(session, manager, offers, opened);
     case "compaction":
       return editCompaction(session, manager, offers, opened);
+    case "lineup":
+      return editLineup(session, manager, offers, opened);
     case "integer":
     case "text":
     case "list":

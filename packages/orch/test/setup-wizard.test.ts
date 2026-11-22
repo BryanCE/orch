@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { selectAllowedModels, selectDefaultModel } from "../src/setup/wizard.ts";
+import { selectAllowedModels, selectCouncilModels, selectDefaultModel } from "../src/setup/wizard.ts";
 import type { CataloguePicker } from "../src/types/command.ts";
 
 describe("setup model picker", () => {
@@ -95,6 +95,17 @@ describe("setup model list picker", () => {
     await selectAllowedModels("claude", [{ spec: "opus", label: "Opus 5.5" }, { spec: "haiku" }], [], pick);
 
     expect(labels).toEqual(["Opus 5.5 · opus", "haiku"]);
+  });
+
+  test("the council prompt names the harness, and that an empty pick seats nobody from it", async () => {
+    const { seen, pick } = capture();
+
+    const kept = await selectCouncilModels("claude", [{ spec: "sonnet" }, { spec: "opus" }], ["opus"], pick);
+
+    expect(seen[0]).toMatchObject({ mode: "multiselect", checked: ["opus"] });
+    expect(seen[0]!.message).toContain("Council members on claude, one per model");
+    expect(seen[0]!.message).toContain("none = no member on claude");
+    expect(kept).toEqual(["opus"]);
   });
 
   test("stored values start checked, and clearing them returns an empty selection", async () => {

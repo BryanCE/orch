@@ -131,6 +131,21 @@ export function requireEnabledComposition(file: string, root: SettingsFile): voi
   }
 }
 
+/** A council's lineup is a subset of what each harness may launch. A harness with no allowlist
+ *  allows every model, so its lineup is not held to one. */
+export function requireCouncilModelsAllowed(file: string, root: SettingsFile): void {
+  for (const harness of ADAPTER_IDS) {
+    const allowed = allowlistWithDefault(root.models?.allowed?.[harness] ?? [], root.defaults?.models?.[harness]);
+    if (allowed.length === 0) continue;
+    for (const model of root.council?.models?.[harness] ?? []) {
+      const { bare } = splitThinkingSuffix(model);
+      if (!matchesModelPattern(allowed, bare)) {
+        throw new Error(`${file}: council.models.${harness}: "${bare}" is not in models.allowed.${harness} - allowed: ${allowed.join(", ")}`);
+      }
+    }
+  }
+}
+
 /** Keep section extractors declarative; each field follows the same absent-value rule.
  *  Only an ABSENT field takes the default: a stored null is the user's own choice. */
 function settingOr<T>(value: T | undefined, fallback: T): T {
@@ -269,6 +284,7 @@ const settingsValueExtractors = {
   council: (root: Partial<SettingsFile>) => ({
     directory: root.council?.directory ?? SETTINGS_DEFAULTS.council.directory,
     scale: root.council?.scale ?? SETTINGS_DEFAULTS.council.scale,
+    models: root.council?.models ?? { ...SETTINGS_DEFAULTS.council.models },
   }),
   skills: (root: Partial<SettingsFile>) => ({
     install: root.skills?.install ?? SETTINGS_DEFAULTS.skills.install,
@@ -319,6 +335,7 @@ export function settingsValues(root: Partial<SettingsFile>): Omit<OrchSettings, 
 /** A validated file root to the fully-populated settings every reader uses. */
 export function settingsFromFile(file: string, root: SettingsFile): OrchSettings {
   requireEnabledComposition(file, root);
+  requireCouncilModelsAllowed(file, root);
   return {
     runtime: root.runtime,
     enabled: { adapters: root.enabled?.adapters ?? [], backends: root.enabled?.backends ?? [] },

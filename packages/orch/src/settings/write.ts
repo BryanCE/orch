@@ -7,7 +7,7 @@ import {
   SETTINGS_DEFAULTS, SETTINGS_FILE_SCHEMA, SETTINGS_SCHEMA,
   type SettingsFile,
 } from "./schema.ts";
-import { allowlistWithDefault, parseSettingsRoot, parseSettingsText, settingsValues, requireEnabledComposition } from "./read.ts";
+import { allowlistWithDefault, parseSettingsRoot, parseSettingsText, settingsValues, requireCouncilModelsAllowed, requireEnabledComposition } from "./read.ts";
 import { withKeys } from "./unknown-keys.ts";
 import type { NotifyEntry, SettingsRepair } from "../types/settings.ts";
 import type { ThinkingLevel } from "../types/policy.ts";
@@ -54,6 +54,7 @@ function serializeSettingsRoot(file: string, candidate: unknown): string {
   const { settings: parsed, newer } = parseSettingsRoot(candidate, file);
   const updated = withDefaultsAllowed(parsed);
   requireEnabledComposition(file, updated);
+  requireCouncilModelsAllowed(file, updated);
   return JSON.stringify(withKeys(updated, newer), null, 2) + "\n";
 }
 

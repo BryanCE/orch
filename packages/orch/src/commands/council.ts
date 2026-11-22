@@ -2,6 +2,7 @@
 // read the scores, and close it. The CLI parses and reports; orchd launches the members, sends
 // the rounds and scores each review.
 import { usageError } from "../cli/usage.ts";
+import { councilLineup } from "../council/lineup.ts";
 import { renderTable } from "../table.ts";
 import { taskWithReferences } from "../worker-prompt.ts";
 import { readRpc, writeRpc } from "./daemon.ts";
@@ -9,11 +10,12 @@ import { writeDelivery } from "./delivery.ts";
 import { contextReference } from "./prompt-file.ts";
 import { parseCommand } from "./registry.ts";
 import { formatCost } from "./runs.ts";
-import { resolveSpawnSettings, spawnFlagsOf } from "./spawn/flags.ts";
+import { resolveSpawnSettings, spawnFlagsOf, type SpawnFlags } from "./spawn/flags.ts";
 import { answerNoEnvironmentRole, launchBudgetMs, reportSpawned } from "./spawn/index.ts";
 import type { Invocation } from "../cli/spec.ts";
 import type { ParamsOf, ResultOf } from "../daemon/client/protocol.ts";
 import type { Services } from "../types/services.ts";
+import type { OrchSettings } from "../types/settings.ts";
 
 type CouncilScores = ResultOf<"council-scores">;
 type CouncilReview = CouncilScores["reviews"][number];
@@ -40,15 +42,26 @@ async function sendRound(services: Services, params: Pick<ParamsOf<"council-roun
   for (const refusal of sent.refused) process.stdout.write(`Round ${sent.round} did not reach ${refusal.member}: ${refusal.reason}\n`);
 }
 
+/** Who sits on the council: the members the convener named, each on the model its flags give,
+ *  or the lineup `council.models` holds when it named none. */
+function membersOf(flags: SpawnFlags, council: string, named: readonly string[], settings: OrchSettings): Pick<SpawnFlags, "positional" | "modelFlags" | "harnessFlags"> {
+  if (named.length > 0) return { positional: [...named], modelFlags: flags.modelFlags, harnessFlags: flags.harnessFlags };
+  if (flags.modelFlags.length > 0 || flags.harnessFlags.length > 0) throw usageError(flags.at, "--model and --harness go with named members; name them, or drop the flag to convene the council.models lineup");
+  const lineup = councilLineup(council, settings.council.models);
+  if (lineup.length === 0) throw usageError(flags.at, "no member to convene: the council.models setting is empty. Set it with orch settings council.models, or name the members");
+  return { positional: lineup.map((member) => member.name), modelFlags: lineup.map((member) => member.model), harnessFlags: lineup.map((member) => member.harness) };
+}
+
 async function convene(services: Services, invocation: Invocation): Promise<void> {
-  const [name, ...members] = invocation.positional;
+  const [name, ...named] = invocation.positional;
   const prompt = invocation.flags.value("--prompt");
-  if (name === undefined || members.length === 0) throw usageError(invocation);
+  if (name === undefined) throw usageError(invocation);
   if (prompt === undefined) throw usageError(invocation, "a council reviews a subject; say what it is with --prompt");
   const settings = services.settings.current();
+  const flags = spawnFlagsOf(invocation);
   // The members launch as a spawn's agents do, so the same flags resolve them. The subject is
   // the round's, never a launch prompt: orchd sends it once every member is recorded.
-  const request = resolveSpawnSettings({ ...spawnFlagsOf(invocation), positional: members, promptFlags: [], withPaths: [] }, settings);
+  const request = resolveSpawnSettings({ ...flags, ...membersOf(flags, name, named, settings), promptFlags: [], withPaths: [] }, settings);
   const subject = subjectOf(invocation, prompt);
   const { cwd, form, plexer, tab, space, agents } = request.params;
   const convened = await writeRpc(services, "council-convene", {

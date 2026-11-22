@@ -97,6 +97,16 @@ describe("orch council", () => {
     return expect(cmdCouncil(services, ["convene", "next", "ada", "--model", "luna"])).rejects.toThrow("say what it is with --prompt");
   });
 
+  test("convene with no member and no council.models says how to set one", async () => {
+    const { services } = await setup([]);
+    return expect(cmdCouncil(services, ["convene", "next", "--prompt", "Review plan.md."])).rejects.toThrow("the council.models setting is empty");
+  });
+
+  test("convene takes --model only with named members", async () => {
+    const { services } = await setup([]);
+    return expect(cmdCouncil(services, ["convene", "next", "--model", "luna", "--prompt", "Review plan.md."])).rejects.toThrow("--model and --harness go with named members");
+  });
+
   test("round needs its text", async () => {
     const { services } = await setup([]);
     return expect(cmdCouncil(services, ["round", "plan"])).rejects.toThrow("usage:");

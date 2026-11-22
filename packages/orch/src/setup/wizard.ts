@@ -118,6 +118,11 @@ function pickFromCatalogue(
   return pick(searchable ? "autocomplete" : "multiselect", message, options, MODEL_PICKER_MAX_ITEMS);
 }
 
+/** How a catalogue multi-select is driven, which depends on its size. */
+function howToPick(offered: readonly HarnessModel[]): string {
+  return offered.length > MODEL_PICKER_MAX_ITEMS ? `${offered.length} available; type to search or browse` : "space to toggle";
+}
+
 /** Multi-select the models a harness may launch, which is also the quicklist its own picker
  *  cycles. Empty means every model that harness offers stays allowed — orch ships no built-in
  *  restriction. A harness that enumerates nothing has nothing to choose from, so it is
@@ -128,10 +133,18 @@ export function selectAllowedModels(
   already: readonly string[],
   pick: CataloguePicker = defaultCataloguePicker,
 ): Promise<string[] | null> {
-  const browse = offered.length > MODEL_PICKER_MAX_ITEMS;
-  const message = `Models ${harnessId} may spawn, and cycle in its own picker `
-    + `(${browse ? `${offered.length} available; type to search or browse` : "space to toggle"}, none = allow all)`;
-  return pickFromCatalogue(message, offered, already, pick);
+  return pickFromCatalogue(`Models ${harnessId} may spawn, and cycle in its own picker (${howToPick(offered)}, none = allow all)`, offered, already, pick);
+}
+
+/** Multi-select the models of one harness that sit on a council, one member per model. The
+ *  caller offers only what that harness may launch. Empty seats nobody from it. Null on cancel. */
+export function selectCouncilModels(
+  harnessId: string,
+  offered: readonly HarnessModel[],
+  already: readonly string[],
+  pick: CataloguePicker = defaultCataloguePicker,
+): Promise<string[] | null> {
+  return pickFromCatalogue(`Council members on ${harnessId}, one per model (${howToPick(offered)}, none = no member on ${harnessId})`, offered, already, pick);
 }
 
 /** Multi-select which missing prerequisites to install; null when the user cancels, [] when none are missing. */

@@ -104,15 +104,17 @@ A council has verbs of its own, and its members sit in a tab of their own, apart
 worker fleet the same orchestrator runs.
 
 ```
-orch council convene plan-review ada bea cy --model sol,luna,opus --prompt "Review the plan in plan.md." --with plan.md
+orch council convene plan-review --prompt "Review the plan in plan.md." --with plan.md
 orch council round plan-review "Rewrote section 2." --with plan.md
 orch council scores plan-review
 orch council close plan-review
 ```
 
 - `convene` launches each member read-only with its member directory as its output directory,
-  records the council, and sends round 1. Members are named on the command the way a spawn
-  names agents, with a harness and a model each.
+  records the council, and sends round 1. The members are the `council.models` setting: models
+  by harness, one member per model, each named for the council and its model
+  (`src/council/lineup.ts`). A convener that names members on the command, with a harness and a
+  model each the way a spawn does, seats those instead for that one council.
 - `round` sends the next round onto each member's conversation. It is refused while a member
   of the round before still runs. From round 2 a member is pointed at the others' files from
   the round before.
@@ -146,7 +148,11 @@ Source that has landed, each with its test.
   `scoreFinishedRun`, which reads a finished member's round file, stores the score and
   appends it to the member's `scores.jsonl` history.
 - **The command.** `src/commands/council.ts`, `help/council.md`, and the registry entry.
-- **Settings.** `council.directory` and `council.scale` in the install settings file.
+- **Settings.** `council.directory`, `council.scale` and `council.models` in the install
+  settings file. A settings file whose `council.models` names a model outside that harness's
+  `models.allowed` is refused, on read and on write. In the `orch settings` editor the
+  `council.models` row opens a picker: each enabled harness in turn, its launchable models as
+  a checklist (`resolveCouncilModels` in `src/setup/composition.ts`).
 - **The skill.** `skills/council/SKILL.md`: how a lead runs a council.
 
 ## Waiting on Bryan
@@ -155,16 +161,16 @@ Source that has landed, each with its test.
 
 ## Next
 
-1. **Project settings.** The council's members and round count describe a project, so they
-   belong in the project settings file the `project-settings/` job adds. Until then the
-   members are named on `convene`, and a round runs when the lead sends it.
+1. **Project settings.** The council's models and round count describe a project, so they
+   belong in the project settings file the `project-settings/` job adds. Until then
+   `council.models` is one lineup for the install, and a round runs when the lead sends it.
 2. **The web UI.** A council page: members against rounds, each review a click away.
    `findings/L8-web.md`.
 
 ## Decided
 
-- A council's members launch like any agent, so `models.allowed` rules which models they may
-  use. A council has no model list of its own.
+- The models that sit on a council are a setting, `council.models`, so a convener never names
+  them per council. The list is a subset of `models.allowed`, held to it per harness.
 - A council's criteria are part of the convener's `--prompt`. They change with every council,
   so they are not a setting.
 

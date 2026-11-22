@@ -66,6 +66,7 @@ export function parseSettingValue(spec: SettingSpec, input: string): SettingValu
       return input.length > 0 ? { ok: true, value: input } : { ok: false, reason: "expected non-empty text" };
     case "models":
     case "compaction":
+    case "lineup":
     case "list":
       return parseListSetting(input);
     default: {

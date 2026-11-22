@@ -73,7 +73,7 @@ function settingsFixture(days: Partial<OrchSettings["retention"]> = {}): OrchSet
     tiling: { first_split: "rows" },
     worktrees: { provider: "git", branch_prefix: "orch/", directory: ".orch-worktrees", worktrunk_commands: ["wkt", "wt"], copy_ignored: true, timeout_ms: 300000 },
     counts: { tail: 20, peek: 25 },
-    council: { directory: ".orch/councils", scale: 10 },
+    council: { directory: ".orch/councils", scale: 10, models: {} },
     skills: { install: true, store: "~/.agents/skills", link: [] },
   };
 }

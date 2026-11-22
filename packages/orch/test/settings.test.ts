@@ -99,7 +99,7 @@ describe("loadSettings", () => {
       tiling: { first_split: "columns" },
       worktrees: { provider: "git", branch_prefix: "orch/", directory: ".orch-worktrees", worktrunk_commands: ["wkt", "wt"], copy_ignored: true, timeout_ms: 300000 },
       counts: { tail: 40 },
-      council: { directory: ".orch/councils", scale: 10 },
+      council: { directory: ".orch/councils", scale: 10, models: {} },
       logging: { slow_tool_ms: 250, stall_ms: 100, stall_poll_ms: 250 },
     });
 
@@ -144,7 +144,7 @@ describe("loadSettings", () => {
       tiling: { first_split: "columns" },
       worktrees: { provider: "git", branch_prefix: "orch/", directory: ".orch-worktrees", worktrunk_commands: ["wkt", "wt"], copy_ignored: true, timeout_ms: 300000 },
       counts: { tail: 40, peek: 25 },
-      council: { directory: ".orch/councils", scale: 10 },
+      council: { directory: ".orch/councils", scale: 10, models: {} },
       logging: { level: "info", slow_tool_ms: 250, stall_ms: 100, stall_poll_ms: 250 },
       skills: { install: true, store: "~/.agents/skills", link: [] },
     });
@@ -262,7 +262,7 @@ describe("loadSettings", () => {
       tiling: { first_split: "rows" },
       worktrees: { provider: "git", branch_prefix: "orch/", directory: ".orch-worktrees", worktrunk_commands: ["wkt", "wt"], copy_ignored: true, timeout_ms: 300000 },
       counts: { tail: 20, peek: 25 },
-      council: { directory: ".orch/councils", scale: 10 },
+      council: { directory: ".orch/councils", scale: 10, models: {} },
       logging: { level: "info", slow_tool_ms: 1_000, stall_ms: 500, stall_poll_ms: 1_000 },
       skills: { install: true, store: "~/.agents/skills", link: [] },
     });
@@ -324,6 +324,29 @@ describe("loadSettings", () => {
     writeSettingsFixture(directory, { enabled: { adapters: ["pi"], backends: [] }, defaults: { adapter: "claude" } });
 
     expect(() => fileSettingsManager(directory).current()).toThrow(/defaults\.adapter.*"claude".*enabled: pi/);
+  });
+
+  test("reads the council's models, held to each harness's allowlist", () => {
+    const directory = tempDir();
+    const models = { allowed: { pi: ["openai-codex/*"], claude: ["sonnet"] } };
+    writeSettingsFixture(directory, { enabled: { adapters: ["pi", "claude"], backends: [] }, models, council: { models: { pi: ["openai-codex/gpt-6-luna:high"], claude: ["sonnet"] } } });
+    expect(fileSettingsManager(directory).current().council.models).toEqual({ pi: ["openai-codex/gpt-6-luna:high"], claude: ["sonnet"] });
+
+    writeSettingsFixture(directory, { enabled: { adapters: ["pi", "claude"], backends: [] }, models, council: { models: { claude: ["sonnet", "opus"] } } });
+    expect(() => fileSettingsManager(directory).current()).toThrow('council.models.claude: "opus" is not in models.allowed.claude - allowed: sonnet');
+  });
+
+  test("a harness with no allowlist takes any council model", () => {
+    const directory = tempDir();
+    writeSettingsFixture(directory, { enabled: { adapters: ["pi", "claude"], backends: [] }, council: { models: { claude: ["opus"] } } });
+    expect(fileSettingsManager(directory).current().council.models).toEqual({ claude: ["opus"] });
+  });
+
+  test("an allowlist write that drops a council model is refused", () => {
+    const directory = tempDir();
+    writeSettingsFixture(directory, { enabled: { adapters: ["pi", "claude"], backends: [] }, models: { allowed: { claude: ["sonnet", "opus"] } }, council: { models: { claude: ["opus"] } } });
+    expect(() => writeSettingsAllowedModels(fileSettingsManager(directory), { claude: ["sonnet"] })).toThrow('council.models.claude: "opus" is not in models.allowed.claude');
+    expect(fileSettingsManager(directory).current().models.allowed.claude).toEqual(["sonnet", "opus"]);
   });
 
   test("rejects when settings.json is absent but a legacy config.toml exists", () => {

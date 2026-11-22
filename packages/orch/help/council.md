@@ -2,19 +2,33 @@ A council is several agents on different models that review one subject and scor
 convene it, read what the members wrote, improve the subject yourself or with workers, and
 send the next round. The user sees the scores and decides whether another round runs.
 
-    orch council convene plan-review ada bea cy --model sol,luna,opus \
+    orch council convene plan-review \
       --prompt "Review the plan in plan.md. A good plan can be built without one question." --with plan.md
     orch council scores plan-review
     orch council round plan-review "Rewrote section 2 and added the rollback steps." --with plan.md
     orch council close plan-review
+
+Who sits on a council is the `council.models` setting: models by harness, one member per
+model, each one in that harness's `models.allowed`. The user picks it: the `council.models`
+row of `orch settings` walks each enabled harness and checks members off the models it lists
+and may launch. With no terminal it is JSON:
+
+    orch settings council.models '{"<harness>": ["<model>", "<model>"], "<harness>": ["<model>"]}'
+
+`convene` launches that lineup and names each member for the council and its model, as in
+`plan-review-sonnet`. To seat other members once, name them: `convene plan-review ada bea
+--model sol,luna`.
 
 A member is a read-only agent: it reads files and has no shell. It writes one file per round,
 `round-<n>.md` in its own directory under `council.directory`, holding its score and its
 ordered list of improvements. orchd reads the score from that file when the member finishes.
 
 Traps:
-- `--model` and `--harness` take one value for all members, or one per member in order. Pick
-  different models: members on the same model agree with each other.
+- Pick different models: members on the same model agree with each other.
+- `--model` and `--harness` go with members you name: one value for all, or one per member in
+  order. With no member named they are refused.
+- A lineup member's name is the council's name and its model, at most 32 characters. A longer
+  one is refused: shorten the council's name.
 - A member cannot run a command. Hand it what a command would show (a diff, test output, a
   screenshot) as a file through `--with`.
 - A member has to stay up between rounds. A launch into a form that takes one prompt and

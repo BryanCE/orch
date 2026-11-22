@@ -79,7 +79,7 @@ export interface OrchSettings {
   tiling: { first_split: TileFirstSplit };
   worktrees: WorktreeConfig;
   counts: { tail: number; peek: number };
-  council: { directory: string; scale: number };
+  council: { directory: string; scale: number; models: Partial<Record<AdapterId, string[]>> };
   skills: { install: boolean; store: string; link: string[] };
 }
 
@@ -131,6 +131,8 @@ export type SettingKind =
   | { readonly kind: "models" }
   /** A token count per harness and model, picked from what each harness lists; typed as JSON on the CLI. */
   | { readonly kind: "compaction" }
+  /** A council's models per harness, picked from the models each harness lists and may launch; typed as JSON on the CLI. */
+  | { readonly kind: "lineup" }
   | { readonly kind: "text" }
   | { readonly kind: "list" };
 

@@ -230,13 +230,13 @@ const AGENTS: readonly CommandSpec[] = [
     flags: [],
     subcommands: [
       {
-        name: "convene", args: "<council> <member>...",
-        summary: "Launch the members read-only and send them round 1.",
+        name: "convene", args: "<council> [<member>...]",
+        summary: "Launch the members read-only and send them round 1. Names no member: the council.models lineup.",
         flags: [
           { name: "--prompt", arity: "one", placeholder: "<text>", help: "What the members review, and what a good one looks like." },
           { name: "--with", arity: "many", placeholder: "<path>", help: "A file or directory the members read. Must exist." },
-          { ...MODEL, arity: "many", help: "The model. One, or one per member." },
-          { ...HARNESS, arity: "many", help: `Harness id: ${ADAPTER_IDS.join(", ")}. One, or one per member.` },
+          { ...MODEL, arity: "many", help: "The model of the members you name. One, or one per member." },
+          { ...HARNESS, arity: "many", help: `Harness of the members you name: ${ADAPTER_IDS.join(", ")}. One, or one per member.` },
           THINKING,
           { ...DIR, help: "Directory the council is convened from, and its members start in. Default: this one." },
           { name: "--form", arity: "one", placeholder: `<${FORM_IDS.join("|")}>`, help: `Form for every member: ${FORM_IDS.join(", ")}.` },

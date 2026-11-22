@@ -8,10 +8,9 @@ import { errorMessage } from "../../../util.ts";
 import { hostIdentity } from "../../../hosts/identity.ts";
 import { SpawnRefusalError } from "../../../refusal.ts";
 import { LAUNCH_ENV } from "../../../identity/launch.ts";
-import { policyEnv, policyTools } from "../../../policy/workers.ts";
 import { registerSpawnedAgent } from "../../../store/spawn-registration.ts";
 import type { AgentAdapter } from "../../../types/adapter.ts";
-import type { WorkerPolicy } from "../../../types/policy.ts";
+import type { LaunchPolicy } from "../../../types/policy.ts";
 import type { Backend, BackendGroup, BackendHandle, BackendSpawnOpts, CreatedHome, GroupLayoutRole, TileFirstSplit } from "../../../types/backend.ts";
 import type { Logger, OrchDir } from "../../../types/core.ts";
 import type { DaemonContext } from "../../../types/services.ts";
@@ -22,7 +21,7 @@ import type { TerminalPreparer } from "../../../types/held-session.ts";
 import { projectDirectory } from "./project.ts";
 import type { CreatedAgent, OpenFleetHomeRequest, SpawnPlacement, SpawnPlacementRequest, TabSpawnSpec } from "../../../types/command.ts";
 import { liveFleet, type CallerSelf } from "./admission.ts";
-import { resolveAdapterOrDie } from "./models.ts";
+import { launchCommand, resolveAdapterOrDie } from "./models.ts";
 import type { HomeSubject } from "../../../types/backend.ts";
 import type { AgentWorktree } from "../../../types/worktree.ts";
 import { localAgentPlan, type LocalSpawnAgentPlan, type SpawnSettings } from "./plan.ts";
@@ -113,10 +112,9 @@ export function openFleetHome(request: OpenFleetHomeRequest): CreatedHome {
 // launch credential — the name and the backend handle are recorded
 // beside it as plain fields, never folded into it. The caller owns error policy
 // (warn-and-continue vs die); this throws on backend failure.
-/** The env one agent launches into: its credential, the orch dir, and its harness's
- *  compaction point for its model when one is set. */
-export function spawnEnv(orchDir: OrchDir, key: string, adapter: AgentAdapter, form: FormId | null, model: string | undefined, workers: WorkerPolicy | undefined): Record<string, string> {
-  return { [LAUNCH_ENV]: key, ORCH_DIR: orchDir, ...policyEnv(adapter, model, workers), ...terminalClientEnv(adapter, form) };
+/** The env one agent launches into: its credential, the orch dir, and the env its launch policy sets. */
+export function spawnEnv(orchDir: OrchDir, key: string, adapter: AgentAdapter, form: FormId | null, launch: LaunchPolicy): Record<string, string> {
+  return { [LAUNCH_ENV]: key, ORCH_DIR: orchDir, ...launch.env, ...terminalClientEnv(adapter, form) };
 }
 
 function resolveSpawnPlace(spec: TabSpawnSpec, env: Readonly<Record<string, string>>): BackendHandle | undefined {
@@ -133,8 +131,8 @@ function resolveSpawnPlace(spec: TabSpawnSpec, env: Readonly<Record<string, stri
 function spawnOptsOf(orchDir: OrchDir, spec: TabSpawnSpec, key: string, env: Readonly<Record<string, string>>, thinking: NonNullable<TabSpawnSpec["thinking"]>): BackendSpawnOpts {
   return {
     form: spec.form, key, env, cwd: spec.cwd, name: spec.name, workspace: spec.workspace, group: spec.group,
-    orchDir, project: spec.project, model: spec.model, thinking, preferredModels: spec.preferredModels,
-    tools: spec.tools, workers: spec.workers, cmd: spec.cmd,
+    orchDir, project: spec.project, model: spec.model, thinking, preferredModels: spec.launch.preferredModels,
+    tools: spec.launch.tools, workers: spec.launch.workers, cmd: spec.cmd,
   };
 }
 
@@ -165,7 +163,7 @@ function registerSpawnedTabAgent(services: DaemonContext, spec: TabSpawnSpec, ke
     spawner: spec.spawner,
     owner: spec.owner,
     worktree: spec.worktree,
-    readOnly: spec.workers?.readOnly ?? undefined,
+    readOnly: spec.launch.workers.readOnly ?? undefined,
     // The pane opened on this machine, so its process runs on this host.
     process: { ...spec.backend.process.running(handle), host: hostIdentity().id },
   });
@@ -177,7 +175,7 @@ export async function spawnOneIntoTab(services: DaemonContext, spec: TabSpawnSpe
   const { views, presence } = liveFleet(orchDir);
   assertNameFree(views, presence, spec.name, spec.space);
   const key = spec.key ?? mintAgentId();
-  const env = spec.env ?? spawnEnv(orchDir, key, spec.adapter, spec.form, spec.model, spec.workers);
+  const env = spec.env ?? spawnEnv(orchDir, key, spec.adapter, spec.form, spec.launch);
   const thinking = spec.thinking;
   if (thinking === undefined) throw new Error(`spawn requires a resolved thinking level for ${spec.name}`);
   const terminal = await spec.prepareTerminal(spec.adapter, spawnOptsOf(orchDir, spec, key, env, thinking));
@@ -223,11 +221,13 @@ export function discardUnusedWorkspace(logger: Logger, intent: WorktreeIntent | 
   discardFreshWorktree(worktree, intent.config, (message) => { logger.warn("spawn.worktree-discard-failed", { message }); });
 }
 
-/** Tile one of this launch's named agents, in its own worktree when asked. */
-async function placeAgent(services: DaemonContext, settings: SpawnSettings, plan: LocalSpawnAgentPlan, space: string | null, workspace: string | undefined, group: string, backend: Backend, self: CallerSelf, role: GroupLayoutRole, prepareTerminal: TerminalPreparer): Promise<CreatedAgent> {
+/** Tile one of this launch's named agents, in its own worktree when asked, on the policy its
+ *  launch was prepared with. */
+async function placeAgent(services: DaemonContext, settings: SpawnSettings, plan: LocalSpawnAgentPlan, launch: LaunchPolicy, place: { space: string | null; workspace: string | undefined; group: string }, backend: Backend, self: CallerSelf, role: GroupLayoutRole, prepareTerminal: TerminalPreparer): Promise<CreatedAgent> {
+  const { space, workspace, group } = place;
   const name = plan.name;
   const adapter = resolveAdapterOrDie(plan.adapter);
-  const { cwd, worktree } = prepareWorkspace(settings.cwd, settings.worktree, name, adapter, plan.cmd);
+  const { cwd, worktree } = prepareWorkspace(settings.cwd, settings.worktree, name, adapter, plan.cmd ?? launchCommand(adapter, launch, plan, null));
   try {
     return await tileAgentIntoGroup(services, {
     prepareTerminal,
@@ -243,10 +243,8 @@ async function placeAgent(services: DaemonContext, settings: SpawnSettings, plan
     group,
     model: plan.model,
     thinking: plan.thinking,
-    preferredModels: plan.preferredModels,
-    tools: policyTools(plan.workers),
-    workers: plan.workers,
-    cmd: settings.commandFlag ? plan.cmd : undefined,
+    launch,
+    ...(plan.cmd === null ? {} : { cmd: plan.cmd }),
     worktree,
     spawner: self.id,
     owner: self.id ?? undefined,
@@ -257,20 +255,20 @@ async function placeAgent(services: DaemonContext, settings: SpawnSettings, plan
   }
 }
 
-/** Fill a group with named agents. An agent that fails to come up is named and the
- *  rest still launch — a fleet short one worker beats no fleet. */
-export async function growFleetIntoGroup(services: DaemonContext, settings: SpawnSettings, place: { space: string | null; workspace: string | undefined; group: string }, backend: Backend, names: readonly string[], self: CallerSelf, role: GroupLayoutRole, notes: SpawnNotes, prepareTerminal: TerminalPreparer): Promise<CreatedAgent[]> {
-  const { space, workspace, group } = place;
+/** Fill a group with named agents, each on the policy its launch was prepared with. An agent that
+ *  fails to come up is named and the rest still launch — a fleet short one worker beats no fleet. */
+export async function growFleetIntoGroup(services: DaemonContext, settings: SpawnSettings, place: { space: string | null; workspace: string | undefined; group: string }, launches: ReadonlyMap<string, LaunchPolicy>, backend: Backend, names: readonly string[], self: CallerSelf, role: GroupLayoutRole, notes: SpawnNotes, prepareTerminal: TerminalPreparer): Promise<CreatedAgent[]> {
   const logger = services.logger;
   const created: CreatedAgent[] = [];
   for (const name of names) {
     const plan = settings.agents.find((agent) => agent.name === name);
-    if (plan === undefined) {
+    const launch = launches.get(name);
+    if (plan === undefined || launch === undefined) {
       logger.warn("spawn.plan-missing", { name });
       continue;
     }
     try {
-      created.push(await placeAgent(services, settings, localAgentPlan(plan), space, workspace, group, backend, self, role, prepareTerminal));
+      created.push(await placeAgent(services, settings, localAgentPlan(plan), launch, place, backend, self, role, prepareTerminal));
     } catch (error: unknown) {
       const message = errorMessage(error);
       logger.warn("spawn.place-failed", { backend: backend.id, name, error: message });

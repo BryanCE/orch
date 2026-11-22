@@ -1,9 +1,11 @@
 // Reload and restart: the harness relaunched in place, where the agent runs. This orchd does it
 // for its own agents through their plexer and records the relaunch; an agent on a linked host is
 // that host's orchd's to reload or restart, with its own settings and code.
-import { agentSettings, installSettings } from "../project-settings.ts";
+import { agentSettings } from "../project-settings.ts";
 import { errorMessage, shellLine } from "../../../util.ts";
-import { refreshStaleShims } from "../doctor/runner.ts";
+import { prepareRelaunch, refreshShim, restartOpts } from "../launch-policy.ts";
+import type { LaunchPolicy } from "../../../types/policy.ts";
+import type { AgentView } from "../../../types/store.ts";
 import { resolveTargetRoute } from "../../../control/dispatch.ts";
 import { getAdapter } from "../../../adapters/registry.ts";
 import { agentView } from "../../../store/agent-view.ts";
@@ -11,23 +13,19 @@ import { selectAgentStatus } from "../../../store/status-rows.ts";
 import { agentLocation } from "../../../store/interval-rows.ts";
 import { hereIsLive } from "../../../process-place.ts";
 import { resolveTuningOrDie } from "../../../shared/tuning.ts";
-import { policyEnv, policyTools } from "../../../policy/workers.ts";
 import { CommandRefusal } from "../../../refusal.ts";
-import { adapterCommand, admitLaunchModel, policyCommand, resolveAdapterOrDie } from "../spawn/models.ts";
-import { relaunchPolicy } from "../agent-policy.ts";
+import { launchCommand, admitLaunchModel, resolveAdapterOrDie } from "../spawn/models.ts";
 import { applyVerb, reclaim } from "./lifecycle.ts";
 import { restartPipes, switchForm } from "./restart-form.ts";
 import { governWrite } from "./write.ts";
 import { clearPrompt, inputPane, pollReady, quitToShell, relaunchPlace, relaunchTerminal } from "../terminal-relaunch.ts";
 import { endSessionAgent, prepareTerminal, terminalAttach } from "../session-agents.ts";
-import { isThinkingLevel } from "../../../policy/thinking.ts";
 import { atAgentHost, driveOnHost } from "./host.ts";
-import type { BackendHandle, BackendSpawnOpts, RelaunchRole } from "../../../types/backend.ts";
+import type { BackendHandle, RelaunchRole } from "../../../types/backend.ts";
 import type { AgentAdapter, LifecycleVerb } from "../../../types/adapter.ts";
 import type { AgentFlags } from "../../../types/command.ts";
 import { FORM_STDIO } from "../../../types/form.ts";
 import type { LifecycleOutcome, LifecycleRequest, ParamsOf } from "../../client/protocol.ts";
-import { projectDirectory } from "../spawn/project.ts";
 import type { DaemonState } from "../state.ts";
 import type { HereAgent } from "../../../types/agent-place.ts";
 
@@ -88,13 +86,12 @@ function recordedHarness(state: DaemonState, key: string, verb: LifecycleVerb): 
  *  exists to pick up new code. */
 async function reloadHere(state: DaemonState, agent: HereAgent): Promise<LifecycleOutcome> {
   const { adapter } = recordedHarness(state, agent.id, "reload");
-  await refreshStaleShims(state.directory, state.services.logger, [adapter.id], installSettings(state));
+  await refreshShim(state, adapter);
   return verbAndAwaitBridge(state, agent, "reload", null);
 }
 
-/** What a restart relaunches: the harness named, else the recorded one; the model and thinking
- *  named, else the tuning the agent holds, which another harness never inherits. */
-function planRelaunch(state: DaemonState, key: string, recorded: AgentAdapter, request: RestartRequest): { readonly adapter: AgentAdapter; readonly relaunch: Relaunch; readonly command: string } {
+/** The harness and tuning a restart moves onto, without writing state. */
+function relaunchTarget(state: DaemonState, key: string, recorded: AgentAdapter, request: RestartRequest): { readonly adapter: AgentAdapter; readonly relaunch: Relaunch } {
   const view = agentView(state.directory, key);
   const settings = agentSettings(state, key);
   const named = request.harness === null ? null : resolveAdapterOrDie(request.harness);
@@ -103,11 +100,18 @@ function planRelaunch(state: DaemonState, key: string, recorded: AgentAdapter, r
   const flags: AgentFlags = { ...(request.model === null ? {} : { modelFlag: request.model }), ...(request.thinking === null ? {} : { thinkingFlag: request.thinking }) };
   const tuning = resolveTuningOrDie(flags, settings, adapter.id, switched === null ? view?.tuning ?? null : null);
   const model = admitLaunchModel(settings, adapter.id, state.services.models, tuning.model);
-  const workers = relaunchPolicy(state.directory, settings, adapter, key);
-  if (workers !== undefined && request.cmd !== null) throw new CommandRefusal("this agent is read-only, and --cmd replaces the launch that holds it to that; restart it without --cmd");
-  const launch = { model, thinking: tuning.thinking, preferredModels: settings.models.preferred[adapter.id] ?? [] };
-  const command = request.cmd ?? (workers === undefined ? adapterCommand(adapter.id, settings, launch) : policyCommand(adapter.id, workers, launch));
-  return { adapter, relaunch: { harnessId: adapter.id, model, thinking: tuning.thinking }, command };
+  return { adapter, relaunch: { harnessId: adapter.id, model, thinking: tuning.thinking } };
+}
+
+/** Prepare the target launch and its command before ending the running agent. */
+async function planRelaunch(state: DaemonState, agent: HereAgent, recorded: AgentAdapter, request: RestartRequest): Promise<{ readonly adapter: AgentAdapter; readonly relaunch: Relaunch; readonly view: AgentView; readonly launch: LaunchPolicy; readonly command: string }> {
+  const view = agentView(state.directory, agent.id);
+  if (view === null) throw new Error(`unknown agent: ${agent.id}`);
+  const { adapter, relaunch } = relaunchTarget(state, agent.id, recorded, request);
+  const launch = await prepareRelaunch(state, view, adapter, relaunch.model);
+  if (launch.workers.readOnly !== null && request.cmd !== null) throw new CommandRefusal("this agent is read-only, and --cmd replaces the launch that holds it to that; restart it without --cmd");
+  const command = request.cmd ?? launchCommand(adapter, launch, relaunch, state.directory);
+  return { adapter, relaunch, view, launch, command };
 }
 
 /** The planned harness may need its workspace trusted before it starts there. */
@@ -129,12 +133,14 @@ async function awaitRelaunchedBridge(state: DaemonState, agent: HereAgent, wasUp
  *  then records. The relaunched harness claims the row afresh, so the old claim goes first. */
 async function relaunchInPlace(state: DaemonState, agent: HereAgent, recorded: AgentAdapter, request: RestartRequest, place: { readonly role: RelaunchRole; readonly handle: BackendHandle }): Promise<LifecycleOutcome> {
   const key = agent.id;
-  const { adapter, relaunch, command } = planRelaunch(state, key, recorded, request);
+  const { adapter, relaunch, view, launch, command } = await planRelaunch(state, agent, recorded, request);
+  if (view.form === null) throw new Error(`${view.name} records no form to relaunch in`);
+  const opts = restartOpts(state, agent, view, launch, relaunch, view.form);
   preTrust(state, agent, adapter, command);
   const wasUpdatedAt = selectAgentStatus(state.directory, key)?.updatedAt;
   reclaim(state.directory, { target: key, relaunch });
   try {
-    await relaunchPlace(state, agent, place, command);
+    await relaunchPlace(state, agent, place, command, opts);
   } catch (error: unknown) {
     return outcomeOf(state, agent, { ok: false, reason: `relaunch failed: ${errorMessage(error)}`, command, relaunched: relaunch, bridge: false });
   }
@@ -152,25 +158,17 @@ async function restartAttached(state: DaemonState, agent: HereAgent, recorded: A
   const form = view?.form ?? null;
   if (role === null || view === null || form === null || FORM_STDIO[form] !== "terminal" || request.cmd !== null || (request.harness !== null && request.harness !== recorded.id)) return null;
   const { text: quitText } = recordedHarness(state, key, "restart");
-  const { relaunch } = planRelaunch(state, key, recorded, request);
+  const { relaunch } = relaunchTarget(state, key, recorded, request);
+  // Built before the running session ends, so a refusal leaves the agent running.
+  const launch = await prepareRelaunch(state, view, recorded, relaunch.model);
+  const opts = restartOpts(state, agent, view, launch, relaunch, form);
   const sessionId = selectAgentStatus(state.directory, key)?.sessionId ?? null;
   await endSessionAgent(key);
-  const workers = relaunchPolicy(state.directory, agentSettings(state, key), recorded, key);
-  const opts: BackendSpawnOpts = {
-    form,
-    key,
-    orchDir: state.directory,
-    project: projectDirectory(state.directory, key, view.environment.cwd),
-    cwd: view.environment.cwd,
-    ...(relaunch.model === null ? {} : { model: relaunch.model }),
-    ...(isThinkingLevel(relaunch.thinking) ? { thinking: relaunch.thinking } : {}),
-    ...(workers === undefined ? {} : { workers, tools: policyTools(workers), env: policyEnv(recorded, relaunch.model ?? undefined, workers) }),
-  };
   const prepared = await prepareTerminal(state, recorded, role, opts, sessionId);
   const command = shellLine(prepared.program);
   reclaim(state.directory, { target: key, relaunch });
   try {
-    await relaunchTerminal(state, agent, quitText, command);
+    await relaunchTerminal(state, agent, quitText, command, prepared.opts);
   } catch (error: unknown) {
     prepared.abandon();
     return outcomeOf(state, agent, { ok: false, reason: `relaunch failed: ${errorMessage(error)}`, command, relaunched: relaunch, bridge: false });
@@ -208,7 +206,6 @@ async function restartHere(state: DaemonState, agent: HereAgent, request: Restar
   if (inForm !== null) return inForm;
   const attached = await restartAttached(state, agent, recorded, request);
   if (attached !== null) return attached;
-  if (request.harness !== null) await refreshStaleShims(state.directory, state.services.logger, [resolveAdapterOrDie(request.harness).id], installSettings(state));
   const route = resolveTargetRoute(state.directory, agent);
   const relaunching = route?.backend.relaunching ?? null;
   if (route !== undefined && relaunching !== null) return relaunchInPlace(state, agent, recorded, request, { role: relaunching, handle: route.handle });
@@ -221,7 +218,7 @@ async function restartHere(state: DaemonState, agent: HereAgent, request: Restar
     reclaim(state.directory, { target: key });
     return verbAndAwaitBridge(state, agent, "restart", null);
   }
-  const { adapter, relaunch, command } = planRelaunch(state, key, recorded, request);
+  const { adapter, relaunch, command } = await planRelaunch(state, agent, recorded, request);
   preTrust(state, agent, adapter, command);
   if (!await quitToShell(state, pane, quitText)) {
     state.services.logger.warn("lifecycle.restart-exit-timeout", { command: quitText }, { agentId: key });

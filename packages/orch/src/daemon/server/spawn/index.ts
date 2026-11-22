@@ -4,8 +4,8 @@
 import { heldBackend } from "../../../backends/registry.ts";
 import { terminalAttach, terminalPreparer } from "../session-agents.ts";
 import { FORM_SESSION_OWNER, FORM_STDIO, type FormId } from "../../../types/form.ts";
-import { policyEnv, policyTools, workerPolicyFrom } from "../../../policy/workers.ts";
-import { withLaunchPoints } from "../../../policy/compaction.ts";
+import { launchPolicy, prepareLaunch } from "../launch-policy.ts";
+import type { LaunchPolicy } from "../../../types/policy.ts";
 import { mintAgentId } from "../../../shared/agent-id.ts";
 import { takesModel } from "../../../shared/harness.ts";
 import { planTilePlacement } from "../../../shared/tiling.ts";
@@ -15,11 +15,10 @@ import { errorMessage } from "../../../util.ts";
 import { callerSelf } from "../handlers/self.ts";
 import { spawnHeadless } from "../handlers/lifecycle.ts";
 import { resolveTabFor } from "../tabs.ts";
-import { adapterCommand, admitLaunchModel, offeredModels, resolveAdapterOrDie } from "./models.ts";
+import { launchCommand, admitLaunchModel, resolveAdapterOrDie } from "./models.ts";
 import { localAgentPlan, planSpawn, plexerRequest, selectBackend, selectSpawnForm, worktreeIntent, type SpawnAgentPlan, type SpawnSettings } from "./plan.ts";
 import { admitSpawn, assertNewSpaceGranted, assertSpaceCapacity, assertSpawnCapacity, assertSpawnPolicy, assertTabCapacity, claimSpawnNames, liveFleet, type CallerSelf } from "./admission.ts";
 import { projectDirectory } from "./project.ts";
-import { installSettings } from "../project-settings.ts";
 import { discardUnusedWorkspace, findGroupInSpace, growFleetIntoGroup, openFleetHome, prepareWorkspace, resolveSpawnPlacement, spawnBackend, spawnEnv, spawnOneIntoTab, type SpawnNotes } from "./placement.ts";
 import { freeTabLabel, liveTabLabels } from "./tab-label.ts";
 import { needsViewer, openViewers, planViewers, viewerHost } from "./viewers.ts";
@@ -124,9 +123,10 @@ async function executeHeadlessSpawn(state: DaemonState, params: ParamsOf<"spawn"
   for (const name of names) {
     const plan = planFor(settings, name);
     const adapter = resolveAdapterOrDie(plan.adapter);
+    const project = projectDirectory(state.directory, self.id, settings.cwd);
     // On another host, --dir names a directory there: nothing here is made or trusted for it.
     const { cwd, worktree } = settings.host === null
-      ? prepareWorkspace(settings.cwd, settings.worktree, name, adapter, plan.cmd)
+      ? prepareWorkspace(settings.cwd, settings.worktree, name, adapter, plan.cmd ?? launchCommand(adapter, launchPolicy(services, { adapter, project, model: plan.model, name, readOnly: plan.readOnly }, (message) => new SpawnRefusalError(message)), plan, null))
       : { cwd: settings.cwd, worktree: undefined };
     try {
       // ONE key per agent, minted before launch and passed as the launch credential.
@@ -140,16 +140,13 @@ async function executeHeadlessSpawn(state: DaemonState, params: ParamsOf<"spawn"
         worktree,
         adapter: plan.adapter,
         cwd,
-        project: projectDirectory(state.directory, self.id, settings.cwd),
+        project,
         model: plan.model,
         thinking: plan.thinking,
-        preferredModels: [...plan.preferredModels],
         // An agent on a linked host spawned with no work idles there until its first dispatch.
         prompt: plan.prompt?.trim() ? plan.prompt : null,
         ...(plan.prompt?.trim() ? { worker: { harness: plan.adapter, context: { maySpawn, cwd, ...(worktree === undefined ? {} : { worktreeBranch: worktree.branch }), spawnerRepliable: self.id !== null } } } : {}),
-        tools: policyTools(plan.workers),
-        workers: plan.workers,
-        env: policyEnv(adapter, plan.model, plan.workers),
+        readOnly: plan.readOnly,
         ...(settings.host === null ? {} : { host: settings.host.name }),
         ...(params.actor === undefined ? {} : { actor: params.actor }),
       });
@@ -171,17 +168,18 @@ async function executeHeadlessSpawn(state: DaemonState, params: ParamsOf<"spawn"
   return spawnedResult(settings, created, { headless: true, tab: null, panes, notes });
 }
 
-/** Mint every identity, worktree and environment up front, before a tab exists. */
-function prepareAgents(state: DaemonState, settings: SpawnSettings, names: readonly string[]): PreparedAgent[] {
+/** Prepare each agent's launch, identity, worktree and environment before any place opens. */
+async function prepareAgents(state: DaemonState, settings: SpawnSettings, names: readonly string[], project: string): Promise<PreparedAgent[]> {
   const prepared: PreparedAgent[] = [];
   try {
     for (const name of names) {
       const plan = planFor(settings, name);
       const adapter = resolveAdapterOrDie(plan.adapter);
-      const { cwd, worktree } = prepareWorkspace(settings.cwd, settings.worktree, name, adapter, plan.cmd);
+      const launch = await prepareLaunch(state, { adapter, project, model: plan.model, name, readOnly: plan.readOnly }, (message) => new SpawnRefusalError(message));
+      const { cwd, worktree } = prepareWorkspace(settings.cwd, settings.worktree, name, adapter, plan.cmd ?? launchCommand(adapter, launch, plan, null));
       const key = mintAgentId();
-      const env = spawnEnv(state.directory, key, adapter, plan.form, plan.model, plan.workers);
-      prepared.push({ name, cwd, key, env, worktree, handle: undefined });
+      const env = spawnEnv(state.directory, key, adapter, plan.form, launch);
+      prepared.push({ name, cwd, key, launch, env, worktree, handle: undefined });
     }
   } catch (error: unknown) {
     // No tab exists yet, so a fleet that cannot get all its worktrees leaves none behind.
@@ -250,8 +248,8 @@ async function launchPrepared(state: DaemonState, prepared: readonly PreparedAge
         prepareTerminal: terminalPreparer(state),
         backend, adapter: resolveAdapterOrDie(plan.adapter), adapterId: plan.adapter, name: item.name, cwd: item.cwd, space, workspace, group: groupId,
         project: projectDirectory(state.directory, self.id, settings.cwd),
-        form: plan.form, model: plan.model, thinking: plan.thinking, preferredModels: plan.preferredModels,
-        tools: policyTools(plan.workers), workers: plan.workers, cmd: settings.commandFlag ? plan.cmd : undefined,
+        form: plan.form, model: plan.model, thinking: plan.thinking, launch: item.launch,
+        ...(plan.cmd === null ? {} : { cmd: plan.cmd }),
         worktree: item.worktree,
         spawner: self.id, owner: self.id ?? undefined,
         intoHandle: item.handle, key: item.key, env: item.env,
@@ -310,7 +308,7 @@ async function spawnIntoNewTab(state: DaemonState, context: { self: CallerSelf; 
   const { self, settings, backend, groupHome, placement } = context;
   const logger = state.services.logger;
   assertTabCapacity(settings, label, 0, names.length);
-  const prepared = prepareAgents(state, settings, names);
+  const prepared = await prepareAgents(state, settings, names, projectDirectory(state.directory, self.id, settings.cwd));
   const { group, workspace } = seatFleet(state, { backend, groupHome, placement, self }, settings, label, prepared);
   const placeFailures = placeRemainingAgents(state, backend, prepared, { groupId: group.id, workspace, firstSplit: settings.tiling.first_split }, notes);
   const { created, failures } = await launchPrepared(state, prepared, { settings, backend, space: placement.space, workspace, groupId: group.id, self }, notes);
@@ -335,7 +333,7 @@ export async function spawnAgents(state: DaemonState, params: ParamsOf<"spawn">)
   const chosen = params.host === null
     ? spawnBackend(services.logger, { backend: requested.backend.id, space: params.space, backendChosen: requested.backendChosen }, environment.plexer, notes)
     : requested.backend;
-  const settings = await admitSpawn(state.directory, self, settingsFile, installSettings(state), planSpawn(params, settingsFile, chosen), services.logger, services.models);
+  const settings = await admitSpawn(state.directory, self, settingsFile, planSpawn(params, settingsFile, chosen), services.logger, services.models);
   const partitions = new Map<string, SpawnAgentPlan[]>();
   for (const agent of settings.agents) {
     const partition = partitions.get(agent.backend.id);
@@ -383,8 +381,15 @@ async function spawnPartition(state: DaemonState, params: ParamsOf<"spawn">, sel
   // to fill. With no --tab the fleet opens a tab under a rolled label.
   const existing = settings.tab !== null && placement.homeToOpen === null ? findGroupInSpace(backend, placement.workspace, settings.tab) : undefined;
   if (existing) {
+    const project = projectDirectory(state.directory, self.id, settings.cwd);
+    const launches = new Map<string, LaunchPolicy>();
+    for (const name of names) {
+      const plan = planFor(settings, name);
+      const adapter = resolveAdapterOrDie(plan.adapter);
+      launches.set(name, await prepareLaunch(state, { adapter, project, model: plan.model, name, readOnly: plan.readOnly }, (message) => new SpawnRefusalError(message)));
+    }
     assertTabCapacity(settings, existing.label ?? existing.id, readGroupLayout(groupLayout, existing.id).placements.length, names.length);
-    const created = await growFleetIntoGroup(services, settings, { space, workspace: placement.workspace, group: existing.id }, backend, names, self, groupLayout, notes, terminalPreparer(state));
+    const created = await growFleetIntoGroup(services, settings, { space, workspace: placement.workspace, group: existing.id }, launches, backend, names, self, groupLayout, notes, terminalPreparer(state));
     return spawnedResult(settings, created, { headless: false, tab: existing.label ?? existing.id, panes: new Map(), notes });
   }
   const label = settings.tab ?? freeTabLabel(liveTabLabels(backend, views, presence));
@@ -421,27 +426,24 @@ export async function tileAgent(state: DaemonState, params: ParamsOf<"tile">): P
   const space = self.space;
   assertSpawnCapacity(settingsFile, space, 1, views, presence);
   assertTabCapacity(settingsFile, tab.label ?? tab.id, layout.placements.length, 1);
-  const preferredModels = settingsFile.models.preferred[agent.harness] ?? [];
   const intent = worktreeIntent(params.worktree, settingsFile);
-  const launchCommand = params.cmd ?? adapterCommand(agent.harness, settingsFile, { model, thinking: agent.thinking, preferredModels });
-  const { cwd, worktree } = prepareWorkspace(params.cwd, intent, agent.name, adapter, launchCommand);
-  const workers = withLaunchPoints(workerPolicyFrom(settingsFile), offeredModels(services.models));
+  const project = projectDirectory(state.directory, self.id, params.cwd);
+  const launch = await prepareLaunch(state, { adapter, project, model, name: agent.name, readOnly: null }, (message) => new SpawnRefusalError(message));
+  const command = params.cmd ?? launchCommand(adapter, launch, { model, thinking: agent.thinking }, null);
+  const { cwd, worktree } = prepareWorkspace(params.cwd, intent, agent.name, adapter, command);
   const spec: TabSpawnSpec = {
     prepareTerminal: terminalPreparer(state),
     backend, adapter, adapterId: agent.harness, name: agent.name, cwd, worktree, space,
-    project: projectDirectory(state.directory, self.id, params.cwd),
+    project,
     form: selectSpawnForm(null, settingsFile.defaults.forms, adapter, backend, heldBackend).form,
     workspace: tab.workspace ?? undefined,
     group: tab.id,
     // Same planner `spawn` uses, off the same tab-wide geometry.
     placement: planTilePlacement(layout, settingsFile.tiling.first_split),
     ...(params.cmd === null ? {} : { cmd: params.cmd }),
-    // A tiled worker loads exactly what a spawned one does.
-    tools: policyTools(workers),
-    workers,
     model,
     thinking: agent.thinking,
-    preferredModels,
+    launch,
     spawner: self.id,
     owner: self.id ?? undefined,
   };

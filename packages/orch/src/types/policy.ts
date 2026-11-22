@@ -3,6 +3,7 @@
 import type { VOCABULARY } from "../policy/vocabulary.ts";
 import type { CompactionTable, ExtensionExclusions, OrchSettings } from "./settings.ts";
 import type { ReadOnly } from "../policy/read-only.ts";
+import type { AgentAdapter } from "./adapter.ts";
 
 export interface WallDecision {
   allowed: boolean;
@@ -109,3 +110,28 @@ export type CallerKind = (typeof CALLER_KINDS)[number];
 export type CloseAuthority =
   | { readonly kind: "human" }
   | { readonly kind: "agent"; readonly agentId: string };
+
+/** What one launch runs under, built from its project's settings on the host where its process
+ *  starts. Every launch takes it from one place, whatever its form or path. */
+export interface LaunchPolicy {
+  /** What the worker may load, with compaction points keyed to the models on offer. */
+  readonly workers: WorkerPolicy;
+  /** The tool allowlist the harness launches under, or undefined for no restriction. */
+  readonly tools: string | undefined;
+  /** The env the policy sets for this harness and model. */
+  readonly env: Readonly<Record<string, string>>;
+  /** The quicklist the harness's own picker is given; never a launch gate. */
+  readonly preferredModels: readonly string[];
+}
+
+/** What a launch states for itself. Everything else comes from its project. */
+export interface LaunchRequest {
+  readonly adapter: AgentAdapter;
+  /** The project directory whose settings the launch runs on. */
+  readonly project: string;
+  readonly model: string | undefined;
+  /** The agent's name, for a refusal. */
+  readonly name: string;
+  /** Set for a read-only agent: the spawn's request, or the store's for a relaunch. */
+  readonly readOnly: ReadOnly | null;
+}

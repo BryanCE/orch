@@ -1,3 +1,4 @@
+import { testLaunch } from "./helpers/launch.ts";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { spawnOneIntoTab } from "../src/daemon/server/spawn/placement.ts";
 import { mintAgentId } from "../src/shared/agent-id.ts";
@@ -89,7 +90,7 @@ describe("one writer records a spawned agent (2.1)", () => {
       group: "tab1",
       model: "openai/gpt-5.6",
       thinking: "medium",
-      preferredModels: [],
+      launch: testLaunch(),
       spawner: owner, owner,
     });
 
@@ -120,7 +121,7 @@ describe("one writer records a spawned agent (2.1)", () => {
       workspace: "w7",
       group: "tab1",
       model: "openai/gpt-5.6",
-      preferredModels: [],
+      launch: testLaunch(),
       placement: { split: "right", targetHandle: "fake-pane-0" },
       spawner: null, owner: undefined,
     });

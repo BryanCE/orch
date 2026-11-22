@@ -63,6 +63,15 @@ orch council close plan-review
    round in the same turn, `orch council round <council> "<what changed, what you left and
    why>"`, and go back to step 2. Each member reads the subject again, rescores it, and reads
    what the others wrote in the round before.
+
+   For each improvement you skipped, the round text names the member that asked for it and
+   says why it was skipped:
+   - The other members outweighed it. Name them and their reason.
+   - The subject solves the same problem another way. Say where.
+   - It is outside the subject, or wrong. Say how.
+   Tell that member to score the decision on its merits, and not to mark the subject down
+   again for an item that has been ruled on. A member that keeps scoring down for a settled
+   item holds the mean flat and stops a council that is still improving.
 7. **Finish.** Report every round's scores, what moved across the rounds, and what is still
    open. The last round's changes are unscored, so say that. Ask the user one question: close
    the council, or raise `council.rounds` and go on. On their word, run

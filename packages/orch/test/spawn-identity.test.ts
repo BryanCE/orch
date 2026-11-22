@@ -1,3 +1,4 @@
+import { testLaunch } from "./helpers/launch.ts";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { spawnOneIntoTab } from "../src/daemon/server/spawn/placement.ts";
 import { mintAgentId, isAgentId } from "../src/shared/agent-id.ts";
@@ -99,7 +100,7 @@ describe("one key per pane spawn (12.1)", () => {
       group: "tab1",
       model: "openai/gpt-5.6",
       thinking: "medium",
-      preferredModels: [],
+      launch: testLaunch(),
     });
 
     // The key passed via launch env IS the identity key returned to the caller.
@@ -138,7 +139,7 @@ describe("one key per pane spawn (12.1)", () => {
       group: "tab1",
       model: "openai/gpt-5.6",
       thinking: "medium",
-      preferredModels: [],
+      launch: testLaunch(),
     });
 
     // The fake pane reports the runner's own pid, so the first agent is alive
@@ -171,7 +172,7 @@ describe("one key per pane spawn (12.1)", () => {
       group: "tab1",
       model: "openai/gpt-5.6",
       thinking: "medium",
-      preferredModels: [],
+      launch: testLaunch(),
     });
 
     // The agent's bridge stamps its presence under the same key. The join

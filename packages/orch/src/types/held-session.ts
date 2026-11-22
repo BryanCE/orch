@@ -130,6 +130,8 @@ export interface PreparedTerminal {
   readonly program: readonly string[];
   /** Variables the terminal needs on top of the agent's launch environment. */
   readonly env: Readonly<Record<string, string>>;
+  /** The opts the terminal launches under: the launch's, with `env` laid over its env. */
+  readonly opts: BackendSpawnOpts;
   /** Drive the session once the agent is recorded: its link attaches and it reports idle. */
   adopt(): Promise<void>;
   /** Hand the server back: the launch failed before the agent was recorded. */

@@ -5,10 +5,10 @@ import type { HostedProcess } from "../../types/process.ts";
 import { isPeerView } from "../../shared/peer-view.ts";
 import { isPaneLabels } from "../../shared/environment.ts";
 import { isThinkingLevel } from "../../policy/thinking.ts";
-import { CompactionTableSchema, ExtensionExclusionsSchema, HostSchema } from "../../settings/schema.ts";
+import { HostSchema } from "../../settings/schema.ts";
 import { AGENT_STATES } from "../../agent-state.ts";
 import { AGENT_STATUS_ROW, AGENT_VIEW, ENTITY, HOST_ID, HOST_IDENTITY, PRESENCE_ENTRY, RUN_RECORD } from "./fleet-schemas.ts";
-import { CALLER_KINDS, type ThinkingLevel, type WorkerPolicy } from "../../types/policy.ts";
+import { CALLER_KINDS, type ThinkingLevel } from "../../types/policy.ts";
 import type { CallerCredential, CallerSession, LogLevel, LogRecord, TokenTotals, WorkerCallerContext, WorkerRequest } from "../../types/core.ts";
 import { isLogLevel, isLogRecord } from "../../log.ts";
 import { HOST_LINK_STATES, SIGNAL_OUTCOMES, type HostGreeting, type HostLinkView } from "../../types/host.ts";
@@ -113,15 +113,6 @@ const WORKER_REQUEST = z.object({ harness: z.enum(ADAPTER_IDS).nullable(), conte
 
 const nonBlank = z.string().refine((value) => value.trim().length > 0, "must not be blank");
 const optionalText = z.string().transform((value) => value.length === 0 ? undefined : value).optional();
-const workerPolicy = z.object({
-  inheritExtensions: z.boolean(),
-  inheritMcp: z.boolean(),
-  excludeExtensions: ExtensionExclusionsSchema,
-  builtinTools: z.boolean(),
-  allowTools: z.array(z.string()).readonly(),
-  compactAtTokens: CompactionTableSchema,
-  readOnly: z.object({ out: z.string().nullable() }).nullable(),
-}) satisfies z.ZodType<WorkerPolicy>;
 /** The harness and tuning a restart relaunches an agent on. */
 const RELAUNCH = z.object({
   harnessId: nonBlank,
@@ -724,10 +715,8 @@ export const RPC_PARAMS = {
     cwd: optionalText,
     /** The agent's project directory on the host that launches it. */
     project: nonBlank,
-    env: z.record(z.string(), z.string()).optional(),
-    preferredModels: z.array(nonBlank).optional(),
-    tools: optionalText,
-    workers: workerPolicy.optional(),
+    /** Set for a read-only agent: the request. The host that launches builds its policy from its project. */
+    readOnly: SPAWN_AGENT.shape.readOnly,
     /** A host from settings.hosts to run the agent on, over its link; absent runs it here. */
     host: nonBlank.optional(),
   }),

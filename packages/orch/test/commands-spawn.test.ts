@@ -231,8 +231,8 @@ describe("commands/spawn", () => {
     tempDirs.push(dir);
     const settings = planned(parseSpawnFlags(["a", "b", "--harness", "pi", "--harness", "omp"]), mixedSettingsFor(dir));
     expect(settings.agents.map((agent) => agent.adapter)).toEqual(["pi", "omp"]);
-    expect(settings.agents[0]?.cmd.startsWith("pi")).toBe(true);
-    expect(settings.agents[1]?.cmd.startsWith("omp")).toBe(true);
+    // With no --cmd the plan carries no command: each launch builds its own.
+    expect(settings.agents.map((agent) => agent.cmd)).toEqual([null, null]);
   });
 
   test("refuses an incorrect number of harnesses", () => {
@@ -252,7 +252,6 @@ describe("commands/spawn", () => {
     tempDirs.push(dir);
     const settings = planned(parseSpawnFlags(["a", "b", "--harness", "pi", "--harness", "omp"]), mixedSettingsFor(dir));
     expect(settings.agents.map((agent) => agent.model)).toEqual(["openrouter/openai/gpt-5.6-luna", "openrouter/anthropic/claude-sonnet-4.5"]);
-    expect(settings.agents.map((agent) => agent.preferredModels)).toEqual([[], ["openrouter/anthropic/claude-sonnet-4.5"]]);
   });
 
   test("resolves one prompt file per agent", () => {
@@ -362,14 +361,13 @@ describe("commands/spawn", () => {
       expect(() => readOnlyOf(["a", "--read-only", "--cmd", "pi"], dir)).toThrow(/--read-only is held by the harness's own launch/);
     });
 
-    test("a read-only agent is planned under a policy of its own", () => {
+    test("a read-only agent is planned with its read-only request", () => {
       const dir = tempOrchDir("orch-spawn-read-only-");
       tempDirs.push(dir);
       const plan = planned(parseSpawnFlags(["a", "b", "--harness", "pi", "--read-only", "--dir", "/repo", "--out", "out/a", "--out", "out/b"]), settingsFor(dir));
-      expect(plan.agents.map((agent) => agent.workers.readOnly)).toEqual([{ out: "/repo/out/a" }, { out: "/repo/out/b" }]);
-      expect(plan.agents[0]?.workers.allowTools).toEqual(["read", "grep", "find", "ls", "edit", "write", "orch_ask"]);
-      expect(planned(parseSpawnFlags(["a", "--harness", "pi", "--read-only"]), settingsFor(dir)).agents[0]?.workers.allowTools).toEqual(["read", "grep", "find", "ls", "orch_ask"]);
-      expect(planned(parseSpawnFlags(["a", "--harness", "pi"]), settingsFor(dir)).agents[0]?.workers.readOnly).toBeNull();
+      expect(plan.agents.map((agent) => agent.readOnly)).toEqual([{ out: "/repo/out/a" }, { out: "/repo/out/b" }]);
+      expect(planned(parseSpawnFlags(["a", "--harness", "pi", "--read-only"]), settingsFor(dir)).agents[0]?.readOnly).toEqual({ out: null });
+      expect(planned(parseSpawnFlags(["a", "--harness", "pi"]), settingsFor(dir)).agents[0]?.readOnly).toBeNull();
     });
   });
 });

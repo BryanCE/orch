@@ -51,7 +51,7 @@ describe("writer screens", () => {
     const writer = hold.openScreen("agent-a", SETTINGS_DEFAULTS.pty);
     expect(() => hold.write(terminal, "ignored")).not.toThrow();
     expect(hold.writeToPid(process.pid, "ignored")).toBe(false);
-    expect(await hold.relaunchPid(process.pid, [])).toBeNull();
+    expect(await hold.relaunchPid(process.pid, [], {})).toBeNull();
     const { cols, rows } = SETTINGS_DEFAULTS.pty;
     hold.resize(terminal, rows, cols);
     const text = "x".repeat(rows + rows);

@@ -1,3 +1,5 @@
+import { prepareLaunch } from "../launch-policy.ts";
+import { CommandRefusal } from "../../../refusal.ts";
 import { agentSettings } from "../project-settings.ts";
 import { workerText } from "../worker-header.ts";
 import type { CallerCredential, OrchDir } from "../../../types/core.ts";
@@ -76,6 +78,8 @@ export async function spawnHeadless(state: DaemonState, params: ParamsOf<"spawn-
     if (peer !== undefined) throw new Error(`cannot spawn ${key}: a host's orchd asks only for a spawn here, never on a third host`);
     return spawnOnHost(state, params.host, { ...params, model });
   }
+  // The host that starts the process builds the launch's policy from its own project; the asking host sends only the read-only request.
+  const launch = await prepareLaunch(state, { adapter, project: params.project, model, name: params.name, readOnly: params.readOnly }, (message) => new CommandRefusal(message));
   // A local spawn's plan resolved its form already; only a linked host's orchd resolves it here.
   let form: FormId;
   if (peer !== undefined) form = selectSpawnForm(params.form, settings.defaults.forms, adapter, heldBackend, heldBackend).form;
@@ -84,14 +88,14 @@ export async function spawnHeadless(state: DaemonState, params: ParamsOf<"spawn-
   // The first prompt's header is composed here, where the agent runs, with its project's rules.
   const prompt = params.prompt === null || params.worker === undefined
     ? params.prompt
-    : workerText(state, key, state.services.settingsFor(params.project), params.prompt, params.worker, params.workers?.readOnly ? { readOnly: params.workers.readOnly } : {});
+    : workerText(state, key, state.services.settingsFor(params.project), params.prompt, params.worker, params.readOnly === null ? {} : { readOnly: params.readOnly });
   if (FORM_STDIO[form] === "none" && prompt === null) throw new Error(`cannot spawn ${key}: a headless agent needs its prompt at launch`);
   const opts: BackendSpawnOpts = {
     form,
     key,
     name: params.name,
     worktree: params.worktree,
-    env: params.env,
+    env: launch.env,
     orchDir: directory,
     project: params.project,
     cwd: params.cwd,
@@ -100,9 +104,9 @@ export async function spawnHeadless(state: DaemonState, params: ParamsOf<"spawn-
     thinking,
     // The quicklist the harness's own picker gets. It is NOT a second gate: the launch model
     // was ruled on above, and a model outside this list stays launchable.
-    preferredModels: params.preferredModels,
-    tools: params.tools,
-    workers: params.workers,
+    preferredModels: launch.preferredModels,
+    tools: launch.tools,
+    workers: launch.workers,
   };
   if (peer !== undefined) assertHostAdmits(directory, settings, 1);
   // A form that needs a process orchd holds runs in a held launch; a headless form runs detached.
@@ -142,9 +146,9 @@ async function spawnOnHost(state: DaemonState, hostName: string, params: ParamsO
   const link = state.hosts.link(hostName);
   const greeting = await link.requireUp();
   // Governed here already; the far orchd runs it for this host, as this host's peer.
-  const { key, name, spawner, adapter, model, thinking, prompt, worker, cwd, env, preferredModels, tools, workers, form } = params;
+  const { key, name, spawner, adapter, model, thinking, prompt, worker, cwd, readOnly, form } = params;
   // The agent's project is on that host's disk: the directory there it runs in.
-  const launched = await link.call("spawn-headless", { key, name, spawner, adapter, model, thinking, prompt, ...(worker === undefined ? {} : { worker }), cwd, project: params.cwd, env, preferredModels, tools, workers, form });
+  const launched = await link.call("spawn-headless", { key, name, spawner, adapter, model, thinking, prompt, ...(worker === undefined ? {} : { worker }), cwd, project: params.cwd, readOnly, form });
   registerHostedAgent(state.directory, { form: launched.form, key, harnessId: adapter, cwd: params.cwd, project: params.cwd, name, model, thinking, spawner, host: greeting.host });
   return launched;
 }

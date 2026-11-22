@@ -1,3 +1,4 @@
+import { writeClaudeInstallSettings } from "./helpers/settings.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { foregroundOf } from "../src/backends/shell-ready.ts";
@@ -5,7 +6,7 @@ import { NO_FOREGROUND } from "../src/shared/shell-prompt.ts";
 import { ownedAgentKeys } from "../src/commands/lifecycle/index.ts";
 import { cmdRestart } from "../src/commands/lifecycle/reload.ts";
 import { resolveTuningOrDie } from "../src/shared/tuning.ts";
-import { adapterCommand, resolveAdapterOrDie } from "../src/daemon/server/spawn/models.ts";
+import { resolveAdapterOrDie } from "../src/daemon/server/spawn/models.ts";
 import { agentView } from "../src/store/agent-view.ts";
 import { releaseLease } from "../src/store/lease-rows.ts";
 import { closeAllStores } from "../src/store/connection.ts";
@@ -78,6 +79,8 @@ describe("commands/lifecycle", () => {
   test("restart --harness quits with the old harness, launches the new one, and records it", async () => {
     await withFleet(async (root, key) => {
       seedLiveProcess(root, key);
+      // A Claude launch refuses an install with no Claude settings file.
+      writeClaudeInstallSettings(root);
       const services = await swapServices(root);
       const submitted: string[] = [];
       const backend = new FakePanedBackend();
@@ -99,10 +102,12 @@ describe("commands/lifecycle", () => {
       const quit = resolveAdapterOrDie("pi").lifecycleControl?.lifecycleCmd("restart");
       if (!quit) throw new Error("pi declares no restart command");
       expect(payload).toMatchObject({ ok: 1, total: 1 });
-      expect(submitted).toEqual([
-        quit.text,
-        adapterCommand("claude", settings, { model: tuning.model, thinking: tuning.thinking, preferredModels: settings.models.preferred.claude ?? [] }),
-      ]);
+      expect(submitted).toHaveLength(2);
+      expect(submitted[0]).toBe(quit.text);
+      // The restart's command is the real launch: on the new model, under a worker settings snapshot.
+      expect(submitted[1]).toStartWith("claude ");
+      expect(submitted[1]).toContain(`--model ${tuning.model}`);
+      expect(submitted[1]).toMatch(/--settings \S*settings\.[0-9a-f]{64}\.json/);
       expect(agentView(root, key)).toMatchObject({ harnessId: "claude", tuning: { model: tuning.model, thinking: tuning.thinking } });
     });
   });

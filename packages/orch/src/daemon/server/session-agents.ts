@@ -249,14 +249,14 @@ export async function startSessionAgent(state: DaemonState, adapter: AgentAdapte
 
 /** Drive a terminal agent's session once the agent is recorded: a reset relaunches its terminal
  *  program on a fresh session, through the text its harness quits on. */
-async function adoptTerminal(state: DaemonState, adapter: AgentAdapter, key: string, session: TerminalSession): Promise<void> {
+async function adoptTerminal(state: DaemonState, adapter: AgentAdapter, key: string, session: TerminalSession, opts: BackendSpawnOpts): Promise<void> {
   const directory = state.directory;
   if (held.has(key)) throw new Error(`a session is already held for ${key}`);
   const quit = adapter.lifecycleControl?.lifecycleCmd("restart")?.text;
   const terminal: TerminalControl = {
     relaunch: async (argv) => {
       if (quit === undefined) throw new Error(`harness ${adapter.id} declares no text that quits its terminal program`);
-      await relaunchTerminal(state, placeHere(directory, key), quit, shellLine(argv));
+      await relaunchTerminal(state, placeHere(directory, key), quit, shellLine(argv), opts);
     },
   };
   let opened: HeldSession;
@@ -290,10 +290,12 @@ export async function prepareTerminal(state: DaemonState, adapter: AgentAdapter,
   // The terminal's own environment holds the server's credential; the agent's tools never get it.
   const env = Object.fromEntries(Object.entries(heldAgentEnv(opts)).filter(([name]) => !Object.hasOwn(role.clientEnv, name)));
   const session = await role.attach(opts, env, sessionOpen(heldCwd(opts), sessionId), openContext(state, key));
+  const launched: BackendSpawnOpts = { ...opts, env: { ...opts.env, ...session.env } };
   return {
     program: session.argv,
     env: session.env,
-    adopt: () => adoptTerminal(state, adapter, key, session),
+    opts: launched,
+    adopt: () => adoptTerminal(state, adapter, key, session, launched),
     abandon: () => { session.release(); },
   };
 }
@@ -306,7 +308,7 @@ export async function startAttachedTerminal(state: DaemonState, adapter: AgentAd
   let launched: LaunchedAgent;
   try {
     if (file === undefined) throw new Error(`harness ${adapter.id} gave an empty terminal program`);
-    launched = await startHeldAgent(state.held, adapter, { ...opts, env: { ...opts.env, ...prepared.env } }, recording, { file, args });
+    launched = await startHeldAgent(state.held, adapter, prepared.opts, recording, { file, args });
   } catch (error: unknown) {
     prepared.abandon();
     throw error;

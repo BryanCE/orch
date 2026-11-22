@@ -1,3 +1,4 @@
+import { claudeSettingsPath, CLAUDE_HOOK_EVENTS } from "../../src/adapters/claude-hooks.ts";
 import type { OrchDir } from "../../src/types/core.ts";
 import { mkdirSync, writeFileSync } from "node:fs";
 import * as path from "node:path";
@@ -46,4 +47,13 @@ export function writeProjectSettingsText(directory: string, text: string): strin
 /** Write a schemaVersion-stamped project file into `directory`. Returns its path. */
 export function writeProjectSettingsFixture(directory: string, settings: ProjectSettingsFile): string {
   return writeProjectSettingsText(directory, JSON.stringify({ schemaVersion: SETTINGS_SCHEMA, ...settings }, null, 2) + "\n");
+}
+
+/** The install's Claude settings file a Claude launch needs: one orch hook entry per hook event. */
+export function writeClaudeInstallSettings(orchDir: OrchDir): string {
+  const file = claudeSettingsPath(orchDir);
+  mkdirSync(path.dirname(file), { recursive: true });
+  const hooks = Object.fromEntries(CLAUDE_HOOK_EVENTS.map((event) => [event, [{ hooks: [{ type: "command", command: `orch-hook ${event}` }] }]]));
+  writeFileSync(file, JSON.stringify({ hooks }));
+  return file;
 }

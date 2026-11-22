@@ -8,7 +8,7 @@ import { foregroundOf } from "../../backends/shell-ready.ts";
 import { atShellPrompt } from "../../shared/shell-prompt.ts";
 import { recordProcess, setHandle } from "../../store/interval-rows.ts";
 import { whileSwappingProcess } from "../../presence/store.ts";
-import type { AgentInputRole, Backend, BackendHandle, RelaunchRole } from "../../types/backend.ts";
+import type { AgentInputRole, Backend, BackendHandle, BackendSpawnOpts, RelaunchRole } from "../../types/backend.ts";
 import type { HereAgent } from "../../types/agent-place.ts";
 import type { DaemonState } from "./state.ts";
 
@@ -38,10 +38,10 @@ export async function clearPrompt(state: DaemonState, pane: InputPane): Promise<
 }
 
 /** Have the place's environment end its program and run `command` in a fresh place for the same
- *  agent, and record the new process and handle. */
-export async function relaunchPlace(state: DaemonState, agent: HereAgent, place: { readonly role: RelaunchRole; readonly handle: BackendHandle }, command: string): Promise<void> {
+ *  agent, and record the new process and handle. The fresh place starts with the env `opts` builds. */
+export async function relaunchPlace(state: DaemonState, agent: HereAgent, place: { readonly role: RelaunchRole; readonly handle: BackendHandle }, command: string, opts: BackendSpawnOpts): Promise<void> {
   await whileSwappingProcess(state.directory, agent.id, async () => {
-    const launched = await place.role.relaunch(place.handle, command);
+    const launched = await place.role.relaunch(place.handle, command, opts);
     const now = Date.now();
     recordProcess(state.directory, agent, now, launched.process);
     setHandle(state.directory, agent, now, String(launched.handle));
@@ -59,12 +59,13 @@ export async function quitToShell(state: DaemonState, pane: InputPane, quitText:
 /** Run `command` in the agent's terminal in place of the program there, and record the process.
  *  A place whose program is the harness itself is relaunched by its environment. A pane that
  *  takes typed input is sent `quitText`, waited on until its shell prompt shows, and sent the
- *  command. Throws when the terminal does neither, or the program does not quit. */
-export async function relaunchTerminal(state: DaemonState, agent: HereAgent, quitText: string, command: string): Promise<void> {
+ *  command. Throws when the terminal does neither, or the program does not quit.
+ *  Only the relaunching environment takes `opts`'s env; a pane's shell keeps its own. */
+export async function relaunchTerminal(state: DaemonState, agent: HereAgent, quitText: string, command: string, opts: BackendSpawnOpts): Promise<void> {
   const route = resolveTargetRoute(state.directory, agent);
   const relaunching = route?.backend.relaunching ?? null;
   if (route !== undefined && relaunching !== null) {
-    await relaunchPlace(state, agent, { role: relaunching, handle: route.handle }, command);
+    await relaunchPlace(state, agent, { role: relaunching, handle: route.handle }, command, opts);
     return;
   }
   const pane = inputPane(state, agent);

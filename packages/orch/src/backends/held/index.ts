@@ -95,11 +95,11 @@ const heldInput: AgentInputRole<HeldHandle> = {
 };
 
 /** The PTY's program is the harness, through this host's shell: a relaunch ends it and runs the
- *  command the same way, in a new PTY with the same directory and environment. */
+ *  command the same way, in a new PTY with the same directory and the environment the launch's opts build, as a held spawn does. */
 const heldRelaunch: RelaunchRole<HeldHandle> = {
-  relaunch: async (handle, command) => {
+  relaunch: async (handle, command, opts) => {
     const pid = requirePid(handle);
-    const relaunched = await boundPtys().relaunchPid(pid, shellRun(command).args);
+    const relaunched = await boundPtys().relaunchPid(pid, shellRun(command).args, heldLaunchEnv(opts));
     if (relaunched === null) throw new Error(`no PTY held here runs pid ${pid}`);
     const next = String(relaunched.pid);
     return { handle: next, process: heldBackend.process.running(next) };

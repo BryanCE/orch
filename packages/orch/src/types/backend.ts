@@ -88,7 +88,8 @@ export interface AgentStatusRole<Handle = BackendHandle> { wait(handle: Handle, 
  * directory and environment, and answers the new place's handle and process.
  */
 export interface RelaunchRole<Handle = BackendHandle> {
-  relaunch(handle: Handle, command: string): Promise<{ readonly handle: Handle; readonly process: LocalProcess }>;
+  /** End the place's program and run `command` in a fresh place with the env `opts` builds. */
+  relaunch(handle: Handle, command: string, opts: BackendSpawnOpts): Promise<{ readonly handle: Handle; readonly process: LocalProcess }>;
 }
 
 /** Request to create one plexer group (a plexer's tab or window). */

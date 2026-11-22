@@ -73,8 +73,8 @@ export interface HeldPtysByPid {
   /** Type into the PTY whose program has `pid`. False when no PTY held here runs it. */
   writeToPid(pid: number, data: string): boolean;
   /** End the program with `pid` and, once it has exited, start `args` in a new PTY under the
-   *  same id, with the same program, directory and environment. Null when no PTY held here runs it. */
-  relaunchPid(pid: number, args: readonly string[]): Promise<{ readonly pid: number } | null>;
+   *  same id, with the same program and directory, and `env` as its environment. Null when no PTY held here runs it. */
+  relaunchPid(pid: number, args: readonly string[], env: HeldStartRequest["env"]): Promise<{ readonly pid: number } | null>;
 }
 
 /** Screens orchd draws itself, for an agent whose transcript orchd writes instead of a program. */

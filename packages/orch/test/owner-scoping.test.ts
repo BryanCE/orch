@@ -1,3 +1,4 @@
+import { testLaunch } from "./helpers/launch.ts";
 import { placeHere } from "../src/process-place.ts";
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { LAUNCH_ENV } from "../src/identity/launch.ts";
@@ -204,7 +205,7 @@ describe("fleet ownership scoping", () => {
       group: "tab-1",
       model: "openai/gpt-5.6",
       thinking: "medium",
-      preferredModels: [],
+      launch: testLaunch(),
       spawner: orchId, owner: orchId,
     });
 

@@ -1,26 +1,21 @@
 // Restart in a held form: an agent whose process orchd holds is relaunched on its recorded session,
 // in its own form or in another. The agent keeps its id, its lease and its backend; only the
 // process, the channel and, on a switch, the open `agent_forms` row change.
-import { agentSettings, installSettings } from "../project-settings.ts";
+import { installSettings } from "../project-settings.ts";
 import { getBackend, startHeldAgent, type HeldProgram } from "../../../backends/registry.ts";
 import { agentView } from "../../../store/agent-view.ts";
 import { selectAgentStatus } from "../../../store/status-rows.ts";
-import { worktreeOf } from "../../../store/agent-rows.ts";
 import { setForm } from "../../../store/interval-rows.ts";
 import { whileSwappingProcess } from "../../../presence/store.ts";
-import { isThinkingLevel } from "../../../policy/thinking.ts";
-import { policyEnv, policyTools } from "../../../policy/workers.ts";
 import { FORM_STDIO, offersForm, type FormId } from "../../../types/form.ts";
 import { endSessionAgent, sessionDriver, startAttachedTerminal, startSessionAgent, terminalAttach } from "../session-agents.ts";
 import { reclaim } from "./lifecycle.ts";
-import { relaunchPolicy } from "../agent-policy.ts";
+import { prepareRelaunch, restartOpts } from "../launch-policy.ts";
 import type { AgentAdapter, ResumeRole } from "../../../types/adapter.ts";
 import type { HeldSessionDriver, TerminalAttachRole } from "../../../types/held-session.ts";
-import type { BackendSpawnOpts } from "../../../types/backend.ts";
 import type { AgentView } from "../../../types/store.ts";
 import type { HeldTerminal } from "../../../types/pty.ts";
 import type { HereAgent } from "../../../types/agent-place.ts";
-import { projectDirectory } from "../spawn/project.ts";
 import type { DaemonState } from "../state.ts";
 
 /** What a form needs from its harness: a session driver on pipes; for a terminal, the session
@@ -55,28 +50,6 @@ function formRole(adapter: AgentAdapter, form: FormId): FormRole | null {
       throw new Error(`unknown stdio ${String(exhaustive)}`);
     }
   }
-}
-
-/** The spawn opts of a restart, from what the store holds about the agent: its tuning, its
- *  worktree, and its read-only policy when it is read-only. */
-function restartOpts(state: DaemonState, adapter: AgentAdapter, agent: HereAgent, view: AgentView, form: FormId): BackendSpawnOpts {
-  const { model, thinking } = view.tuning;
-  const worktree = worktreeOf(state.directory, agent);
-  const settings = agentSettings(state, view.id);
-  const workers = relaunchPolicy(state.directory, settings, adapter, view.id);
-  return {
-    ...(worktree === null ? {} : { worktree }),
-    form,
-    key: view.id,
-    name: view.name,
-    orchDir: state.directory,
-    project: projectDirectory(state.directory, view.id, view.environment.cwd),
-    cwd: view.environment.cwd,
-    ...(model === null ? {} : { model }),
-    ...(isThinkingLevel(thinking) ? { thinking } : {}),
-    preferredModels: settings.models.preferred[adapter.id] ?? [],
-    ...(workers === undefined ? {} : { workers, tools: policyTools(workers), env: policyEnv(adapter, model ?? undefined, workers) }),
-  };
 }
 
 /** Refuse unless the form's driver can reopen a recorded session. */
@@ -120,7 +93,8 @@ export async function restartPipes(state: DaemonState, agent: HereAgent, adapter
   const view = viewOf(state, agent);
   if (view.form === null) throw new Error(`${view.name} records no form to restart in`);
   const sessionId = selectAgentStatus(state.directory, agent.id)?.sessionId ?? null;
-  const opts = restartOpts(state, adapter, agent, view, view.form);
+  const launch = await prepareRelaunch(state, view, adapter, view.tuning.model);
+  const opts = restartOpts(state, agent, view, launch, view.tuning, view.form);
   if (sessionId !== null) {
     const role = formRole(adapter, view.form);
     if (role?.stdio === "pipes") await requireReopen(state, view, adapter, view.form, role.driver);
@@ -153,7 +127,8 @@ async function planSwitch(state: DaemonState, view: AgentView, adapter: AgentAda
 /** Relaunch an agent in another form, on its recorded session. */
 export async function switchForm(state: DaemonState, agent: HereAgent, adapter: AgentAdapter, form: FormId): Promise<FormRestart> {
   const view = viewOf(state, agent);
-  const opts = restartOpts(state, adapter, agent, view, form);
+  const launch = await prepareRelaunch(state, view, adapter, view.tuning.model);
+  const opts = restartOpts(state, agent, view, launch, view.tuning, form);
   const { target, sessionId } = await planSwitch(state, view, adapter, form);
   switch (target.stdio) {
     case "pipes":

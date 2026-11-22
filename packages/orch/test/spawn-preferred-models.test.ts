@@ -1,11 +1,11 @@
+import { testLaunch } from "./helpers/launch.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { RPC_PARAMS } from "../src/daemon/client/protocol.ts";
-import { adapterCommand } from "../src/daemon/server/spawn/models.ts";
+import { launchCommand } from "../src/daemon/server/spawn/models.ts";
 import { spawnOneIntoTab } from "../src/daemon/server/spawn/placement.ts";
 import { HeadlessBackend } from "../src/backends/headless/index.ts";
 import { mintAgentId } from "../src/shared/agent-id.ts";
 import { PiAdapter, piAdapter } from "../src/adapters/pi.ts";
-import { SETTINGS_DEFAULTS } from "../src/settings/schema.ts";
 import { seedSpace } from "./helpers/space.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { FakePanedBackend } from "./helpers/backend.ts";
@@ -13,7 +13,6 @@ import { servedServices } from "./helpers/daemon-state.ts";
 import type { Backend, BackendSpawnOpts } from "../src/types/backend.ts";
 import type { AgentAdapter, SpawnOpts } from "../src/types/adapter.ts";
 import type { ThinkingLevel } from "../src/types/policy.ts";
-import type { OrchSettings } from "../src/types/settings.ts";
 import type { RpcServer } from "../src/types/daemon.ts";
 import type { Services } from "../src/types/services.ts";
 
@@ -46,35 +45,8 @@ afterEach(async () => {
 });
 
 const QUICKLIST = ["anthropic/claude-sonnet-4.5", "openai/gpt-5.6"];
-const HEADLESS_BASE = { form: null, key: "agent-a", name: "agent-a", spawner: null, adapter: "pi", model: "openai/gpt-5.6", thinking: "medium", prompt: "go", project: "/repo" };
+const HEADLESS_BASE = { form: null, key: "agent-a", name: "agent-a", spawner: null, adapter: "pi", model: "openai/gpt-5.6", thinking: "medium", prompt: "go", project: "/repo", readOnly: null };
 
-const settings = (preferred: string[]): OrchSettings => ({
-  ...SETTINGS_DEFAULTS,
-  runtime: "node",
-  enabled: { adapters: ["pi"], backends: ["headless"] },
-  locked_commands: { commands: [], applies_to: ["orch", "slave"] },
-  gated_commands: [],
-  denied_commands: { commands: [], applies_to: ["slave"] },
-  settings_file: { typo_max_edits: 2 },
-  defaults: { ...SETTINGS_DEFAULTS.defaults, models: {} },
-  fleet: { worker_peer_tools: false, max_agents_per_pack: 10, max_agents_per_tab: 4, max_depth: 1, cross_space: false, orch_peers: false, max_agents_per_space: {}, min_free_memory_mb: 2048 },
-  models: { allowed: {}, preferred: { pi: preferred } },
-  workers: { inherit_extensions: false, inherit_mcp: false, exclude_extensions: {}, builtin_tools: true, allow_tools: [], verify_commands: [], compact_at_tokens: {} },
-  queue: { max_retries: 1, dispatch_concurrency: 4 },
-  daemon: { tcp_port: 3716, outbox_drain_ms: 1000, work_tick_ms: 5_000, liveness_poll_ms: 5_000, report_timeout_ms: 500, bridge_reconnect_ms: 1000, outbox_max_attempts: 120, subscriber_queue_bytes: 8_388_608 },
-  timeouts: { dispatch_ack_ms: 10_000, wait_ms: 300_000, adapter_command_ms: 60_000, notify_ms: 3_000, spawn_attach_ms: 60_000, spawn_attach_poll_ms: 500, lock_wait_ms: 180_000, lock_poll_ms: 1_000, reset_ready_ms: 75_000, reset_poll_ms: 250, daemon_probe_ms: 10_000, acp_probe_ms: 5_000, server_ready_ms: 30_000, session_close_ms: 2_000, abort_gap_ms: 500, machine_ms: 600_000 },
-  servers: { idle_ms: 30_000, silence_ms: 45_000, reconnect_ms: 1_000, backfill_messages: 50 },
-  notify: [],
-  hosts: {},
-  links: SETTINGS_DEFAULTS.links,
-  spaces: {},
-  tiling: { first_split: "rows" },
-  worktrees: { provider: "git", branch_prefix: "orch/", directory: ".orch-worktrees", worktrunk_commands: ["wkt", "wt"], copy_ignored: true, timeout_ms: 300000 },
-  counts: { tail: 20, peek: 25 },
-  council: { directory: ".orch/councils", scale: 10, rounds: 3, models: {} },
-  skills: { install: true, store: "~/.agents/skills", link: ["~/.claude/skills"] },
-  agents: { writable_settings: [] },
-});
 
 /** A pane backend that records the launch options it was handed. */
 class CapturingPaneBackend extends FakePanedBackend {
@@ -122,7 +94,7 @@ describe("the preferred quicklist reaches every launch route", () => {
       group: "tab1",
       model: "openai/gpt-5.6",
       thinking: "medium",
-      preferredModels: QUICKLIST,
+      launch: testLaunch(QUICKLIST),
     });
 
     expect(seen()?.preferredModels).toEqual(QUICKLIST);
@@ -148,7 +120,7 @@ describe("the preferred quicklist reaches every launch route", () => {
         group: "tab1",
         model,
         thinking,
-        preferredModels: QUICKLIST,
+        launch: testLaunch(QUICKLIST),
       });
     }
 
@@ -175,18 +147,18 @@ describe("the preferred quicklist reaches every launch route", () => {
       group: "tab1",
       model: "openai/gpt-5.6",
       thinking: "medium",
-      preferredModels: [],
+      launch: testLaunch(),
     });
 
     expect(seen()?.preferredModels).toEqual([]);
   });
 
   test("the previewed command is the command a launch runs", () => {
-    const previewed = adapterCommand("pi", settings(QUICKLIST), { model: "openai/gpt-5.6", preferredModels: QUICKLIST });
+    const previewed = launchCommand(piAdapter, testLaunch(QUICKLIST), { model: "openai/gpt-5.6" }, null);
     expect(previewed).toContain("--model openai/gpt-5.6");
     expect(previewed).toContain(`--models '${QUICKLIST.join(",")}'`);
 
-    expect(adapterCommand("pi", settings([]), { model: "openai/gpt-5.6", preferredModels: [] })).not.toContain("--models");
+    expect(launchCommand(piAdapter, testLaunch(), { model: "openai/gpt-5.6" }, null)).not.toContain("--models");
   });
 
   test("a headless launch forwards the quicklist into the adapter's own options", () => {
@@ -219,17 +191,27 @@ describe("the preferred quicklist reaches every launch route", () => {
   });
 });
 
-describe("orchd rules on the quicklist it is sent", () => {
-  test("accepts an absent value and an array of specs", () => {
-    expect(RPC_PARAMS["spawn-headless"].safeParse(HEADLESS_BASE).success).toBe(true);
-    const parsed = RPC_PARAMS["spawn-headless"].safeParse({ ...HEADLESS_BASE, preferredModels: QUICKLIST });
-    expect(parsed.success).toBe(true);
-    if (parsed.success) expect(parsed.data.preferredModels).toEqual(QUICKLIST);
-  });
+  describe("orchd takes only the read-only request on a spawn-headless", () => {
+    test("accepts no request, and a request with or without an out directory", () => {
+      expect(RPC_PARAMS["spawn-headless"].safeParse(HEADLESS_BASE).success).toBe(true);
+      expect(RPC_PARAMS["spawn-headless"].safeParse({ ...HEADLESS_BASE, readOnly: { out: null } }).success).toBe(true);
+      expect(RPC_PARAMS["spawn-headless"].safeParse({ ...HEADLESS_BASE, readOnly: { out: "/repo/out" } }).success).toBe(true);
+    });
 
-  test("refuses a joined string or a blank entry instead of coercing it", () => {
-    expect(RPC_PARAMS["spawn-headless"].safeParse({ ...HEADLESS_BASE, preferredModels: QUICKLIST.join(",") }).success).toBe(false);
-    expect(RPC_PARAMS["spawn-headless"].safeParse({ ...HEADLESS_BASE, preferredModels: [""] }).success).toBe(false);
-    expect(RPC_PARAMS["spawn-headless"].safeParse({ ...HEADLESS_BASE, preferredModels: [1] }).success).toBe(false);
+    test("refuses an absent request, a blank out directory, and a value that is not a request", () => {
+      const absent = Object.fromEntries(Object.entries(HEADLESS_BASE).filter(([name]) => name !== "readOnly"));
+      expect(RPC_PARAMS["spawn-headless"].safeParse(absent).success).toBe(false);
+      expect(RPC_PARAMS["spawn-headless"].safeParse({ ...HEADLESS_BASE, readOnly: { out: "" } }).success).toBe(false);
+      expect(RPC_PARAMS["spawn-headless"].safeParse({ ...HEADLESS_BASE, readOnly: true }).success).toBe(false);
+    });
+
+    test("a policy the asking host sends is dropped: the launching host builds its own", () => {
+      const parsed = RPC_PARAMS["spawn-headless"].safeParse({ ...HEADLESS_BASE, preferredModels: QUICKLIST, env: { A: "1" } });
+      expect(parsed.success).toBe(true);
+      if (parsed.success) {
+        expect("preferredModels" in parsed.data).toBe(false);
+        expect("env" in parsed.data).toBe(false);
+      }
+    });
   });
-});
+  

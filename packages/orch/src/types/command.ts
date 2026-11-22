@@ -1,6 +1,6 @@
 import type { AdapterId, AgentAdapter, HarnessModel, ShimRole } from "./adapter.ts";
 import type { Backend, BackendHandle, HomeSubject, SpaceHomeRole, TilePlacement } from "./backend.ts";
-import type { CallerKind, ThinkingLevel, WorkerPolicy } from "./policy.ts";
+import type { CallerKind, LaunchPolicy, ThinkingLevel } from "./policy.ts";
 import type { GrantAction } from "./store.ts";
 import type { LogLevel, TokenTotals, WorkerCallerContext } from "./core.ts";
 import type { DaemonContext } from "./services.ts";
@@ -159,8 +159,8 @@ export interface TabSpawnSpec {
   model: string;
   /** Thinking effort selected for this launch. */
   thinking?: ThinkingLevel;
-  /** The quicklist this harness's own picker/cycle is given; never a launch gate. */
-  preferredModels: readonly string[];
+  /** What the agent launches under, built from its project where it runs (`prepareLaunch`). */
+  launch: LaunchPolicy;
   /** Where the agent lands in the group, from the tiling planner. */
   placement?: TilePlacement;
   /** Existing place to launch into (a fresh group's root). */
@@ -171,9 +171,6 @@ export interface TabSpawnSpec {
    *  letting the launch mint a second one. */
   key?: string;
   env?: Readonly<Record<string, string>>;
-  tools?: string;
-  /** What this worker may load; absent lets the adapter apply no policy. */
-  workers?: WorkerPolicy;
   /** Verbatim launch command from `--cmd`; absent lets the adapter build it. */
   cmd?: string;
   worktree?: AgentWorktree;
@@ -379,6 +376,8 @@ export interface PreparedAgent {
   readonly name: string;
   readonly cwd: string;
   readonly key: string;
+  /** What it launches under, built before any place opened for it. */
+  readonly launch: LaunchPolicy;
   readonly env: Readonly<Record<string, string>>;
   readonly worktree: AgentWorktree | undefined;
   handle: BackendHandle | undefined;

@@ -1,11 +1,13 @@
+import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { declaredRuntime } from "../settings/read.ts";
-
+import { settingsTemporaryPath } from "../settings/schema.ts";
+import { workerPolicyFrom } from "../policy/workers.ts";
 import { presenceEntry } from "../presence/store.ts";
-import { isRecord, packageRoot, reinstallCommand, textValue } from "../util.ts";
-import { CLAUDE_HOOK_EVENTS, CLAUDE_HOOK_MATCHERS, claudeHookCommand, claudeHookShimPath, claudeSettingsPath } from "./claude-hooks.ts";
+import { errnoCode, errorMessage, isRecord, packageRoot, reinstallCommand, textValue } from "../util.ts";
+import { CLAUDE_HOOK_EVENTS, CLAUDE_HOOK_MATCHERS, claudeHookCommand, claudeHookShimPath, claudeSettingsPath, claudeWorkerSettingsPath } from "./claude-hooks.ts";
 import { agentStateFrom } from "../agent-state.ts";
 import { buildHeadlessArgv, buildInteractiveArgv, launchCompaction, shimRole, type AgentState } from "../shared/harness.ts";
 import { lastAssistantFromJsonl } from "../shared/transcript.ts";
@@ -15,7 +17,7 @@ import type { AdapterCommand, AgentAdapter, HarnessModel, HookReportRole, Lifecy
 import type { CheckResult } from "../types/doctor.ts";
 import type { Logger, OrchDir } from "../types/core.ts";
 import type { OrchSettings } from "../types/settings.ts";
-import type { ThinkingLevel } from "../types/policy.ts";
+import type { ThinkingLevel, WorkerPolicy } from "../types/policy.ts";
 import { CLAUDE_TOOLS } from "../../extensions/claude/vocabulary.ts";
 import { readOnlyTools } from "../policy/read-only.ts";
 
@@ -76,24 +78,36 @@ const COMPACT_WINDOW_ENV = "CLAUDE_CODE_AUTO_COMPACT_WINDOW";
 /** Claude's switch for the claude.ai connectors, which `--strict-mcp-config` does not name. */
 const CLAUDEAI_MCP_ENV = "ENABLE_CLAUDEAI_MCP_SERVERS";
 
-/** Claude's `enabledPlugins` for a worker: each plugin in `workers.exclude_extensions.claude` turned off. */
-function disabledPlugins(settings: OrchSettings): Record<string, false> {
-  return Object.fromEntries((settings.workers.exclude_extensions.claude ?? []).map((plugin) => [plugin, false]));
+/** The two values of a worker policy Claude reads from a settings file, not from its argv. */
+interface ClaudeWorkerKeys {
+  /** Plugins turned off, in Claude's naming, sorted so equal policies give equal files. */
+  readonly disabledPlugins: readonly string[];
+  /** Whether the claude.ai connectors load. */
+  readonly connectors: boolean;
 }
 
-/** The worker settings file with orch's hooks, plugin exclusions and connector switch in place. The file's `env`
- *  overrides the process env, so it never holds the compaction point: each launch sets that for its own model. */
-function withOrchKeys(current: Record<string, unknown>, hooks: Record<string, unknown>, settings: OrchSettings): Record<string, unknown> {
+function claudeWorkerKeys(policy: WorkerPolicy): ClaudeWorkerKeys {
+  return { disabledPlugins: [...(policy.excludeExtensions.claude ?? [])].sort(), connectors: policy.inheritMcp };
+}
+
+/** A settings file with one policy's plugin exclusions and connector switch in place of whatever it held.
+ *  The file's `env` overrides the process env, so it never holds the compaction point: each launch sets
+ *  that for its own model. */
+function withWorkerKeys(current: Record<string, unknown>, keys: ClaudeWorkerKeys): Record<string, unknown> {
   const { env: _fileEnv, enabledPlugins: _orchOwned, ...rest } = current;
   const { [COMPACT_WINDOW_ENV]: _launchOwned, [CLAUDEAI_MCP_ENV]: _connectorsOwned, ...userEnv } = isRecord(current.env) ? current.env : {};
-  const env = settings.workers.inherit_mcp ? userEnv : { ...userEnv, [CLAUDEAI_MCP_ENV]: "false" };
-  const enabledPlugins = disabledPlugins(settings);
+  const env = keys.connectors ? userEnv : { ...userEnv, [CLAUDEAI_MCP_ENV]: "false" };
+  const enabledPlugins: Record<string, false> = Object.fromEntries(keys.disabledPlugins.map((plugin) => [plugin, false]));
   return {
     ...rest,
     ...(Object.keys(env).length ? { env } : {}),
     ...(Object.keys(enabledPlugins).length ? { enabledPlugins } : {}),
-    hooks,
   };
+}
+
+/** The install's worker settings file with orch's hooks and the install policy's two values in place. */
+function withOrchKeys(current: Record<string, unknown>, hooks: Record<string, unknown>, settings: OrchSettings): Record<string, unknown> {
+  return { ...withWorkerKeys(current, claudeWorkerKeys(workerPolicyFrom(settings))), hooks };
 }
 
 /** orch's hook entries, one per Claude hook event. */
@@ -107,20 +121,54 @@ function claudeHooks(root: string, orchDir: OrchDir, settings: OrchSettings): Re
   }));
 }
 
-/** The worker settings file as JSON, or the reason it is not usable. Absent reads as empty. */
-function readWorkerSettings(settingsPath: string): Record<string, unknown> | string {
+/** What reading a settings file of orch's found. Only ENOENT is `absent`. */
+type WorkerSettingsRead =
+  | { readonly kind: "absent" }
+  | { readonly kind: "unreadable"; readonly reason: string }
+  | { readonly kind: "malformed"; readonly reason: string }
+  | { readonly kind: "ok"; readonly value: Record<string, unknown> };
+
+function readWorkerSettings(settingsPath: string): WorkerSettingsRead {
   let raw: string;
   try {
     raw = fs.readFileSync(settingsPath, "utf8");
-  } catch {
-    return {};
+  } catch (error: unknown) {
+    return errnoCode(error) === "ENOENT" ? { kind: "absent" } : { kind: "unreadable", reason: `cannot read ${settingsPath}: ${errorMessage(error)}` };
   }
+  let parsed: unknown;
   try {
-    const parsed: unknown = JSON.parse(raw);
-    return isRecord(parsed) ? parsed : `malformed ${settingsPath}`;
+    parsed = JSON.parse(raw);
   } catch {
-    return `malformed ${settingsPath}`;
+    return { kind: "malformed", reason: `malformed ${settingsPath}` };
   }
+  return isRecord(parsed) ? { kind: "ok", value: parsed } : { kind: "malformed", reason: `malformed ${settingsPath}` };
+}
+
+/** The install file as setup, sync and doctor read it: absent is empty, so setup creates it; a file
+ *  orch cannot read or parse is the reason, since it holds the user's keys and a rewrite would lose them. */
+function installSettingsOrEmpty(settingsPath: string): Record<string, unknown> | string {
+  const read = readWorkerSettings(settingsPath);
+  switch (read.kind) {
+    case "ok": return read.value;
+    case "absent": return {};
+    case "unreadable":
+    case "malformed": return read.reason;
+    default: {
+      const exhaustive: never = read;
+      throw new Error(`unknown read ${String(exhaustive)}`);
+    }
+  }
+}
+
+/** The install file as a launch reads it: present, parsed and holding every orch hook, or the
+ *  launch is refused, since a worker with no hooks never reports. */
+function installSettingsForLaunch(settingsPath: string): Record<string, unknown> {
+  const read = readWorkerSettings(settingsPath);
+  if (read.kind === "absent") throw new Error(`no ${settingsPath}; run orch setup`);
+  if (read.kind !== "ok") throw new Error(`${read.reason}; fix the JSON by hand, then run orch setup`);
+  const hooks = read.value.hooks;
+  if (!isRecord(hooks) || !CLAUDE_HOOK_EVENTS.every((event) => event in hooks)) throw new Error(`${settingsPath} lacks orch's hooks; run orch setup`);
+  return read.value;
 }
 
 /** The text a running Claude session takes for each lifecycle verb; it has none for reload or restart. */
@@ -136,9 +184,12 @@ const CLAUDE_EFFORT_LEVELS: Readonly<Record<ThinkingLevel, string>> = {
   max: "max",
 };
 
-/** Load orch's hooks into a session orch spawns, and into no other session. */
+/** Load orch's hooks into a session orch spawns, and into no other session. A launch with a policy
+ *  gets that policy's worker file, which this writes: an argv built with an `orchDir` is a launch on
+ *  this host. One built with none writes nothing. */
 function settingsArgv(opts: SpawnOpts): string[] {
-  return opts.orchDir ? ["--settings", claudeSettingsPath(opts.orchDir)] : [];
+  if (!opts.orchDir) return [];
+  return ["--settings", opts.workers === undefined ? claudeSettingsPath(opts.orchDir) : workerSettingsFile(opts.orchDir, opts.workers)];
 }
 
 /** A worker that does not inherit MCP loads no server, so no MCP tool definition costs tokens. */
@@ -154,14 +205,52 @@ function readOnlyArgv(opts: SpawnOpts): string[] {
 
 /** The worker settings file as orch writes it: the user's keys beside orch's values. A file orch cannot parse throws. */
 function expectedWorkerSettings(settingsPath: string, pkgRoot: string, orchDir: OrchDir, settings: OrchSettings): { current: Record<string, unknown>; expected: Record<string, unknown> } {
-  const current = readWorkerSettings(settingsPath);
+  const current = installSettingsOrEmpty(settingsPath);
   if (typeof current === "string") throw new Error(`${current}; fix the JSON by hand, then run orch setup`);
   return { current, expected: withOrchKeys(current, claudeHooks(pkgRoot, orchDir, settings), settings) };
 }
 
+function settingsText(contents: Record<string, unknown>): string {
+  return `${JSON.stringify(contents, null, 2)}\n`;
+}
+
+/** Write `text` beside `file` under a temp name and hand it to `publish`; the temp file goes either way. */
+function throughTemporary(file: string, text: string, publish: (temporary: string) => void): void {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const temporary = settingsTemporaryPath(file);
+  try {
+    fs.writeFileSync(temporary, text);
+    publish(temporary);
+  } finally {
+    fs.rmSync(temporary, { force: true });
+  }
+}
+
+/** Replace the install file whole, so a reader never sees half of it. Every failure throws. */
 function writeWorkerSettings(settingsPath: string, contents: Record<string, unknown>): void {
-  fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
-  fs.writeFileSync(settingsPath, `${JSON.stringify(contents, null, 2)}\n`);
+  throughTemporary(settingsPath, settingsText(contents), (temporary) => { fs.renameSync(temporary, settingsPath); });
+}
+
+/** Publish a worker file that never changes once it exists. A hard link never replaces a file, so
+ *  nothing is written over a file a running Claude holds; `EEXIST` is the same snapshot already there,
+ *  since the name is the digest of these bytes. */
+function publishSnapshot(file: string, text: string): void {
+  throughTemporary(file, text, (temporary) => {
+    try {
+      fs.linkSync(temporary, file);
+    } catch (error: unknown) {
+      if (errnoCode(error) !== "EEXIST") throw error;
+    }
+  });
+}
+
+/** The settings file a launch under `policy` passes Claude: the install file with this policy's two
+ *  values, named for the digest of its text. Written on every call; the install file is read, never it. */
+function workerSettingsFile(orchDir: OrchDir, policy: WorkerPolicy): string {
+  const text = settingsText(withWorkerKeys(installSettingsForLaunch(claudeSettingsPath(orchDir)), claudeWorkerKeys(policy)));
+  const file = claudeWorkerSettingsPath(orchDir, createHash("sha256").update(text).digest("hex"));
+  publishSnapshot(file, text);
+  return file;
 }
 
 /** Rewrite the worker settings file when a settings change left it behind: the path written, or null. */
@@ -194,7 +283,7 @@ export function diagnoseClaudeShim(root: string, orchDir: OrchDir, settings: Orc
     id, label, status: "warn", detail,
     fix: { description: "rewrite orch's Claude settings", apply: () => { installClaudeHooks(orchDir, settings, logger, root); } },
   });
-  const fileSettings = readWorkerSettings(settingsPath);
+  const fileSettings = installSettingsOrEmpty(settingsPath);
   // A file orch cannot parse holds the user's keys too; rewriting it would lose them.
   if (typeof fileSettings === "string") return { id, label, status: "fail", detail: `${fileSettings}; fix the JSON by hand` };
 

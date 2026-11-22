@@ -132,7 +132,7 @@ export class PtyHold implements PtyHolder, HeldPtysByPid, PtyScreens {
    *  agent, not the program: they never see this exit, their screen is reset to the new empty
    *  one at the size it had, and they take the new program's output from there. A relaunch that
    *  cannot start ends them with the old program's exit. */
-  async relaunchPid(pid: number, args: readonly string[]): Promise<{ readonly pid: number } | null> {
+  async relaunchPid(pid: number, args: readonly string[], env: HeldStartRequest["env"]): Promise<{ readonly pid: number } | null> {
     const held = this.byPid(pid);
     if (held === null) return null;
     const { key, entry, source } = held;
@@ -145,7 +145,7 @@ export class PtyHold implements PtyHolder, HeldPtysByPid, PtyScreens {
     });
     let started: { readonly pid: number };
     try {
-      started = await this.start(key, { ...source.request, args: [...args] });
+      started = await this.start(key, { ...source.request, args: [...args], env });
     } catch (error: unknown) {
       for (const subscriber of subscribers) subscriber.onExit(exit);
       throw error;

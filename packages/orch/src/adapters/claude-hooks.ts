@@ -30,6 +30,14 @@ export function claudeSettingsPath(orchDir: OrchDir): string {
   return path.join(orchDir, "claude", "settings.json");
 }
 
+/** A worker's settings file: the install file with one launch's policy, beside it, named for the
+ *  install file and the digest of its own text, so one name always holds the same bytes. */
+export function claudeWorkerSettingsPath(orchDir: OrchDir, digest: string): string {
+  const install = claudeSettingsPath(orchDir);
+  const extension = path.extname(install);
+  return path.join(path.dirname(install), `${path.basename(install, extension)}.${digest}${extension}`);
+}
+
 /**
  * The exact settings.json command for one orch Claude hook event under the
  * runtime declared in settings.json. orch requires ONE declared runtime — the

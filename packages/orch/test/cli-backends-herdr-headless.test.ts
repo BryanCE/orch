@@ -81,15 +81,15 @@ describe("backend registry selection is backend-independent", () => {
   });
 
   test("Claude fleet selection produces Claude launch commands", () => {
-    const commands = Array.from({ length: 2 }, () => claudeAdapter.interactiveCmd({}));
+    const commands = Array.from({ length: 2 }, () => claudeAdapter.interactiveArgv({}).join(" "));
     expect(commands).toEqual(["claude --strict-mcp-config", "claude --strict-mcp-config"]);
     expect(claudeAdapter.headlessCmd("task", {}).at(0)).toBe("claude");
   });
 
   test("Claude and pi remain selectable on every registered backend", () => {
     for (const backend of allBackends()) {
-      expect(resolveAdapter("claude").interactiveCmd({})).toBe("claude --strict-mcp-config");
-      expect(resolveAdapter("pi").interactiveCmd({})).toBe("pi");
+      expect(resolveAdapter("claude").interactiveArgv({}).join(" ")).toBe("claude --strict-mcp-config");
+      expect(resolveAdapter("pi").interactiveArgv({}).join(" ")).toBe("pi");
       expect(backend.id).toMatch(/^(herdr|headless|held|tmux|orca)$/);
     }
   });
@@ -168,7 +168,7 @@ describe("headless common path: identity key -> presence", () => {
     const key = mintAgentId();
     expect(isAgentId(key)).toBe(true);
     expect(claudeAdapter.headlessCmd("task", { key }).at(-1)).toBe("task");
-    expect(piAdapter.interactiveCmd({ key })).toBe("pi");
+    expect(piAdapter.interactiveArgv({ key }).join(" ")).toBe("pi");
   });
 
   test("a key carries no environment to read back out of it", () => {

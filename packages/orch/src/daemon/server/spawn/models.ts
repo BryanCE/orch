@@ -29,18 +29,17 @@ export function resolveAdapterOrDie(id: string): AgentAdapter {
   }
 }
 
-/** The command one harness launches a worker under for its launch policy, built by that harness's
- *  own adapter, on the model and thinking this launch selected. `orchDir` is this host's for a
- *  command that runs here, which lets the adapter write its launch config; null for a preview,
- *  which writes nothing. A previewed command is the command the backend runs. */
-export function launchCommand(
+/** The argv a launch under `launch` runs, for a preview, a trust check or a restart: the
+ *  harness's worker launch when it has one. With `orchDir` set it may write the harness's
+ *  launch config there; with null it writes nothing. */
+export function launchArgv(
   adapter: AgentAdapter,
   launch: LaunchPolicy,
   tuning: { readonly model?: string; readonly thinking?: ThinkingLevel },
   orchDir: OrchDir | null,
-): string {
+): readonly string[] {
   const opts = { ...tuning, preferredModels: launch.preferredModels, tools: launch.tools, workers: launch.workers, ...(orchDir === null ? {} : { orchDir }) };
-  return adapter.workerLaunch?.restrictedInteractiveCmd(opts) ?? adapter.interactiveCmd(opts);
+  return adapter.workerLaunch?.restrictedInteractiveArgv(opts) ?? adapter.interactiveArgv(opts);
 }
 
 /** Enforce orch's model policy at the launch's side-effect gate and return the spec the launch

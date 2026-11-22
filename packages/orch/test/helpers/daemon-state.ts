@@ -32,7 +32,7 @@ export async function serveDaemon(services: Services | DaemonServices): Promise<
 export async function servedServices(options: TestServicesOptions, servers: RpcServer[]): Promise<Services> {
   const services = testServices(options);
   // orchd answers from the model listing a test hands in; the CLI holds none.
-  servers.push(await serveDaemon(options.models === undefined ? services : { ...services, models: options.models }));
+  servers.push(await serveDaemon(options.models === undefined ? services : { ...services, settingsFor: settingsForProjects(services.settings), models: options.models }));
   return services;
 }
 

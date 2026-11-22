@@ -208,15 +208,11 @@ The changes:
   - A key the project no longer sets is therefore gone after the restart.
   - The role is harness-neutral and plexer-neutral: the env is whatever the launch policy
     built.
-- **The pane fallback cannot set an env**, because it types into a shell that is already
-  running.
+- **The pane fallback** types into a shell that is already running, so it sets the env on the
+  line it types. Part E says how.
   - It still refuses a harness that declares no restart text, as `recordedHarness(...,
-    "restart")` does today. A command it can now render does not make restart supported there.
-  - Claude declares no restart text, so a Claude agent restarts only through a relaunching role
-    or a form switch. Both carry the full policy. G3 was a bug on the relaunching-role path.
-  - For a harness that does restart through the pane fallback, the env-backed values stay the
-    old launch's until its next spawn or form switch. This is the one launch ruling 2 cannot
-    reach without retyping the shell's env, which is a plexer's job and out of scope.
+    "restart")` does today. Claude declares none, so a Claude agent restarts only through a
+    relaunching role or a form switch.
 
 ## Part D: Claude maps the policy it is handed
 
@@ -393,15 +389,77 @@ Core tests:
   contents. The store does not record which file a live agent launched with, and deleting one
   under a running Claude is a risk.
 
+## Part E: backends take argv and env, and quote for their own shell
+
+Today an adapter hands most backends a joined string. `claude.ts` and `opencode.ts` join argv with
+spaces, codex quotes only its model, and pi and omp quote only their quicklist. A path with a space
+in it, such as a worker settings file under an `$ORCH_DIR` with a space, breaks the pane command. A
+restart through the pane fallback types that string into a shell whose env is still the old
+launch's. And herdr launches `interactiveArgv`, never the restricted argv, so a herdr worker loses
+its tool and extension limits.
+
+### One argv per adapter
+- `AgentAdapter.interactiveCmd` is deleted from the type and every adapter. `interactiveArgv` is the
+  one interactive launch.
+- `WorkerLaunchRole.restrictedInteractiveCmd` becomes `restrictedInteractiveArgv(opts): readonly
+  string[]`, in pi and omp.
+- `QuicklistForm` and the `"shell"` form are deleted. `modelSelectionArgv` and `bridgeModelArgv`
+  return raw argv only.
+- `CompactionRole` gains `readonly envNames: readonly string[]`: every env name its `launch` can
+  write. `launchCompaction(launchAt, envNames)` takes it. Claude declares `[COMPACT_WINDOW_ENV]`,
+  codex `[]`, pi `[]`.
+- `policyEnvNames(adapter)` in `policy/workers.ts` is every env name a launch policy can set for
+  the harness: its compaction names, `READ_ONLY_ENV` and `OUT_DIR_ENV`.
+
+### One launch program
+`types/backend.ts`:
+```ts
+/** What a launch runs: the harness's argv, or the shell line `--cmd` gave. */
+export type LaunchProgram =
+  | { readonly kind: "argv"; readonly argv: readonly string[] }
+  | { readonly kind: "shell"; readonly line: string };
+```
+- `launchProgram(adapter, opts)` in `backends/backend.ts` replaces `createInteractiveCommand`.
+  `opts.cmd` gives `shell`. Otherwise it gives `argv`, from `opts.program`, else
+  `workerLaunch.restrictedInteractiveArgv`, else `interactiveArgv`. An empty argv throws.
+- `launchArgv(adapter, launch, tuning, orchDir)` in `spawn/models.ts` replaces `launchCommand` and
+  returns the argv. A trust check and a preview take `shellLine(argv)`.
+
+### Each backend quotes for its own shell
+`shared/shell.ts` holds the one renderer:
+```ts
+/** The shell a backend's pane or process runs a line in. */
+export type ShellDialect = "posix" | "cmd";
+/** `program` as one line of `dialect`: argv quoted for it, a `--cmd` line as given. */
+export function shellCommand(dialect: ShellDialect, program: LaunchProgram): string;
+/** The line that starts `program` with `env` set and `unset` removed, in a shell that is
+ *  already running. posix: `env -u A K='v' <command>`, and a `--cmd` line runs under `sh -c`.
+ *  cmd: `set "A=" & set "K=v" & <command>`. */
+export function shellLaunchLine(dialect: ShellDialect, program: LaunchProgram, env: Readonly<Record<string, string>>, unset: readonly string[]): string;
+```
+- posix quotes with `shellQuote`. cmd wraps each argument in double quotes and doubles a `"` in it.
+- `hostShellDialect()` in `host.ts` is `cmd` on Windows and `posix` elsewhere, beside `hostShell`.
+- `AgentInputRole` gains `readonly shell: ShellDialect`: the shell its pane types into. tmux, orca
+  and herdr declare `posix`. held declares `hostShellDialect()`.
+- held runs `[...hostShell(), shellCommand(hostShellDialect(), program)]`. tmux runs
+  `shellCommand("posix", program)`, and orca puts it after its `cd` and `env` prefix.
+- herdr starts `argv` raw, through `launchProgram`, so a worker gets its restricted argv. A
+  `shell` program is refused: herdr starts the harness itself and cannot run `--cmd`.
+
+### A relaunch takes the program
+- `RelaunchRole.relaunch(handle, program: LaunchProgram, opts)`. `relaunchPlace` and
+  `relaunchTerminal` take the program. `restartAttached` and `adoptTerminal` pass
+  `{ kind: "argv", argv: prepared.program }`.
+- `planRelaunch` returns `program`: `request.cmd` as `shell`, else `launchArgv(...)` with
+  `orchDir: state.directory`. Its `command`, for the outcome and the trust check, is
+  `shellCommand("posix", program)`.
+
+### A pane restart relaunches with its project's env
+The pane fallback builds the relaunch's opts with `restartOpts` and submits
+`shellLaunchLine(pane.input.shell, program, agentLaunchEnv(opts), unset)`, where `unset` is each
+`policyEnvNames(adapter)` name the new env does not set. A key the project dropped is gone after
+the restart, as on a relaunching role. This replaces the pane-fallback limit in Part C.
+
 ## Out of scope
 
-- **A path with a space in it.** A pane command is joined unquoted, so `--settings <path>`
-  breaks when `$ORCH_DIR` holds a space. Today's `claude/settings.json` has the same problem,
-  and so does every adapter's pane command.
-  - The quoting belongs at the backend's shell boundary for every harness.
-  - `createInteractiveCommand` takes the adapter's `interactiveCmd` string, so the backend
-    cannot quote an argv it never sees. The fix is for backends to take every adapter's argv,
-    as they take `program` today, and quote it there. That is its own change.
-  - A Claude-only fix would be harness code doing a backend's job.
-- **The env of a pane-fallback restart.** See Part C.
 - **Claude's other policy fields**, `allowTools` and `inheritExtensions`.

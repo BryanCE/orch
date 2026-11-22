@@ -1,7 +1,7 @@
 import { testLaunch } from "./helpers/launch.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { RPC_PARAMS } from "../src/daemon/client/protocol.ts";
-import { launchCommand } from "../src/daemon/server/spawn/models.ts";
+import { launchArgv } from "../src/daemon/server/spawn/models.ts";
 import { spawnOneIntoTab } from "../src/daemon/server/spawn/placement.ts";
 import { HeadlessBackend } from "../src/backends/headless/index.ts";
 import { mintAgentId } from "../src/shared/agent-id.ts";
@@ -154,11 +154,11 @@ describe("the preferred quicklist reaches every launch route", () => {
   });
 
   test("the previewed command is the command a launch runs", () => {
-    const previewed = launchCommand(piAdapter, testLaunch(QUICKLIST), { model: "openai/gpt-5.6" }, null);
-    expect(previewed).toContain("--model openai/gpt-5.6");
-    expect(previewed).toContain(`--models '${QUICKLIST.join(",")}'`);
+    const previewed = launchArgv(piAdapter, testLaunch(QUICKLIST), { model: "openai/gpt-5.6" }, null);
+    expect(previewed.join(" ")).toContain("--model openai/gpt-5.6");
+    expect(previewed.join(" ")).toContain(`--models ${QUICKLIST.join(",")}`);
 
-    expect(launchCommand(piAdapter, testLaunch(), { model: "openai/gpt-5.6" }, null)).not.toContain("--models");
+    expect(launchArgv(piAdapter, testLaunch(), { model: "openai/gpt-5.6" }, null)).not.toContain("--models");
   });
 
   test("a headless launch forwards the quicklist into the adapter's own options", () => {
@@ -166,7 +166,7 @@ describe("the preferred quicklist reaches every launch route", () => {
     let captured: SpawnOpts | undefined;
     class CapturingPiAdapter extends PiAdapter {
       override readonly workerLaunch = {
-        restrictedInteractiveCmd: (opts: SpawnOpts): string => super.restrictedInteractiveCmd(opts),
+        restrictedInteractiveArgv: (opts: SpawnOpts): readonly string[] => super.restrictedInteractiveArgv(opts),
         restrictedHeadlessCmd: (_prompt: string, opts: SpawnOpts): string[] => {
           captured = opts;
           return [process.execPath, "-e", ""];

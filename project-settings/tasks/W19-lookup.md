@@ -23,3 +23,14 @@ Write `project-settings/findings/L24-command-boundary.md`. For each item, give f
 5. The pane fallback of a restart: `pane.input.submit(pane.handle, command)` in `packages/orch/src/daemon/server/handlers/relaunch.ts` `restartHere`. For each backend that has `agentInput`, does its pane run a shell whose env orch set at spawn (quote where the pane's env is set at spawn)?
 6. `SpawnOpts` in `packages/orch/src/types/adapter.ts`, quoted whole.
 Report: one line, "done: project-settings/findings/L24-command-boundary.md".
+
+## L25 Argv and env at each launch boundary
+Write `project-settings/findings/L25-argv-env.md`. For each item, give file:line and quote the code whole.
+1. `WorkerLaunchRole` in `packages/orch/src/types/adapter.ts`, and every implementation of `restrictedInteractiveCmd` and `restrictedHeadlessCmd` in `packages/orch/src/adapters/`. For each, is there an argv form beside the string form?
+2. `interactiveCmd` and `interactiveArgv` in `omp.ts`, `codex.ts`, `opencode.ts`, `claude.ts`, `pi.ts`: quote both whole. For omp, quote `bridgeModelArgv` and say how its `"shell"` and `"argv"` outputs differ. For codex, say what its string adds or quotes that its argv does not.
+3. Every caller of `interactiveCmd`, `restrictedInteractiveCmd` and `createInteractiveCommand` in `packages/orch/src` (file:line, enclosing function, what it does with the string).
+4. `launchLine` in `packages/orch/src/backends/orca/index.ts`, `tmuxEnvArgs` in `packages/orch/src/backends/tmux/index.ts`, `agentLaunchEnv` (wherever it lives), and the herdr spawn path that passes argv and env (`backends/herdr/index.ts` around L335-405).
+5. `compactionLaunch` in `packages/orch/src/policy/` (or wherever it lives) and `readOnlyEnv`, quoted whole. Every env var name either can write, and where each name is declared (adapter field, constant).
+6. `hostShell` (wherever it lives), quoted whole, and what it returns on Windows and on POSIX.
+7. Every `agentInput.submit` implementation in `packages/orch/src/backends/` (held, herdr, tmux, orca), quoted: does it type text into a shell as-is?
+Report: one line, "done: project-settings/findings/L25-argv-env.md".

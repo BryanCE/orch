@@ -1,3 +1,4 @@
+import type { ShellDialect } from "./shared/shell.ts";
 import { existsSync } from "node:fs";
 import { release } from "node:os";
 import { HOST_OS_VALUES, type Host, type HostId, type HostOs } from "./types/host.ts";
@@ -38,6 +39,13 @@ const HOST_SHELL: Record<HostOs, readonly [string, ...string[]]> = {
 /** The argv prefix that runs one shell line on this host. */
 export function hostShell(): readonly [string, ...string[]] {
   return HOST_SHELL[hostOs()];
+}
+
+const HOST_SHELL_DIALECT: Record<HostOs, ShellDialect> = { linux: "posix", darwin: "posix", windows: "cmd" };
+
+/** The dialect of the shell `hostShell` runs. */
+export function hostShellDialect(): ShellDialect {
+  return HOST_SHELL_DIALECT[hostOs()];
 }
 
 export function isWsl(

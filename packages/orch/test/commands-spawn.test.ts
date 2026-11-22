@@ -324,9 +324,9 @@ describe("commands/spawn", () => {
     expect(() => planned(parseSpawnFlags(["a", "b", "--model", "m1", "--model", "m2", "--model", "m3"]), settingsFor(dir))).toThrow(/accepts one value for all agents or exactly 2 values/);
   });
   test("each pi flavor launches its own binary and preserves raw prompt", () => {
-    expect(piAdapter.interactiveCmd({})).toBe("pi");
+    expect(piAdapter.interactiveArgv({}).join(" ")).toBe("pi");
     expect(piAdapter.headlessCmd("go", {})[0]).toBe("pi");
-    expect(ompAdapter.interactiveCmd({})).toBe("omp");
+    expect(ompAdapter.interactiveArgv({}).join(" ")).toBe("omp");
     expect(ompAdapter.headlessCmd("go", {})[0]).toBe("omp");
     expect(workerPrompt("hello", true, undefined)).toBe("hello");
   });

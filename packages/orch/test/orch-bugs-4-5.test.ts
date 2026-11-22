@@ -20,8 +20,8 @@ const model = "openrouter/openai/gpt-5.6-luna:high";
 describe("orch bugs 4 and 5 launch contracts", () => {
   test("interactive launch routes use one argv composition", () => {
     const opts = { model, workers: inherited };
-    expect(piAdapter.interactiveCmd(opts)).toBe(piAdapter.restrictedInteractiveCmd(opts));
-    expect(piAdapter.interactiveCmd(opts)).toContain("--no-extensions");
+    expect(piAdapter.interactiveArgv(opts).join(" ")).toBe(piAdapter.restrictedInteractiveArgv(opts).join(" "));
+    expect(piAdapter.interactiveArgv(opts).join(" ")).toContain("--no-extensions");
   });
 
   test("headless launch routes use one argv composition", () => {

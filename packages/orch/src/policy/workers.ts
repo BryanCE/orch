@@ -2,7 +2,7 @@ import { NO_COMPACTION } from "../shared/harness.ts";
 import type { AgentAdapter, CompactionLaunch, SpawnOpts } from "../types/adapter.ts";
 import type { WorkerPolicy } from "../types/policy.ts";
 import type { OrchSettings } from "../types/settings.ts";
-import { readOnlyEnv, readOnlyTools, type ReadOnly, type ToolVocabulary } from "./read-only.ts";
+import { OUT_DIR_ENV, READ_ONLY_ENV, readOnlyEnv, readOnlyTools, type ReadOnly, type ToolVocabulary } from "./read-only.ts";
 
 /** Orch's own tools, always available — they are how a worker talks back. */
 const ORCH_BASE_TOOLS = ["orch_ask"] as const;
@@ -63,6 +63,12 @@ function compactionLaunch(adapter: AgentAdapter, model: string | undefined, poli
 export function policyEnv(adapter: AgentAdapter, model: string | undefined, policy: WorkerPolicy | undefined): Readonly<Record<string, string>> {
   const readOnly = policy === undefined ? null : policy.readOnly;
   return { ...compactionLaunch(adapter, model, policy).env, ...(readOnly === null ? {} : readOnlyEnv(readOnly)) };
+}
+
+/** Every env name a launch policy can set for `adapter`'s harness: its compaction point's names
+ *  and the read-only names. A relaunch into a running shell removes the ones its env leaves out. */
+export function policyEnvNames(adapter: AgentAdapter): readonly string[] {
+  return [...(adapter.compaction?.envNames ?? []), READ_ONLY_ENV, OUT_DIR_ENV];
 }
 
 /** The launch arguments that set a launch's compaction point. */

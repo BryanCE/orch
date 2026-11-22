@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { errnoCode, errorMessage, isRecord, packageRoot, reinstallCommand, shellQuote, toolDir } from "../util.ts";
+import { errnoCode, errorMessage, isRecord, packageRoot, reinstallCommand, toolDir } from "../util.ts";
 import { declaredRuntime } from "../settings/read.ts";
 
 import { codexNotifyArgv, codexNotifyShimPath, editCodexNotifyConfig } from "./codex-notify.ts";
@@ -39,7 +39,7 @@ function codexCachedModels(): { slug?: unknown; display_name?: unknown }[] {
  * key (D2a fallback). A cleaner per-spawn `-c notify=[...]` override exists on
  * current Codex CLI versions (`-c key=value` overlays ConfigToml) and needs no
  * global-config write at all, but wiring it requires changing every codex
- * spawn command (`interactiveCmd`/`headlessCmd`), which is out of scope here;
+ * spawn command (`interactiveArgv`/`headlessCmd`), which is out of scope here;
  * this fallback covers `orch setup` and any codex session not launched
  * through orch's own argv. Never overwrites a foreign value (law #5).
  */
@@ -113,7 +113,7 @@ export class CodexAdapter implements AgentAdapter {
   readonly models = { listModels: (): readonly HarnessModel[] => this.listModels() };
   readonly modelWarm = null;
   /** Codex takes the point as a config override; a running session cannot change its model. */
-  readonly compaction = launchCompaction((tokens) => ({ env: {}, args: ["-c", `${CODEX_COMPACT_KEY}=${tokens}`] }));
+  readonly compaction = launchCompaction((tokens) => ({ env: {}, args: ["-c", `${CODEX_COMPACT_KEY}=${tokens}`] }), []);
   readonly bridge = null;
   readonly hooks = null;
   readonly acp = {
@@ -131,12 +131,6 @@ export class CodexAdapter implements AgentAdapter {
 
   /** Marker consumed by callers that render heuristic states with a dagger. */
   readonly stateFallback = true;
-
-  interactiveCmd(opts: SpawnOpts): string {
-    const command = ["codex"];
-    if (opts.model) command.push("--model", shellQuote(opts.model));
-    return [...command, ...compactionArgs(this, opts)].join(" ");
-  }
 
   interactiveArgv(opts: SpawnOpts): readonly string[] {
     return [...buildInteractiveArgv("codex", opts), ...compactionArgs(this, opts)];

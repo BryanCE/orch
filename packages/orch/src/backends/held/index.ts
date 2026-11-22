@@ -9,7 +9,7 @@
  * Only orchd starts a held agent, through {@link startHeldAgent}: the PTY lives in orchd's
  * own process, so `spawn` from any other process has nothing to hold it.
  */
-import { createInteractiveCommand } from "../backend.ts";
+import { launchProgram } from "../backend.ts";
 import { LocalProcessRole } from "../process.ts";
 import { unplacedRegistration, type LaunchedAgent } from "../registration.ts";
 import { agentLaunchEnv } from "../../policy/spawner.ts";
@@ -18,12 +18,13 @@ import { createBackendCaptureRole } from "../../presence/roles.ts";
 import { registerSpawnedAgent } from "../../store/spawn-registration.ts";
 import { recordProcess, setHandle } from "../../store/interval-rows.ts";
 import { placeHere } from "../../process-place.ts";
-import { hostShell } from "../../host.ts";
+import { shellCommand } from "../../shared/shell.ts";
+import { hostShell, hostShellDialect } from "../../host.ts";
 import { hostedHere } from "../../local-process.ts";
 import { definedEnv } from "../../util.ts";
 import { isAgentId } from "../../shared/agent-id.ts";
 import type { AgentAdapter, Prerequisite } from "../../types/adapter.ts";
-import type { AgentInputRole, Backend, BackendId, BackendSpawnOpts, CaptureRole, ProcessRole, RelaunchRole } from "../../types/backend.ts";
+import type { AgentInputRole, Backend, BackendId, BackendSpawnOpts, CaptureRole, ProcessRole, RelaunchRole, LaunchProgram } from "../../types/backend.ts";
 import type { StdioKind } from "../../types/form.ts";
 import type { HeldPtysByPid, HeldStartRequest, PtyHolder } from "../../types/pty.ts";
 
@@ -57,10 +58,10 @@ function boundPtys(): HeldPtysByPid {
 /** The program a held PTY runs. */
 export type HeldProgram = Pick<HeldStartRequest, "file" | "args">;
 
-/** A held PTY runs its command through this host's shell, as a pane would run it. */
-function shellRun(command: string): HeldProgram {
+/** A held PTY runs its program through this host's shell, quoted for that shell, as a pane would run it. */
+function shellRun(program: LaunchProgram): HeldProgram {
   const [file, ...args] = hostShell();
-  return { file, args: [...args, command] };
+  return { file, args: [...args, shellCommand(hostShellDialect(), program)] };
 }
 
 function requirePid(handle: HeldHandle): number {
@@ -83,6 +84,7 @@ function typeInto(handle: HeldHandle, data: string): void {
 
 /** Input to a held agent goes straight into its PTY, as a terminal attached to it would send it. */
 const heldInput: AgentInputRole<HeldHandle> = {
+  shell: hostShellDialect(),
   submit: (handle, text) => {
     typeInto(handle, text);
     typeInto(handle, KEY_BYTES.Enter ?? "\r");
@@ -97,9 +99,9 @@ const heldInput: AgentInputRole<HeldHandle> = {
 /** The PTY's program is the harness, through this host's shell: a relaunch ends it and runs the
  *  command the same way, in a new PTY with the same directory and the environment the launch's opts build, as a held spawn does. */
 const heldRelaunch: RelaunchRole<HeldHandle> = {
-  relaunch: async (handle, command, opts) => {
+  relaunch: async (handle, program, opts) => {
     const pid = requirePid(handle);
-    const relaunched = await boundPtys().relaunchPid(pid, shellRun(command).args, heldLaunchEnv(opts));
+    const relaunched = await boundPtys().relaunchPid(pid, shellRun(program).args, heldLaunchEnv(opts));
     if (relaunched === null) throw new Error(`no PTY held here runs pid ${pid}`);
     const next = String(relaunched.pid);
     return { handle: next, process: heldBackend.process.running(next) };
@@ -223,7 +225,7 @@ export function recordHeld(recording: HeldRecording, adapter: AgentAdapter, opts
  * orch dir's store with the PTY program as its process. By default the command runs through
  * this host's shell, as a pane would run it; `program` runs another instead.
  */
-export async function startHeldAgent(holder: PtyHolder, adapter: AgentAdapter, opts: BackendSpawnOpts, recording: HeldRecording, program: HeldProgram = shellRun(createInteractiveCommand(adapter, opts))): Promise<LaunchedAgent> {
+export async function startHeldAgent(holder: PtyHolder, adapter: AgentAdapter, opts: BackendSpawnOpts, recording: HeldRecording, program: HeldProgram = shellRun(launchProgram(adapter, opts))): Promise<LaunchedAgent> {
   const key = heldKeyOf(adapter, opts);
   const { pid } = await holder.start(key, {
     ...program,

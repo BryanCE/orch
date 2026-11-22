@@ -7,6 +7,7 @@ import type { Logger, OrchDir } from "./core.ts";
 import type { AgentWorktree } from "./worktree.ts";
 import type { AgentOrigin } from "./host.ts";
 import type { FormId, StdioKind } from "./form.ts";
+import type { ShellDialect } from "../shared/shell.ts";
 
 /** Facts detected about the plexer containing the current process. */
 export interface DetectedPlexer {
@@ -63,7 +64,14 @@ export interface PlacementInventoryRole<Handle = BackendHandle> {
   coordinateOf(handle: Handle): string | null;
 }
 
+/** What a launch runs: the harness's argv, or the shell line `--cmd` gave. */
+export type LaunchProgram =
+  | { readonly kind: "argv"; readonly argv: readonly string[] }
+  | { readonly kind: "shell"; readonly line: string };
+
 export interface AgentInputRole<Handle = BackendHandle> {
+  /** The shell its pane types a line into. */
+  readonly shell: ShellDialect;
   submit(handle: Handle, text: string): void;
   sendKeys(handle: Handle, keys: readonly string[]): void;
   focus(handle: Handle): void;
@@ -88,8 +96,8 @@ export interface AgentStatusRole<Handle = BackendHandle> { wait(handle: Handle, 
  * directory and environment, and answers the new place's handle and process.
  */
 export interface RelaunchRole<Handle = BackendHandle> {
-  /** End the place's program and run `command` in a fresh place with the env `opts` builds. */
-  relaunch(handle: Handle, command: string, opts: BackendSpawnOpts): Promise<{ readonly handle: Handle; readonly process: LocalProcess }>;
+  /** End the place's program and run `program` in a fresh place with the env `opts` builds. */
+  relaunch(handle: Handle, program: LaunchProgram, opts: BackendSpawnOpts): Promise<{ readonly handle: Handle; readonly process: LocalProcess }>;
 }
 
 /** Request to create one plexer group (a plexer's tab or window). */

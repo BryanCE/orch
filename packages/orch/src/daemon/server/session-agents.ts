@@ -6,7 +6,7 @@ import type { LaunchedAgent } from "../../backends/registration.ts";
 import { dropQuestion, recordQuestion } from "../../store/question-rows.ts";
 import { placeHere } from "../../process-place.ts";
 import { renderViewEntry } from "../../shared/render-view-entry.ts";
-import { errorMessage, shellLine, sleep } from "../../util.ts";
+import { errorMessage, sleep } from "../../util.ts";
 import { FORM_SESSION_OWNER, FORM_STDIO, type FormId } from "../../types/form.ts";
 import { acpDriver } from "./acp-driver.ts";
 import { acceptResultReport, acceptStatusReport } from "./status-report.ts";
@@ -256,7 +256,7 @@ async function adoptTerminal(state: DaemonState, adapter: AgentAdapter, key: str
   const terminal: TerminalControl = {
     relaunch: async (argv) => {
       if (quit === undefined) throw new Error(`harness ${adapter.id} declares no text that quits its terminal program`);
-      await relaunchTerminal(state, placeHere(directory, key), quit, shellLine(argv), opts);
+      await relaunchTerminal(state, placeHere(directory, key), quit, { kind: "argv", argv }, opts);
     },
   };
   let opened: HeldSession;

@@ -47,7 +47,7 @@ afterAll(() => {
 
 describe("PiAdapter", () => {
   test("uses pi interactively and headlessly, and declares honest capabilities", () => {
-    expect(adapter.interactiveCmd({})).toBe("pi");
+    expect(adapter.interactiveArgv({}).join(" ")).toBe("pi");
     expect(adapter.headlessCmd("fix tests", { model: "openai/gpt-5" })).toEqual([
       "pi",
       "--model",
@@ -64,7 +64,7 @@ describe("PiAdapter", () => {
   });
 
   test("restricted workers explicitly load the bundled pi extension", () => {
-    const command = adapter.restrictedInteractiveCmd({});
+    const command = adapter.restrictedInteractiveArgv({}).join(" ");
     expect(command).toContain("--no-extensions");
     expect(command).toMatch(/-e .*pi-bridge\.js/);
   });

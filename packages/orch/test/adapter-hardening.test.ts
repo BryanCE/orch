@@ -49,7 +49,7 @@ describe("adapter and runtime hardening", () => {
   test("headless refuses to spawn without a caller-minted presence key", () => {
     const directory = temp();
     const adapter: AgentAdapter = fakeAdapter({
-      interactiveCmd: () => "true",
+      interactiveArgv: () => ["true"],
       headlessCmd: () => [process.execPath, "-e", "setTimeout(() => {}, 1000)"],
     });
     const backend = new HeadlessBackend({ pidAlive: () => false });

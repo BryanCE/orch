@@ -80,10 +80,6 @@ class OpencodeAdapter implements AgentAdapter {
   readonly stateFallback = true;
 
   /** opencode's terminal program takes no model flag; it starts on its own default. */
-  interactiveCmd(opts: SpawnOpts): string {
-    return this.interactiveArgv(opts).join(" ");
-  }
-
   interactiveArgv(_opts: SpawnOpts): readonly string[] {
     return ["opencode"];
   }

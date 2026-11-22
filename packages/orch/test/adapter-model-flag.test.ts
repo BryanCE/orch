@@ -5,33 +5,33 @@ import { claudeAdapter } from "../src/adapters/claude.ts";
 import { codexAdapter } from "../src/adapters/codex.ts";
 
 // 12.6: interactive launches must carry the resolved model. Every adapter's
-// interactiveCmd (and pi's restrictedInteractiveCmd) dropped opts.model while
+// interactiveArgv (and pi's restrictedInteractiveArgv) dropped opts.model while
 // every headless variant passed it, so pane workers always booted on the
 // harness's own saved default and ignored orch's settings/flags.
 const MODEL = "openai/gpt-5.6";
 
 describe("interactive launches carry the resolved model (12.6)", () => {
-  test("pi.interactiveCmd includes --model when set and omits it cleanly when not", () => {
-    expect(piAdapter.interactiveCmd({ model: MODEL })).toBe(`pi --model ${MODEL}`);
-    expect(piAdapter.interactiveCmd({})).toBe("pi");
+  test("pi.interactiveArgv includes --model when set and omits it cleanly when not", () => {
+    expect(piAdapter.interactiveArgv({ model: MODEL }).join(" ")).toBe(`pi --model ${MODEL}`);
+    expect(piAdapter.interactiveArgv({}).join(" ")).toBe("pi");
   });
 
-  test("pi.restrictedInteractiveCmd includes --model when set and omits it cleanly when not", () => {
-    const withModel = piAdapter.restrictedInteractiveCmd({ model: MODEL });
+  test("pi.restrictedInteractiveArgv includes --model when set and omits it cleanly when not", () => {
+    const withModel = piAdapter.restrictedInteractiveArgv({ model: MODEL }).join(" ");
     expect(withModel).toContain(`--model ${MODEL}`);
 
-    const withoutModel = piAdapter.restrictedInteractiveCmd({});
+    const withoutModel = piAdapter.restrictedInteractiveArgv({}).join(" ");
     expect(withoutModel).not.toContain("--model");
   });
 
-  test("claude.interactiveCmd includes --model when set and omits it cleanly when not", () => {
-    expect(claudeAdapter.interactiveCmd({ model: MODEL })).toBe(`claude --model ${MODEL} --strict-mcp-config`);
-    expect(claudeAdapter.interactiveCmd({})).toBe("claude --strict-mcp-config");
+  test("claude.interactiveArgv includes --model when set and omits it cleanly when not", () => {
+    expect(claudeAdapter.interactiveArgv({ model: MODEL }).join(" ")).toBe(`claude --model ${MODEL} --strict-mcp-config`);
+    expect(claudeAdapter.interactiveArgv({}).join(" ")).toBe("claude --strict-mcp-config");
   });
 
-  test("codex.interactiveCmd includes a quoted --model when set and omits it cleanly when not", () => {
-    expect(codexAdapter.interactiveCmd({ model: "gpt-5" })).toBe("codex --model 'gpt-5'");
-    expect(codexAdapter.interactiveCmd({})).toBe("codex");
+  test("codex.interactiveArgv includes --model when set and omits it cleanly when not", () => {
+    expect(codexAdapter.interactiveArgv({ model: "gpt-5" }).join(" ")).toBe("codex --model gpt-5");
+    expect(codexAdapter.interactiveArgv({}).join(" ")).toBe("codex");
   });
 });
 
@@ -41,13 +41,13 @@ const QUICKLIST = ["anthropic/claude-sonnet-4.5", "openai/gpt-5.6:high"];
 
 describe("preferred models fill the harness's native picker quicklist", () => {
   for (const [harness, adapter, binary] of [["pi", piAdapter, "pi"], ["omp", ompAdapter, "omp"]] as const) {
-    test(`${harness} interactive builders pass the quicklist as one quoted --models argument`, () => {
+    test(`${harness} interactive builders pass the quicklist as one raw --models argument`, () => {
       const opts = { model: MODEL, preferredModels: QUICKLIST };
-      for (const command of [adapter.interactiveCmd(opts), adapter.restrictedInteractiveCmd(opts)]) {
+      for (const command of [adapter.interactiveArgv(opts).join(" "), adapter.restrictedInteractiveArgv(opts).join(" ")]) {
         expect(command.startsWith(`${binary} `)).toBe(true);
         expect(command).toContain(`--model ${MODEL}`);
-        // Quoted, because a quicklist may hold glob patterns the shell would otherwise expand.
-        expect(command).toContain(`--models '${QUICKLIST.join(",")}'`);
+        // The backend owns shell quoting for the raw quicklist.
+        expect(command).toContain(`--models ${QUICKLIST.join(",")}`);
       }
     });
 
@@ -65,8 +65,8 @@ describe("preferred models fill the harness's native picker quicklist", () => {
 
     test(`${harness} omits --models cleanly for an absent or empty quicklist`, () => {
       for (const opts of [{ model: MODEL }, { model: MODEL, preferredModels: [] }]) {
-        expect(adapter.interactiveCmd(opts)).not.toContain("--models");
-        expect(adapter.restrictedInteractiveCmd(opts)).not.toContain("--models");
+        expect(adapter.interactiveArgv(opts).join(" ")).not.toContain("--models");
+        expect(adapter.restrictedInteractiveArgv(opts).join(" ")).not.toContain("--models");
         expect(adapter.headlessCmd("go", opts)).not.toContain("--models");
         expect(adapter.restrictedHeadlessCmd("go", opts)).not.toContain("--models");
       }

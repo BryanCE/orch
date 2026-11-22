@@ -2,22 +2,20 @@ import { assertNameFree, assertValidAgentName } from "../../../policy/name.ts";
 import { term } from "../../../policy/vocabulary.ts";
 import { depthOf } from "../../../policy/provenance.ts";
 import { SpawnRefusalError } from "../../../refusal.ts";
-import { refreshStaleShims } from "../doctor/runner.ts";
 import { countOf, errorMessage } from "../../../util.ts";
 import { indexPresenceById } from "../../../shared/lookup.ts";
 import { agentViews } from "../../../store/agent-view.ts";
 import { loadPresence } from "../../../presence/store.ts";
 import type { Backend } from "../../../types/backend.ts";
 import type { ModelCatalogue } from "../../../types/adapter.ts";
-import type { Logger, OrchDir } from "../../../types/core.ts";
+import type { OrchDir } from "../../../types/core.ts";
 import type { AgentView, GrantAction } from "../../../types/store.ts";
 import type { PresenceEntry } from "../../../types/presence.ts";
 import type { OrchSettings } from "../../../types/settings.ts";
 import type { ResultOf } from "../../client/protocol.ts";
 import type { SpawnSettings } from "./plan.ts";
-import { admitLaunchModel, offeredModels } from "./models.ts";
+import { admitLaunchModel } from "./models.ts";
 import { admitHome } from "../handlers/grant.ts";
-import { withLaunchPoints } from "../../../policy/compaction.ts";
 import { computeFleetCapacity, liveSpawnCounts, packsUsed } from "../../../policy/capacity.ts";
 import { availableMemoryMb, memoryRefusal } from "../../../policy/memory.ts";
 import { hostIdentity } from "../../../hosts/identity.ts";
@@ -196,14 +194,13 @@ export function assertNewSpaceGranted(directory: OrchDir, actor: string | null, 
  *  spawn leaves no handle, no worktree and no queue entry. Returns the settings the
  *  launch runs on: every agent's model admitted, so a short name is expanded once
  *  here and the plans downstream carry the spec the harness receives. */
-export async function admitSpawn(
+export function admitSpawn(
   directory: OrchDir,
   self: CallerSelf,
   settingsFile: OrchSettings,
   settings: SpawnSettings,
-  logger: Logger,
   catalogue: ModelCatalogue,
-): Promise<SpawnSettings> {
+): SpawnSettings {
   const { views, presence } = liveFleet(directory);
   // Provenance depth and pack size come first: before a backend is resolved and
   // before any space is allocated.

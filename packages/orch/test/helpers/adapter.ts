@@ -1,8 +1,7 @@
-import type { AgentAdapter, SpawnOpts } from "../../src/types/adapter.ts";
+import type { AgentAdapter } from "../../src/types/adapter.ts";
 
 /** One complete adapter fixture; overrides replace individual port members. */
 export function fakeAdapter(overrides: Partial<AgentAdapter> = {}): AgentAdapter {
-  const interactiveCmd = overrides.interactiveCmd ?? ((): string => "fake-agent");
   return {
     id: "pi",
     thinking: null,
@@ -24,8 +23,7 @@ export function fakeAdapter(overrides: Partial<AgentAdapter> = {}): AgentAdapter
     resume: null,
     commandGate: false,
     readOnly: null,
-    interactiveCmd,
-    interactiveArgv: (opts: SpawnOpts): readonly string[] => interactiveCmd(opts).split(" "),
+    interactiveArgv: overrides.interactiveArgv ?? ((): readonly string[] => ["fake-agent"]),
     headlessCmd: (): string[] => ["true"],
     detectState: () => "unknown",
     steer: () => undefined,

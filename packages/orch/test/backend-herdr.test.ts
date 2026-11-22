@@ -198,9 +198,16 @@ describe("HerdrBackend", () => {
 
   test("starts the mapped herdr harness kind in the pane it created", () => {
     herdrArgv.length = 0;
-    backend.spawn(fakeAdapter, { project: "/fleet/project", form: "tui", cwd: testDir, workspace: "ws-test", cmd: "ignored-by-herdr-start", orchDir: testDir });
+    backend.spawn(fakeAdapter, { project: "/fleet/project", form: "tui", cwd: testDir, workspace: "ws-test", orchDir: testDir });
 
     expect(lastCall("agent", "start")).toEqual(agentStart("pi-agent", "w0:p9"));
+  });
+
+  test("a --cmd line is refused before a pane opens: herdr starts the harness itself", () => {
+    herdrArgv.length = 0;
+    expect(() => backend.spawn(fakeAdapter, { project: "/fleet/project", form: "tui", cwd: testDir, workspace: "ws-test", cmd: "pi | tee log", orchDir: testDir }))
+      .toThrow("herdr starts the harness itself, so it cannot run a --cmd line; spawn without --cmd");
+    expect(herdrArgv.some((args) => args[0] === "pane")).toBe(false);
   });
 
   test("agent_not_ready keeps the pane and does not close it", () => {

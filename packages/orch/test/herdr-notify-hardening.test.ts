@@ -60,7 +60,6 @@ const { notificationText } = await import("../src/notify/format.ts");
 // variable that must NOT expand. herdr quotes for the target shell itself, so
 // orch hands them over raw and one entry each.
 const adapter = makeFakeAdapter({
-  interactiveCmd: () => `printf 'quoted "value" spaces $HOME'`,
   interactiveArgv: () => ["printf", 'quoted "value" spaces $HOME'],
 });
 

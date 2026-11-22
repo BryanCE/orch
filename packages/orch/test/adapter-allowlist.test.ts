@@ -26,7 +26,7 @@ const LOCKED_DOWN: WorkerPolicy = {
 describe("pi worker launch obeys the worker policy", () => {
   test("orch's bridge extension always loads, whatever the policy", () => {
     for (const policy of [INHERIT, LOCKED_DOWN]) {
-      const command = piAdapter.restrictedInteractiveCmd({ workers: policy });
+      const command = piAdapter.restrictedInteractiveArgv({ workers: policy }).join(" ");
       // --no-extensions disables discovery; the explicit -e paths still load.
       expect(command).toContain("--no-extensions");
       expect(command).toContain("pi-bridge.js");
@@ -35,13 +35,13 @@ describe("pi worker launch obeys the worker policy", () => {
 
   test("a read-only policy names the tools the worker keeps and leaves the built-ins on", () => {
     const reporter: WorkerPolicy = { inheritExtensions: false, inheritMcp: false, excludeExtensions: {}, builtinTools: true, allowTools: ["read", "grep", "find", "ls", "edit", "write", "orch_ask"], compactAtTokens: {}, readOnly: { out: "/repo/out" } };
-    const command = piAdapter.restrictedInteractiveCmd({ workers: reporter });
+    const command = piAdapter.restrictedInteractiveArgv({ workers: reporter }).join(" ");
     expect(command).toContain("--tools read,grep,find,ls,edit,write,orch_ask");
     expect(command).not.toContain("--no-builtin-tools");
   });
 
   test("an inheriting policy restricts neither tools nor built-ins", () => {
-    const command = piAdapter.restrictedInteractiveCmd({ workers: INHERIT });
+    const command = piAdapter.restrictedInteractiveArgv({ workers: INHERIT }).join(" ");
 
     // Hardcoding a tool allowlist is what left workers without grep or subagents.
     expect(command).not.toContain("--tools");
@@ -49,14 +49,14 @@ describe("pi worker launch obeys the worker policy", () => {
   });
 
   test("a locked-down policy passes exactly its allowlist and drops the built-ins", () => {
-    const command = piAdapter.restrictedInteractiveCmd({ workers: LOCKED_DOWN });
+    const command = piAdapter.restrictedInteractiveArgv({ workers: LOCKED_DOWN }).join(" ");
 
     expect(command).toContain("--no-builtin-tools");
     expect(command).toContain("--tools read,bash,orch_ask");
   });
 
   test("an explicit tool allowlist from the launcher wins over the policy's", () => {
-    const command = piAdapter.restrictedInteractiveCmd({ workers: LOCKED_DOWN, tools: "read,edit" });
+    const command = piAdapter.restrictedInteractiveArgv({ workers: LOCKED_DOWN, tools: "read,edit" }).join(" ");
 
     expect(command).toContain("--tools read,edit");
   });
@@ -73,7 +73,7 @@ describe("pi worker launch obeys the worker policy", () => {
   });
 
   test("the model flag lands on the launch line", () => {
-    const command = piAdapter.restrictedInteractiveCmd({ workers: INHERIT, model: "openrouter/x-ai/grok-4.5:high" });
+    const command = piAdapter.restrictedInteractiveArgv({ workers: INHERIT, model: "openrouter/x-ai/grok-4.5:high" }).join(" ");
 
     expect(command).toContain("--model openrouter/x-ai/grok-4.5:high");
   });
@@ -81,7 +81,7 @@ describe("pi worker launch obeys the worker policy", () => {
 
 describe("omp worker launch obeys the worker policy through its own harness", () => {
   test("omp loads its own bundle from its own config root, never pi's", () => {
-    const command = ompAdapter.restrictedInteractiveCmd({ workers: LOCKED_DOWN });
+    const command = ompAdapter.restrictedInteractiveArgv({ workers: LOCKED_DOWN }).join(" ");
 
     // The bundle path is OS-native, so compare with separators normalized.
     const slashed = command.replaceAll("\\", "/");
@@ -93,7 +93,7 @@ describe("omp worker launch obeys the worker policy through its own harness", ()
   });
 
   test("omp drops built-ins with --no-tools, the flag its CLI actually has", () => {
-    const command = ompAdapter.restrictedInteractiveCmd({ workers: LOCKED_DOWN });
+    const command = ompAdapter.restrictedInteractiveArgv({ workers: LOCKED_DOWN }).join(" ");
 
     expect(command).toContain("--no-tools");
     expect(command).not.toContain("--no-builtin-tools");

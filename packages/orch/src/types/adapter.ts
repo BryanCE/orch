@@ -191,7 +191,7 @@ export interface ThinkingStrategy {
 }
 
 export interface WorkerLaunchRole {
-  restrictedInteractiveCmd(opts: SpawnOpts): string;
+  restrictedInteractiveArgv(opts: SpawnOpts): readonly string[];
   restrictedHeadlessCmd(prompt: string, opts: SpawnOpts): string[];
 }
 
@@ -282,6 +282,8 @@ export interface CompactionLaunch {
 /** The harness takes a context size, in tokens, at which a session compacts. `points` is this
  *  harness's model-to-tokens table; a model with no entry keeps the harness default. */
 export interface CompactionRole {
+  /** Every env name `launch` can write, so a relaunch into a running shell can remove the ones it no longer sets. */
+  readonly envNames: readonly string[];
   launch(points: Readonly<Record<string, number>>, model: string | undefined): CompactionLaunch;
 }
 
@@ -361,16 +363,7 @@ export interface AgentAdapter {
    * identity, and orch must never guess one from a harness id.
    */
   readonly sessionPidEnv?: string;
-  /** Build the normal shell command used to start one agent in an interactive pane. */
-  interactiveCmd(opts: SpawnOpts): string;
-  /**
-   * The same interactive launch as `interactiveCmd`, as RAW argv: the executable
-   * first, then unquoted arguments. A plexer that starts the harness itself needs
-   * the arguments without a shell's quoting, because it applies its own for the
-   * shell it is launching into — a plexer does exactly this
-   * (`argv = [interactive_agent_executable(kind), ...args]`), and handing it a
-   * pre-quoted string exports the quotes as part of the value.
-   */
+  /** The interactive launch as RAW argv: the executable first, then unquoted arguments. Each backend quotes it for its own shell, or a plexer that starts the harness itself takes it as is. */
   interactiveArgv(opts: SpawnOpts): readonly string[];
   /** Build argv for a detached backend, including the initial prompt. */
   headlessCmd(prompt: string, opts: SpawnOpts): string[];
@@ -381,10 +374,6 @@ export interface AgentAdapter {
   /** Extract the final assistant text that should be written to `results.jsonl`. */
   extractResult(input: ResultExtractionInput, orchDir: OrchDir): string | undefined;
 }
-
-/** How a builder renders the quicklist argument: verbatim in an argv array, quoted in a shell
- *  string so a glob pattern (`anthropic/*`) reaches the harness instead of the shell's expansion. */
-export type QuicklistForm = "argv" | "shell";
 
 /** One install command per host OS. Windows commands are PowerShell; the others are sh. */
 export type InstallCommands = Readonly<Partial<Record<HostOs, string>>>;

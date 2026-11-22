@@ -124,6 +124,7 @@ describe("deliverControl abort", () => {
       if (!previous) throw new Error("headless backend is not registered");
       Object.defineProperty(backend, "agentInput", {
         value: {
+          shell: "posix",
           submit: () => undefined,
           sendKeys(handle: unknown, keys: readonly string[]): void { sent.push({ handle, keys }); },
           focus: () => undefined,
@@ -311,6 +312,7 @@ describe("deliverControl bridge dispatch", () => {
     if (!previous) throw new Error("headless backend is not registered");
     Object.defineProperty(backend, "agentInput", {
       value: {
+        shell: "posix",
         submit(handle: unknown, text: string): void { submitted.push({ handle, text }); },
         sendKeys: () => undefined,
         focus: () => undefined,

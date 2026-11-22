@@ -10,7 +10,9 @@ import { LocalProcessRole, placedShellPid } from "../process.ts";
 import { binaryOnPath, shellLine, shellQuote } from "../../util.ts";
 import { isAgentId } from "../../shared/agent-id.ts";
 import { OrcaCommandError, GONE_HANDLE_CODES, ORCA_INPUT_RETRY, createOrcaCli, orcaBinary, type OrcaCli, type OrcaExecutor, type OrcaTerminal } from "./cli.ts";
-import { createInteractiveCommand } from "../backend.ts";
+import { launchProgram } from "../backend.ts";
+import { shellCommand } from "../../shared/shell.ts";
+import type { AgentInputRole } from "../../types/backend.ts";
 import { createBackendCaptureRole } from "../../presence/roles.ts";
 import type {
   AgentNamingRole,
@@ -134,7 +136,8 @@ export class OrcaBackend implements Backend<OrcaHandle> {
     },
   };
 
-  readonly agentInput = {
+  readonly agentInput: AgentInputRole<OrcaHandle> = {
+    shell: "posix",
     submit: (handle: OrcaHandle, text: string): void => {
       reportGoneHandle(handle, () => this.cli.ack(["terminal", "send", "--terminal", handle, "--text", text, "--enter"], undefined, ORCA_INPUT_RETRY));
     },
@@ -282,7 +285,7 @@ export class OrcaBackend implements Backend<OrcaHandle> {
   }
 
   spawn(adapter: AgentAdapter, opts: BackendSpawnOpts): OrcaHandle {
-    const command = createInteractiveCommand(adapter, opts);
+    const command = shellCommand("posix", launchProgram(adapter, opts));
     const cwd = opts.cwd ?? process.cwd();
     const env = agentLaunchEnv(opts, ORCA_ENVIRONMENT_STAMP);
     const adopted = typeof opts.intoHandle === "string" ? opts.intoHandle : null;

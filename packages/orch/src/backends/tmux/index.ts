@@ -1,6 +1,8 @@
+import { shellCommand } from "../../shared/shell.ts";
+import type { AgentInputRole } from "../../types/backend.ts";
 import type { AgentId } from "../../types/agent-place.ts";
 import type { StdioKind } from "../../types/form.ts";
-import { createInteractiveCommand, homeLabel } from "../backend.ts";
+import { launchProgram, homeLabel } from "../backend.ts";
 import { createBackendCaptureRole } from "../../presence/roles.ts";
 import { isAgentId } from "../../shared/agent-id.ts";
 import { ARROW, binaryOnPath, shellLine } from "../../util.ts";
@@ -96,7 +98,8 @@ export class TmuxBackend implements Backend<TmuxHandle> {
   readonly serverInfo: null = null;
   readonly capture: CaptureRole;
 
-  readonly agentInput = {
+  readonly agentInput: AgentInputRole<TmuxHandle> = {
+    shell: "posix",
     submit: (handle: TmuxHandle, text: string): void => {
       if (bestEffortTmux(["send-keys", "-t", handle, "--", text]) === null
         || bestEffortTmux(["send-keys", "-t", handle, "--", "Enter"]) === null) throw new Error(`tmux failed to submit text to ${handle}`);
@@ -331,8 +334,8 @@ export class TmuxBackend implements Backend<TmuxHandle> {
 
   spawn(adapter: AgentAdapter, opts: BackendSpawnOpts): TmuxHandle {
     if (!this.isInsideSession()) throw new Error("tmux spawn requires running inside a tmux session");
-    // An explicit --cmd is the caller's launch line verbatim; without one the adapter builds it.
-    const command = createInteractiveCommand(adapter, opts);
+    // An explicit --cmd is the caller's launch line verbatim; without one the adapter's argv, quoted for the pane's shell.
+    const command = shellCommand("posix", launchProgram(adapter, opts));
 
     const cwd = opts.cwd ?? process.cwd();
     const envArgs = tmuxEnvArgs(agentLaunchEnv(opts, TMUX_ENVIRONMENT_STAMP));

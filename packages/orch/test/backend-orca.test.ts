@@ -225,7 +225,8 @@ describe("OrcaBackend", () => {
     expect(send.slice(0, 5)).toEqual(["terminal", "send", "--terminal", "term-9", "--text"]);
     expect(launch.startsWith("cd '/x' && env ")).toBe(true);
     expect(launch).toContain(`${LAUNCH_ENV}='${key}'`);
-    expect(launch.endsWith("fake-agent")).toBe(true);
+    // The adapter's argv is quoted for the pane's POSIX shell.
+    expect(launch.endsWith("'fake-agent'")).toBe(true);
     expect(send).toContain("--enter");
   });
 
@@ -239,7 +240,8 @@ describe("OrcaBackend", () => {
     const launch = send[5] ?? "";
     expect(send.slice(0, 5)).toEqual(["terminal", "send", "--terminal", "term-2", "--text"]);
     expect(launch.startsWith("cd '/x' && env ")).toBe(true);
-    expect(launch.endsWith("fake-agent")).toBe(true);
+    // The adapter's argv is quoted for the pane's POSIX shell.
+    expect(launch.endsWith("'fake-agent'")).toBe(true);
   });
 
   test("identity.current returns the minted id only inside Orca", () => {

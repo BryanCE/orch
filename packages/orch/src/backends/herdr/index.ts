@@ -17,7 +17,8 @@ const HERDR_ENVIRONMENT_STAMP = environmentStamp({ labels: true, blockedEvent: H
 import { GONE_HANDLE_CODES, HERDR_INPUT_RETRY, HerdrCommandError, createHerdrCli, type HerdrCli } from "./cli.ts";
 import { layoutReplySchema, moveReplySchema, paneOpenReplySchema, tabOpenReplySchema, workspaceListReplySchema, workspaceOpenReplySchema, type HerdrHandle, type HerdrPane, type HerdrTab } from "./wire.ts";
 import { AgentGoneError } from "../../control/agent-gone.ts";
-import { homeLabel } from "../backend.ts";
+import { homeLabel, launchProgram } from "../backend.ts";
+import type { AgentInputRole } from "../../types/backend.ts";
 import { createBackendCaptureRole } from "../../presence/roles.ts";
 import { isAgentId } from "../../shared/agent-id.ts";
 import { LocalProcessRole, placedShellPid } from "../process.ts";
@@ -166,7 +167,8 @@ export class HerdrBackend implements Backend<HerdrHandle> {
   };
   readonly serverInfo: ServerInfoRole = { running: (): ServerReport | null => this.serverReport() };
   readonly capture: CaptureRole = createBackendCaptureRole("herdr", () => this.orchDir);
-  readonly agentInput = {
+  readonly agentInput: AgentInputRole<HerdrHandle> = {
+    shell: "posix",
     submit: (handle: HerdrHandle, text: string): void => { reportGoneHandle(handle, () => this.cli.ack(["pane", "run", handle, text], undefined, HERDR_INPUT_RETRY)); },
     sendKeys: (handle: HerdrHandle, keys: readonly string[]): void => { reportGoneHandle(handle, () => this.cli.ack(["pane", "send-keys", handle, ...keys], undefined, HERDR_INPUT_RETRY)); },
     focus: (handle: HerdrHandle): void => { this.cli.ack(["agent", "focus", handle]); },
@@ -388,16 +390,17 @@ export class HerdrBackend implements Backend<HerdrHandle> {
    *
    *  herdr's `agent start` builds `argv = [interactive_agent_executable(kind),
    *  ...args]` (its `src/app/agents.rs`), so orch supplies the ARGUMENTS and
-   *  herdr supplies the binary. That is why `opts.cmd` cannot select a different
-   *  executable here — and why its flags must still be honoured rather than
-   *  dropped, which is what bug 1.4 was. Raw and unquoted: herdr quotes for the
+   *  herdr supplies the binary. So a `--cmd` line is refused here, and a worker's
+   *  flags come from its restricted launch, as on every other backend.
+   *  Raw and unquoted: herdr quotes for the
    *  target shell itself (`interactive_shell_command`).
    *
    *  herdr rejects any argument containing a control character, so an adapter
    *  that produced one is refused here with a message naming the argument. */
   private launchArgs(adapter: AgentAdapter, opts: BackendSpawnOpts): string[] {
-    const argv = opts.program ?? adapter.interactiveArgv(opts);
-    if (argv.length === 0) throw new Error(`adapter ${String(adapter.id)} returned an empty interactive argv`);
+    const program = launchProgram(adapter, opts);
+    if (program.kind === "shell") throw new Error("herdr starts the harness itself, so it cannot run a --cmd line; spawn without --cmd");
+    const argv = program.argv;
     const args = argv.slice(1);
     const control = args.find((arg) => /[\u0000-\u001f\u007f]/.test(arg));
     if (control !== undefined) {

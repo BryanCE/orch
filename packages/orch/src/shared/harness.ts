@@ -4,9 +4,11 @@ import { ADAPTER_IDS, LIFECYCLE_VERBS, type AdapterId, type AgentAdapter, type C
 export const NO_COMPACTION: CompactionLaunch = { env: {}, args: [] };
 
 /** A compaction role that sets one point per launch, for the model the launch starts on.
- *  `launchAt` is what the harness takes to compact at `tokens`. */
-export function launchCompaction(launchAt: (tokens: number) => CompactionLaunch): CompactionRole {
+ *  `launchAt` is what the harness takes to compact at `tokens`.
+ *  `envNames` is every name `launchAt`'s env can hold. */
+export function launchCompaction(launchAt: (tokens: number) => CompactionLaunch, envNames: readonly string[]): CompactionRole {
   return {
+    envNames,
     launch: (points, model) => {
       const tokens = model === undefined ? undefined : points[model];
       return tokens === undefined ? NO_COMPACTION : launchAt(tokens);

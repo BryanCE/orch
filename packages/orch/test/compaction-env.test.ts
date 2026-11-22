@@ -35,7 +35,7 @@ describe("launch compaction", () => {
     const opts = { model: "gpt-5.5", workers };
     expect(policyEnv(codexAdapter, "gpt-5.5", workers)).toEqual({});
     expect(codexAdapter.interactiveArgv(opts)).toEqual(["codex", "--model", "gpt-5.5", "-c", "model_auto_compact_token_limit=150000"]);
-    expect(codexAdapter.interactiveCmd(opts)).toContain("-c model_auto_compact_token_limit=150000");
+    expect(codexAdapter.interactiveArgv(opts).join(" ")).toContain("-c model_auto_compact_token_limit=150000");
     expect(codexAdapter.headlessCmd("go", opts)).toContain("model_auto_compact_token_limit=150000");
   });
 

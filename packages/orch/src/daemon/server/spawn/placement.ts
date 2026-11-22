@@ -1,3 +1,4 @@
+import { shellLine } from "../../../util.ts";
 import { basename } from "node:path";
 import { assertNameFree } from "../../../policy/name.ts";
 import { mintAgentId } from "../../../shared/agent-id.ts";
@@ -21,7 +22,7 @@ import type { TerminalPreparer } from "../../../types/held-session.ts";
 import { projectDirectory } from "./project.ts";
 import type { CreatedAgent, OpenFleetHomeRequest, SpawnPlacement, SpawnPlacementRequest, TabSpawnSpec } from "../../../types/command.ts";
 import { liveFleet, type CallerSelf } from "./admission.ts";
-import { launchCommand, resolveAdapterOrDie } from "./models.ts";
+import { launchArgv, resolveAdapterOrDie } from "./models.ts";
 import type { HomeSubject } from "../../../types/backend.ts";
 import type { AgentWorktree } from "../../../types/worktree.ts";
 import { localAgentPlan, type LocalSpawnAgentPlan, type SpawnSettings } from "./plan.ts";
@@ -227,7 +228,7 @@ async function placeAgent(services: DaemonContext, settings: SpawnSettings, plan
   const { space, workspace, group } = place;
   const name = plan.name;
   const adapter = resolveAdapterOrDie(plan.adapter);
-  const { cwd, worktree } = prepareWorkspace(settings.cwd, settings.worktree, name, adapter, plan.cmd ?? launchCommand(adapter, launch, plan, null));
+  const { cwd, worktree } = prepareWorkspace(settings.cwd, settings.worktree, name, adapter, plan.cmd ?? shellLine(launchArgv(adapter, launch, plan, null)));
   try {
     return await tileAgentIntoGroup(services, {
     prepareTerminal,

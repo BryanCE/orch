@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { presenceEntry } from "../presence/store.ts";
-import { ARROW, errnoCode, isRecord, readJsonFile, shellQuote, toolDir } from "../util.ts";
+import { ARROW, errnoCode, isRecord, readJsonFile, toolDir } from "../util.ts";
 import { blockText, isToolCallContentBlock, parseSession } from "../session.ts";
 import { extensionBundlePath, EXTENSION_NAMES } from "../bridge-bundles/metadata.ts";
 import { computeCodeHash } from "../daemon/client/process.ts";
@@ -10,7 +10,7 @@ import { agentStateFrom } from "../agent-state.ts";
 import { NO_COMPACTION, type AgentState } from "../shared/harness.ts";
 import { HARNESS_SESSION_ENV } from "../shared/session-env.ts";
 import { everywhere } from "../shared/prerequisites.ts";
-import type { AdapterCommand, AdapterId, AgentAdapter, BridgeRole, CompactionLaunch, HarnessModel, LifecycleVerb, ModelCatalogue, ModelRequest, Prerequisite, QuicklistForm, ReadOnlyRole, ResultExtractionInput, SessionView, SessionViewEntry, SessionViewInput, ShimInstallOpts, SpawnOpts, StateDetectionInput, SteerRequest, ThinkingStrategy } from "../types/adapter.ts";
+import type { AdapterCommand, AdapterId, AgentAdapter, BridgeRole, CompactionLaunch, HarnessModel, LifecycleVerb, ModelCatalogue, ModelRequest, Prerequisite, ReadOnlyRole, ResultExtractionInput, SessionView, SessionViewEntry, SessionViewInput, ShimInstallOpts, SpawnOpts, StateDetectionInput, SteerRequest, ThinkingStrategy } from "../types/adapter.ts";
 import type { ThinkingLevel, WorkerPolicy } from "../types/policy.ts";
 import { PI_TOOLS } from "../../extensions/pi/vocabulary.ts";
 import type { OrchSettings } from "../types/settings.ts";
@@ -107,11 +107,10 @@ export function bridgeExtensionArgv(
 function modelSelectionArgv(
   flags: { model: string; cycle: string },
   opts: SpawnOpts,
-  form: QuicklistForm,
 ): string[] {
   const argv = opts.model ? [flags.model, opts.model] : [];
   const patterns = opts.preferredModels?.length ? opts.preferredModels.join(",") : "";
-  if (patterns) argv.push(flags.cycle, form === "shell" ? shellQuote(patterns) : patterns);
+  if (patterns) argv.push(flags.cycle, patterns);
   return argv;
 }
 
@@ -339,10 +338,10 @@ function piSessionView(input: SessionViewInput): SessionView | undefined {
 
 /** Build one pi launch composition. Worker routes opt into orch's bridge, tools, and
  * inherited user extensions; the ordinary interactive form remains the bare harness. */
-function piLaunchArgv(opts: SpawnOpts, worker: boolean, prompt: string | undefined, form: QuicklistForm, thinking?: ThinkingStrategy | null): string[] {
+function piLaunchArgv(opts: SpawnOpts, worker: boolean, prompt: string | undefined, thinking?: ThinkingStrategy | null): string[] {
   const argv: string[] = ["pi"];
   if (worker) argv.push(...piToolArgv(opts), ...piExtensionArgv(opts));
-  argv.push(...bridgeModelArgv(opts, form));
+  argv.push(...bridgeModelArgv(opts));
   if (thinking && opts.thinking !== undefined) argv.push(...thinking.launchArgs(opts.thinking));
   if (prompt !== undefined) argv.push(prompt);
   return argv;
@@ -352,11 +351,11 @@ function piLaunchArgv(opts: SpawnOpts, worker: boolean, prompt: string | undefin
 export abstract class PiBridgeAdapter {
   protected abstract readonly resumeFlag: string;
   abstract interactiveArgv(opts: SpawnOpts): readonly string[];
-  abstract restrictedInteractiveCmd(opts: SpawnOpts): string;
+  abstract restrictedInteractiveArgv(opts: SpawnOpts): readonly string[];
   abstract restrictedHeadlessCmd(prompt: string, opts: SpawnOpts): string[];
 
   readonly workerLaunch = {
-    restrictedInteractiveCmd: (opts: SpawnOpts): string => this.restrictedInteractiveCmd(opts),
+    restrictedInteractiveArgv: (opts: SpawnOpts): readonly string[] => this.restrictedInteractiveArgv(opts),
     restrictedHeadlessCmd: (prompt: string, opts: SpawnOpts): string[] => this.restrictedHeadlessCmd(prompt, opts),
   };
   readonly modelControl = { setModel: (request: ModelRequest): AdapterCommand | undefined => this.setModel(request) };
@@ -437,32 +436,28 @@ export class PiAdapter extends PiBridgeAdapter implements AgentAdapter {
   readonly modelWarm = { warmModels: (catalogue: ModelCatalogue): Promise<void> => catalogue.warm("pi", PI_MODELS_ARGV) };
   /** pi has no launch flag for it: orch's bridge reads the table each turn, for the model the
    *  session runs now, and compacts the session itself. */
-  readonly compaction = { launch: (): CompactionLaunch => NO_COMPACTION };
+  readonly compaction = { envNames: [], launch: (): CompactionLaunch => NO_COMPACTION };
 
   /** Start pi directly in an interactive backend session. Worker options use the same
    * composition as restricted launches, so tile/spawn cannot silently drop extensions. */
-  interactiveCmd(opts: SpawnOpts): string {
-    return piLaunchArgv(opts, opts.workers !== undefined, undefined, "shell", this.thinking).join(" ");
-  }
-
   interactiveArgv(opts: SpawnOpts): readonly string[] {
-    return piLaunchArgv(opts, opts.workers !== undefined, undefined, "argv", this.thinking);
+    return piLaunchArgv(opts, opts.workers !== undefined, undefined, this.thinking);
   }
 
   /** Start pi as an orch worker: orch's bridge always, plus whatever extensions
    * and tools the worker policy admits. */
-  restrictedInteractiveCmd(opts: SpawnOpts): string {
-    return piLaunchArgv(opts, true, undefined, "shell", this.thinking).join(" ");
+  restrictedInteractiveArgv(opts: SpawnOpts): readonly string[] {
+    return piLaunchArgv(opts, true, undefined, this.thinking);
   }
 
   /** Start pi with the initial prompt for headless runs. */
   headlessCmd(prompt: string, opts: SpawnOpts): string[] {
-    return piLaunchArgv(opts, opts.workers !== undefined, prompt, "argv", this.thinking);
+    return piLaunchArgv(opts, opts.workers !== undefined, prompt, this.thinking);
   }
 
   /** Start headless pi under the same worker policy as an interactive pi worker. */
   restrictedHeadlessCmd(prompt: string, opts: SpawnOpts): string[] {
-    return piLaunchArgv(opts, true, prompt, "argv", this.thinking);
+    return piLaunchArgv(opts, true, prompt, this.thinking);
   }
 
   /** Verify the extension link and bundle written by installShim. */
@@ -498,8 +493,8 @@ function piToolArgv(opts: SpawnOpts): string[] {
 }
 
 /** A pi-shaped CLI's model tokens: `--model` selects the session's model, `--models` fills its Ctrl+P cycle. */
-export function bridgeModelArgv(opts: SpawnOpts, form: QuicklistForm): string[] {
-  return modelSelectionArgv({ model: "--model", cycle: "--models" }, opts, form);
+export function bridgeModelArgv(opts: SpawnOpts): string[] {
+  return modelSelectionArgv({ model: "--model", cycle: "--models" }, opts);
 }
 
 /** Shared pi adapter instance for command wiring. */

@@ -87,28 +87,24 @@ class OmpAdapter extends PiBridgeAdapter implements AgentAdapter {
   readonly compaction = null;
 
   /** Start omp directly in an interactive backend session. */
-  interactiveCmd(opts: SpawnOpts): string {
-    return ["omp", ...bridgeModelArgv(opts, "shell")].join(" ");
-  }
-
   interactiveArgv(opts: SpawnOpts): readonly string[] {
-    return ["omp", ...bridgeModelArgv(opts, "argv")];
+    return ["omp", ...bridgeModelArgv(opts)];
   }
 
   /** Start omp as an orch worker: orch's bridge always, plus whatever extensions
    * and tools the worker policy admits. */
-  restrictedInteractiveCmd(opts: SpawnOpts): string {
-    return ["omp", ...ompToolArgv(opts), ...ompExtensionArgv(opts), ...bridgeModelArgv(opts, "shell")].join(" ");
+  restrictedInteractiveArgv(opts: SpawnOpts): readonly string[] {
+    return ["omp", ...ompToolArgv(opts), ...ompExtensionArgv(opts), ...bridgeModelArgv(opts)];
   }
 
   /** omp's single binary serves headless runs too — no launcher wrapper. */
   headlessCmd(prompt: string, opts: SpawnOpts): string[] {
-    return ["omp", ...bridgeModelArgv(opts, "argv"), prompt];
+    return ["omp", ...bridgeModelArgv(opts), prompt];
   }
 
   /** Start omp headless under the same worker policy as an interactive omp worker. */
   restrictedHeadlessCmd(prompt: string, opts: SpawnOpts): string[] {
-    return ["omp", ...ompToolArgv(opts), ...ompExtensionArgv(opts), ...bridgeModelArgv(opts, "argv"), prompt];
+    return ["omp", ...ompToolArgv(opts), ...ompExtensionArgv(opts), ...bridgeModelArgv(opts), prompt];
   }
 
   /** Verify the extension link and bundle written by installShim. */

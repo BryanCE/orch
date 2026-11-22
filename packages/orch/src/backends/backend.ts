@@ -1,6 +1,5 @@
-import type { BackendSpawnOpts, HomeSubject } from "../types/backend.ts";
+import type { BackendSpawnOpts, HomeSubject, LaunchProgram } from "../types/backend.ts";
 import type { AgentAdapter } from "../types/adapter.ts";
-import { shellQuote } from "../util.ts";
 
 /**
  * The label a home is opened with (E8). An orch that opens a home of its own
@@ -20,10 +19,13 @@ export function homeLabel(subject: HomeSubject, requested?: string | null): stri
   return `orch-${subject.kind}-${id || subject.kind}`;
 }
 
-export function createInteractiveCommand(adapter: AgentAdapter, opts: BackendSpawnOpts): string {
-  const command = opts.cmd ?? (opts.program === undefined ? undefined : opts.program.map(shellQuote).join(" ")) ?? adapter.workerLaunch?.restrictedInteractiveCmd(opts) ?? adapter.interactiveCmd(opts);
-  if (!command.trim()) throw new Error(`adapter ${String(adapter.id)} returned an empty interactive command`);
-  return command;
+/** What a launch runs: the caller's `--cmd` line, else the harness's argv: a given program, else
+ *  its worker launch, else its plain interactive launch. */
+export function launchProgram(adapter: AgentAdapter, opts: BackendSpawnOpts): LaunchProgram {
+  if (opts.cmd !== undefined) return { kind: "shell", line: opts.cmd };
+  const argv = opts.program ?? adapter.workerLaunch?.restrictedInteractiveArgv(opts) ?? adapter.interactiveArgv(opts);
+  if (argv.length === 0) throw new Error(`adapter ${String(adapter.id)} returned an empty interactive argv`);
+  return { kind: "argv", argv };
 }
 
 

@@ -86,6 +86,7 @@ describe("commands/lifecycle", () => {
       const backend = new FakePanedBackend();
       Object.defineProperty(backend, "agentInput", {
         value: {
+          shell: "posix",
           submit(_handle: unknown, text: string): void { submitted.push(text); },
           sendKeys: () => undefined,
           focus: () => undefined,
@@ -104,10 +105,11 @@ describe("commands/lifecycle", () => {
       expect(payload).toMatchObject({ ok: 1, total: 1 });
       expect(submitted).toHaveLength(2);
       expect(submitted[0]).toBe(quit.text);
-      // The restart's command is the real launch: on the new model, under a worker settings snapshot.
-      expect(submitted[1]).toStartWith("claude ");
-      expect(submitted[1]).toContain(`--model ${tuning.model}`);
-      expect(submitted[1]).toMatch(/--settings \S*settings\.[0-9a-f]{64}\.json/);
+      // The pane's shell still holds the old launch's env: the restart line sets the project's and removes what it dropped.
+      expect(submitted[1]).toStartWith("env -u ");
+      expect(submitted[1]).toContain(`ORCH_DIR='${root}'`);
+      expect(submitted[1]).toContain(`'claude' '--model' '${tuning.model}'`);
+      expect(submitted[1]).toMatch(/'--settings' '\S*settings\.[0-9a-f]{64}\.json'/);
       expect(agentView(root, key)).toMatchObject({ harnessId: "claude", tuning: { model: tuning.model, thinking: tuning.thinking } });
     });
   });

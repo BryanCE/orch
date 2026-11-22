@@ -1,3 +1,4 @@
+import { shellLine } from "../../../util.ts";
 // `spawn` and `tile`, done by orchd. The caller's plexer runs on this machine, so orchd admits the
 // launch, places it in that plexer (or launches headless, or on a linked host), makes each
 // agent's worktree, and launches every agent. The CLI waits for them to come up and reports.
@@ -15,7 +16,7 @@ import { errorMessage } from "../../../util.ts";
 import { callerSelf } from "../handlers/self.ts";
 import { spawnHeadless } from "../handlers/lifecycle.ts";
 import { resolveTabFor } from "../tabs.ts";
-import { launchCommand, admitLaunchModel, resolveAdapterOrDie } from "./models.ts";
+import { launchArgv, admitLaunchModel, resolveAdapterOrDie } from "./models.ts";
 import { localAgentPlan, planSpawn, plexerRequest, selectBackend, selectSpawnForm, worktreeIntent, type SpawnAgentPlan, type SpawnSettings } from "./plan.ts";
 import { admitSpawn, assertNewSpaceGranted, assertSpaceCapacity, assertSpawnCapacity, assertSpawnPolicy, assertTabCapacity, claimSpawnNames, liveFleet, type CallerSelf } from "./admission.ts";
 import { projectDirectory } from "./project.ts";
@@ -126,7 +127,7 @@ async function executeHeadlessSpawn(state: DaemonState, params: ParamsOf<"spawn"
     const project = projectDirectory(state.directory, self.id, settings.cwd);
     // On another host, --dir names a directory there: nothing here is made or trusted for it.
     const { cwd, worktree } = settings.host === null
-      ? prepareWorkspace(settings.cwd, settings.worktree, name, adapter, plan.cmd ?? launchCommand(adapter, launchPolicy(services, { adapter, project, model: plan.model, name, readOnly: plan.readOnly }, (message) => new SpawnRefusalError(message)), plan, null))
+      ? prepareWorkspace(settings.cwd, settings.worktree, name, adapter, plan.cmd ?? shellLine(launchArgv(adapter, launchPolicy(services, { adapter, project, model: plan.model, name, readOnly: plan.readOnly }, (message) => new SpawnRefusalError(message)), plan, null)))
       : { cwd: settings.cwd, worktree: undefined };
     try {
       // ONE key per agent, minted before launch and passed as the launch credential.
@@ -176,7 +177,7 @@ async function prepareAgents(state: DaemonState, settings: SpawnSettings, names:
       const plan = planFor(settings, name);
       const adapter = resolveAdapterOrDie(plan.adapter);
       const launch = await prepareLaunch(state, { adapter, project, model: plan.model, name, readOnly: plan.readOnly }, (message) => new SpawnRefusalError(message));
-      const { cwd, worktree } = prepareWorkspace(settings.cwd, settings.worktree, name, adapter, plan.cmd ?? launchCommand(adapter, launch, plan, null));
+      const { cwd, worktree } = prepareWorkspace(settings.cwd, settings.worktree, name, adapter, plan.cmd ?? shellLine(launchArgv(adapter, launch, plan, null)));
       const key = mintAgentId();
       const env = spawnEnv(state.directory, key, adapter, plan.form, launch);
       prepared.push({ name, cwd, key, launch, env, worktree, handle: undefined });
@@ -333,7 +334,7 @@ export async function spawnAgents(state: DaemonState, params: ParamsOf<"spawn">)
   const chosen = params.host === null
     ? spawnBackend(services.logger, { backend: requested.backend.id, space: params.space, backendChosen: requested.backendChosen }, environment.plexer, notes)
     : requested.backend;
-  const settings = await admitSpawn(state.directory, self, settingsFile, planSpawn(params, settingsFile, chosen), services.logger, services.models);
+  const settings = admitSpawn(state.directory, self, settingsFile, planSpawn(params, settingsFile, chosen), services.models);
   const partitions = new Map<string, SpawnAgentPlan[]>();
   for (const agent of settings.agents) {
     const partition = partitions.get(agent.backend.id);
@@ -429,7 +430,7 @@ export async function tileAgent(state: DaemonState, params: ParamsOf<"tile">): P
   const intent = worktreeIntent(params.worktree, settingsFile);
   const project = projectDirectory(state.directory, self.id, params.cwd);
   const launch = await prepareLaunch(state, { adapter, project, model, name: agent.name, readOnly: null }, (message) => new SpawnRefusalError(message));
-  const command = params.cmd ?? launchCommand(adapter, launch, { model, thinking: agent.thinking }, null);
+  const command = params.cmd ?? shellLine(launchArgv(adapter, launch, { model, thinking: agent.thinking }, null));
   const { cwd, worktree } = prepareWorkspace(params.cwd, intent, agent.name, adapter, command);
   const spec: TabSpawnSpec = {
     prepareTerminal: terminalPreparer(state),

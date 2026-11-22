@@ -26,7 +26,13 @@ import "../src/adapters/registry.ts";
 import { claudeAdapter } from "../src/adapters/claude.ts";
 import { removeTempDir, tempOrchDir } from "../test/helpers/tempdir.ts";
 import { writeSettingsFixture } from "./helpers/settings.ts";
-import { claudeSettingsPath } from "../src/adapters/claude-hooks.ts";
+import { claudeSettingsPath, CLAUDE_HOOK_EVENTS } from "../src/adapters/claude-hooks.ts";
+import { z } from "zod";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { testLaunch } from "./helpers/launch.ts";
+import { settingsFromFile } from "../src/settings/read.ts";
+import { SETTINGS_FILE_SCHEMA, SETTINGS_SCHEMA } from "../src/settings/schema.ts";
 
 const orchDir: OrchDir = tempOrchDir("orch-claude-adapter-");
 writeSettingsFixture(orchDir, { daemon: { report_timeout_ms: 2000 } });
@@ -155,7 +161,7 @@ describe("Claude adapter", () => {
   });
 
   test("builds the interactive Claude launch command", () => {
-    expect(claudeAdapter.interactiveCmd({})).toBe("claude --strict-mcp-config");
+    expect(claudeAdapter.interactiveArgv({}).join(" ")).toBe("claude --strict-mcp-config");
   });
 
   test("loads no MCP server unless the worker policy inherits MCP", () => {
@@ -342,5 +348,105 @@ describe("Claude adapter", () => {
     } finally {
       removeTempDir(hookOrchDir);
     }
+  });
+});
+
+
+describe("worker settings snapshots", () => {
+  const base = testLaunch().workers;
+  const withPlugins = (ids: string[]) => ({ ...base, excludeExtensions: { ...base.excludeExtensions, claude: ids } });
+  const install = { model: "x", hooks: Object.fromEntries(CLAUDE_HOOK_EVENTS.map((event) => [event, [{ hooks: [{ type: "command", command: `orch-hook ${event}` }] }]])) };
+  let dir: OrchDir;
+  function settingsFileOf(argv: readonly string[]): string {
+    const index = argv.indexOf("--settings");
+    const file = index < 0 ? undefined : argv[index + 1];
+    if (!file) throw new Error("missing --settings file");
+    return file;
+  }
+  function writeInstall(value: unknown = install): void {
+    const file = claudeSettingsPath(dir);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify(value));
+  }
+  const snapshotSchema = z.object({ model: z.string().optional(), hooks: z.record(z.string(), z.unknown()), enabledPlugins: z.record(z.string(), z.boolean()).optional(), env: z.record(z.string(), z.string()).optional() });
+  const readSnapshot = (file: string) => snapshotSchema.parse(JSON.parse(fs.readFileSync(file, "utf8")));
+  const digest = /settings\.[0-9a-f]{64}\.json$/;
+  beforeEach(() => { dir = tempOrchDir("orch-claude-workers-"); });
+  afterEach(() => { removeTempDir(dir); });
+
+  test("policies that differ get two files, each with its own plugins and the install's keys", () => {
+    writeInstall();
+    const a = settingsFileOf(claudeAdapter.interactiveArgv({ orchDir: dir, workers: withPlugins(["one@m"]) }));
+    const b = settingsFileOf(claudeAdapter.interactiveArgv({ orchDir: dir, workers: withPlugins(["two@m"]) }));
+    expect(a).not.toBe(b);
+    for (const [file, plugin] of [[a, "one@m"], [b, "two@m"]]) {
+      if (!file || !plugin) throw new Error("missing fixture");
+      const data = readSnapshot(file);
+      expect(data.enabledPlugins).toEqual({ [plugin]: false });
+      expect(data.model).toBe("x");
+      expect(data.hooks).toEqual(install.hooks);
+      expect(file).toMatch(digest);
+      expect(path.dirname(file)).toBe(path.dirname(claudeSettingsPath(dir)));
+    }
+  });
+  test("equal policies share a file; a changed install file gives a new one and leaves the old", () => {
+    writeInstall();
+    const launch = () => settingsFileOf(claudeAdapter.interactiveArgv({ orchDir: dir, workers: withPlugins(["one@m"]) }));
+    const first = launch();
+    const text = fs.readFileSync(first, "utf8");
+    expect(launch()).toBe(first);
+    writeInstall({ ...install, model: "y" });
+    expect(launch()).not.toBe(first);
+    expect(fs.readFileSync(first, "utf8")).toBe(text);
+  });
+  test("a read-only policy turns the account's connectors off, an inheriting one does not", () => {
+    writeInstall();
+    const read = (inheritMcp: boolean) => readSnapshot(settingsFileOf(claudeAdapter.interactiveArgv({ orchDir: dir, workers: { ...base, inheritMcp } })));
+    expect(read(false).env?.ENABLE_CLAUDEAI_MCP_SERVERS).toBe("false");
+    expect(read(true).env?.ENABLE_CLAUDEAI_MCP_SERVERS).toBeUndefined();
+  });
+  test("a launch never changes the install file", () => {
+    writeInstall();
+    const before = fs.readFileSync(claudeSettingsPath(dir), "utf8");
+    for (const id of ["one@m", "two@m"]) claudeAdapter.interactiveArgv({ orchDir: dir, workers: withPlugins([id]) });
+    expect(fs.readFileSync(claudeSettingsPath(dir), "utf8")).toBe(before);
+  });
+  test("a launch refuses a bad install file", () => {
+    const launch = () => claudeAdapter.interactiveArgv({ orchDir: dir, workers: base });
+    expect(launch).toThrow("run orch setup");
+    writeInstall({ model: "x" });
+    expect(launch).toThrow("run orch setup");
+    const { Stop: _stop, ...hooks } = install.hooks;
+    writeInstall({ ...install, hooks });
+    expect(launch).toThrow("run orch setup");
+    fs.writeFileSync(claudeSettingsPath(dir), "{not json");
+    expect(launch).toThrow("fix the JSON by hand");
+    fs.rmSync(claudeSettingsPath(dir));
+    fs.mkdirSync(claudeSettingsPath(dir));
+    expect(launch).toThrow("fix the JSON by hand");
+  });
+  test("headless and resume launches pass a worker file too", () => {
+    writeInstall();
+    expect(settingsFileOf(claudeAdapter.headlessCmd("reply", { orchDir: dir, workers: base }))).toMatch(digest);
+    if (claudeAdapter.resume) expect(settingsFileOf(claudeAdapter.resume.argv({ orchDir: dir, workers: base, key: "k" }, "s1"))).toMatch(digest);
+  });
+  test("an argv with no orchDir writes nothing", () => {
+    writeInstall();
+    expect(claudeAdapter.interactiveArgv({ workers: base })).not.toContain("--settings");
+    expect(fs.readdirSync(path.dirname(claudeSettingsPath(dir)))).toEqual(["settings.json"]);
+  });
+  test("a second publish of the same snapshot succeeds and leaves no temp file", () => {
+    writeInstall();
+    const launch = () => settingsFileOf(claudeAdapter.interactiveArgv({ orchDir: dir, workers: base }));
+    const first = launch();
+    expect(launch()).toBe(first);
+    expect(fs.readdirSync(path.dirname(first)).sort()).toEqual([path.basename(first), "settings.json"].sort());
+  });
+  test("setup creates the install file from nothing", () => {
+    const settings = settingsFromFile("settings.json", SETTINGS_FILE_SCHEMA.parse({ schemaVersion: SETTINGS_SCHEMA, runtime: "node" }));
+    claudeAdapter.settingsFile.sync(dir, settings);
+    expect(fs.existsSync(claudeSettingsPath(dir))).toBe(true);
+    const data = readSnapshot(claudeSettingsPath(dir));
+    for (const event of CLAUDE_HOOK_EVENTS) expect(data.hooks).toHaveProperty(event);
   });
 });

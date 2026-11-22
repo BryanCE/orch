@@ -82,8 +82,8 @@ describe("CodexAdapter", () => {
     expect(adapter.stateFallback).toBe(true);
     expect(CODEX_STATE_FALLBACK_MARKER).toBe("stateFallback");
 
-    expect(adapter.interactiveCmd({})).toBe("codex");
-    expect(adapter.interactiveCmd({ model: "gpt-5" })).toBe("codex --model 'gpt-5'");
+    expect(adapter.interactiveArgv({}).join(" ")).toBe("codex");
+    expect(adapter.interactiveArgv({ model: "gpt-5" }).join(" ")).toBe("codex --model gpt-5");
     expect(adapter.headlessCmd("fix tests", { model: "gpt-5" })).toEqual([
       "codex",
       "exec",

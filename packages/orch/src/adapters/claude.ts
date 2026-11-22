@@ -339,7 +339,7 @@ class ClaudeAdapter implements AgentAdapter {
   readonly models = { listModels: (catalogue: ModelCatalogue): readonly HarnessModel[] => parseClaudeModelsOutput(catalogue.read("claude", CLAUDE_MODELS_ARGV, CLAUDE_MODELS_REQUEST)) };
   readonly modelWarm = { warmModels: (catalogue: ModelCatalogue): Promise<void> => catalogue.warm("claude", CLAUDE_MODELS_ARGV, CLAUDE_MODELS_REQUEST) };
   /** Claude takes one point per launch, and a running session cannot change its model. */
-  readonly compaction = launchCompaction((tokens) => ({ env: { [COMPACT_WINDOW_ENV]: String(tokens) }, args: [] }));
+  readonly compaction = launchCompaction((tokens) => ({ env: { [COMPACT_WINDOW_ENV]: String(tokens) }, args: [] }), [COMPACT_WINDOW_ENV]);
   readonly bridge = null;
   /** SessionStart reports the session before any prompt; UserPromptSubmit reports each prompt Claude takes. */
   readonly hooks: HookReportRole = { reports: ["start", "prompt"] };
@@ -359,11 +359,6 @@ class ClaudeAdapter implements AgentAdapter {
 
   /** Claude Code exports its own pid, which outlives each `orch` invocation. */
   readonly sessionPidEnv = HARNESS_SESSION_ENV.claude.sessionPid;
-
-  /** Start Claude Code directly in an interactive backend session. */
-  interactiveCmd(opts: SpawnOpts): string {
-    return this.interactiveArgv(opts).join(" ");
-  }
 
   interactiveArgv(opts: SpawnOpts): readonly string[] {
     const argv = [...buildInteractiveArgv("claude", opts), ...settingsArgv(opts), ...mcpArgv(opts), ...readOnlyArgv(opts)];

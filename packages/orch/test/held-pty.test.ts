@@ -45,6 +45,19 @@ describe("writer screens", () => {
     writer.close();
   });
 
+  test("a relaunch starts its program with the env it is given, not the old one's", async () => {
+    const { hold, provider } = holder();
+    const { pid } = await hold.start("agent-1", {
+      file: "sh", args: ["-c", "old"], cwd: "/tmp", env: { KEEP: "1", STALE: "1" },
+    });
+    await hold.relaunchPid(pid, ["-c", "new"], { KEEP: "1", FRESH: "2" });
+    const { request } = provider.last();
+    expect(request.env).toEqual({ KEEP: "1", FRESH: "2" });
+    expect(request.args).toEqual(["-c", "new"]);
+    expect(request.cwd).toBe("/tmp");
+    hold.killAll();
+  });
+
   test("drops viewer input and resizes the screen without a PTY", async () => {
     const { hold, provider } = holder();
     const terminal = login("agent-a");

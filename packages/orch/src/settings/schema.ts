@@ -28,9 +28,6 @@ const CommandPattern = SettingsCommand.refine(isCommandPattern, COMMAND_PATTERN_
 /** Compaction point in tokens, by harness, then by that harness's model spec. */
 export const CompactionTableSchema = z.partialRecord(z.enum(ADAPTER_IDS), z.record(z.string().min(1), PositiveInt));
 
-/** Extensions a worker does not load, by harness, each named in that harness's own vocabulary. */
-export const ExtensionExclusionsSchema = z.partialRecord(z.enum(ADAPTER_IDS), z.array(z.string().min(1)));
-
 export const HostSchema = z.strictObject({
   /** Where ssh connects: user@host, the host an IP, a tailnet name, or any name DNS resolves.
    *  orch reads no ~/.ssh/config, so an alias from one names nothing here. */
@@ -118,7 +115,7 @@ export const SETTINGS_DEFAULTS = {
   pty: { scrollback_lines: 10_000, cols: 120, rows: 40, term: "xterm-256color" },
   attach: { queue_bytes: 1_048_576, detach_key: "ctrl-]" },
   links: { ssh_command: "ssh", ssh_keygen_command: "ssh-keygen", ssh_keyscan_command: "ssh-keyscan", connect_timeout_s: 10, keepalive_interval_s: 15, keepalive_count: 3, request_timeout_ms: 10_000, deliver_timeout_ms: 60_000, receipt_ttl_ms: 600_000, ping_interval_ms: 5_000, silence_timeout_ms: 15_000, retry_after_loss_ms: 250, retry_reset_after_ms: 30_000, retry_floor_ms: 1_000, retry_cap_ms: 300_000, resume_max_age_ms: 43_200_000 },
-  workers: { inherit_extensions: true, inherit_mcp: false, builtin_tools: true, compact_at_tokens: {} },
+  workers: { inherit_mcp: false, inherit_skills: false, builtin_tools: true, compact_at_tokens: {} },
   // What a registered caller (an agent or a harness session) may write with `orch settings`:
   // the project's own commands, which the orchestrator knows and the human need not type.
   agents: { writable_settings: ["workers.verify_commands", "locked_commands.commands"] },
@@ -201,13 +198,12 @@ export const SETTINGS_FILE_SCHEMA = z.strictObject({
      *  else. It never gates a launch: a model outside it stays launchable. Empty passes none. */
     preferred: z.partialRecord(z.enum(ADAPTER_IDS), z.array(z.string())).optional(),
   }).optional(),
-  /** What a spawned worker loads. Inherits the user's own harness setup by default;
-   * name the extensions that misbehave under concurrency rather than dropping all. */
+  /** What a spawned worker may use. Its extensions and plugins are the user's harness setup, untouched. */
   workers: z.strictObject({
-    inherit_extensions: z.boolean().optional(),
     /** Load the user's MCP servers. Off saves the tokens their tool definitions cost each turn. */
     inherit_mcp: z.boolean().optional(),
-    exclude_extensions: ExtensionExclusionsSchema.optional(),
+    /** Load the user's skills. Off saves the tokens their list costs each turn. */
+    inherit_skills: z.boolean().optional(),
     builtin_tools: z.boolean().optional(),
     allow_tools: z.array(z.string()).optional(),
     /** Commands a worker runs to verify its own slice, named in its header. */

@@ -1,6 +1,6 @@
 import { NO_COMPACTION } from "../shared/harness.ts";
 import type { AgentAdapter, CompactionLaunch, SpawnOpts } from "../types/adapter.ts";
-import type { WorkerPolicy } from "../types/policy.ts";
+import type { ContextSwitches, WorkerPolicy } from "../types/policy.ts";
 import type { OrchSettings } from "../types/settings.ts";
 import { OUT_DIR_ENV, READ_ONLY_ENV, readOnlyEnv, readOnlyTools, type ReadOnly, type ToolVocabulary } from "./read-only.ts";
 
@@ -27,9 +27,8 @@ export function policyTools(policy: WorkerPolicy): string | undefined {
 export function workerPolicyFrom(settings: OrchSettings): WorkerPolicy {
   const { workers } = settings;
   return {
-    inheritExtensions: workers.inherit_extensions,
     inheritMcp: workers.inherit_mcp,
-    excludeExtensions: workers.exclude_extensions,
+    inheritSkills: workers.inherit_skills,
     builtinTools: workers.builtin_tools,
     // An allowlist that omitted orch's tools would mute the worker, so they join it.
     allowTools: workers.allow_tools.length ? [...new Set([...workers.allow_tools, ...orchTools(settings)])] : [],
@@ -39,18 +38,22 @@ export function workerPolicyFrom(settings: OrchSettings): WorkerPolicy {
 }
 
 /** The policy of a read-only worker: its harness's tools that read, the two that write when it
- *  has an output directory, and orch's own. No user extension and no MCP server, since either
- *  can bring a tool that writes. The built-ins stay on, because the allowlist names the ones
- *  the worker keeps. */
+ *  has an output directory, and orch's own. No MCP server. The built-ins stay on, because the
+ *  allowlist names the ones the worker keeps. */
 export function readOnlyPolicy(settings: OrchSettings, readOnly: ReadOnly, tools: ToolVocabulary): WorkerPolicy {
   return {
     ...workerPolicyFrom(settings),
-    inheritExtensions: false,
     inheritMcp: false,
     builtinTools: true,
     allowTools: [...readOnlyTools(tools, readOnly), ...orchTools(settings)],
     readOnly,
   };
+}
+
+/** The flags that keep what a launch's policy does not inherit out of the worker's context. No policy, no flags. */
+export function contextArgv(switches: ContextSwitches, policy: WorkerPolicy | undefined): string[] {
+  if (policy === undefined) return [];
+  return [...(policy.inheritMcp ? [] : switches.mcp), ...(policy.inheritSkills ? [] : switches.skills)];
 }
 
 /** What a launch adds for its harness's compaction point, or nothing when none is set. */

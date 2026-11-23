@@ -3,15 +3,16 @@ import * as path from "node:path";
 import { presenceEntry } from "../presence/store.ts";
 import { ARROW, errnoCode, isRecord, readJsonFile, toolDir } from "../util.ts";
 import { blockText, isToolCallContentBlock, parseSession } from "../session.ts";
-import { extensionBundlePath, EXTENSION_NAMES } from "../bridge-bundles/metadata.ts";
+import { extensionBundlePath } from "../bridge-bundles/metadata.ts";
 import { computeCodeHash } from "../daemon/client/process.ts";
 import { packageRoot, reinstallCommand } from "../util.ts";
 import { agentStateFrom } from "../agent-state.ts";
 import { NO_COMPACTION, type AgentState } from "../shared/harness.ts";
 import { HARNESS_SESSION_ENV } from "../shared/session-env.ts";
 import { everywhere } from "../shared/prerequisites.ts";
-import type { AdapterCommand, AdapterId, AgentAdapter, BridgeRole, CompactionLaunch, HarnessModel, LifecycleVerb, ModelCatalogue, ModelRequest, Prerequisite, ReadOnlyRole, ResultExtractionInput, SessionView, SessionViewEntry, SessionViewInput, ShimInstallOpts, SpawnOpts, StateDetectionInput, SteerRequest, ThinkingStrategy } from "../types/adapter.ts";
-import type { ThinkingLevel, WorkerPolicy } from "../types/policy.ts";
+import type { AdapterCommand, AgentAdapter, BridgeRole, CompactionLaunch, HarnessModel, LifecycleVerb, ModelCatalogue, ModelRequest, Prerequisite, ReadOnlyRole, ResultExtractionInput, SessionView, SessionViewEntry, SessionViewInput, ShimInstallOpts, SpawnOpts, StateDetectionInput, SteerRequest, ThinkingStrategy } from "../types/adapter.ts";
+import type { ContextSwitches, ThinkingLevel, WorkerPolicy } from "../types/policy.ts";
+import { contextArgv } from "../policy/workers.ts";
 import { PI_TOOLS } from "../../extensions/pi/vocabulary.ts";
 import type { OrchSettings } from "../types/settings.ts";
 import type { CheckResult, FixDescriptor } from "../types/doctor.ts";
@@ -39,63 +40,6 @@ function piExtensionDir(): string {
 }
 /** pi's shipped bundle, built from extensions/pi/. */
 const PI_EXTENSION: ExtensionName = "pi-bridge";
-/** Binaries that start pi. */
-
-const EXTENSION_SUFFIXES = [".ts", ".js", ".mjs"];
-
-/** A directory is an extension only when it has an index entrypoint; helper
- *  directories beside real extensions have none, and naming one on the harness's
- *  command line makes it refuse to start at all. */
-function directoryExtensionIndex(directory: string): string | undefined {
-  return EXTENSION_SUFFIXES
-    .map((suffix) => path.join(directory, `index${suffix}`))
-    .find((candidate) => fs.existsSync(candidate));
-}
-
-/** Basenames of the user's own discovered extensions, minus orch's bundles. */
-function installedUserExtensions(directory: string): { name: string; file: string }[] {
-  const orchBundles = new Set<string>(EXTENSION_NAMES);
-  let entries: fs.Dirent[];
-  try {
-    entries = fs.readdirSync(directory, { withFileTypes: true });
-  } catch {
-    return []; // no extension dir: the user has none to inherit
-  }
-  return entries.flatMap((entry) => {
-    const file = path.join(directory, entry.name);
-    if (entry.isDirectory()) {
-      const name = entry.name;
-      return orchBundles.has(name) || !directoryExtensionIndex(file) ? [] : [{ name, file }];
-    }
-    const suffix = EXTENSION_SUFFIXES.find((candidate) => entry.name.endsWith(candidate));
-    if (!suffix) return [];
-    const name = entry.name.slice(0, -suffix.length);
-    return orchBundles.has(name) ? [] : [{ name, file }];
-  });
-}
-
-/**
- * The `-e`/`--no-extensions` tokens for one worker of a pi-shaped CLI. Orch's own
- * bundle always loads; whether the user's extensions join it is
- * {@link WorkerPolicy}, not a decision an adapter makes.
- *
- * These CLIs have no per-extension exclude flag, so excluding one means disabling
- * discovery and naming every survivor explicitly.
- */
-export function bridgeExtensionArgv(
-  harness: AdapterId,
-  extensionDir: string,
-  extension: ExtensionName,
-  policy: WorkerPolicy | undefined,
-): string[] {
-  const argv = ["--no-extensions", "-e", path.join(extensionDir, `${extension}.js`)];
-  if (!policy?.inheritExtensions) return argv;
-  const excluded = new Set(policy.excludeExtensions[harness]);
-  for (const installed of installedUserExtensions(extensionDir)) {
-    if (!excluded.has(installed.name)) argv.push("-e", installed.file);
-  }
-  return argv;
-}
 
 /**
  * The tokens that pick a launch model and, when configured, hand the harness the quicklist its
@@ -329,11 +273,14 @@ function piSessionView(input: SessionViewInput): SessionView | undefined {
   };
 }
 
-/** Build one pi launch composition. Worker routes opt into orch's bridge, tools, and
- * inherited user extensions; the ordinary interactive form remains the bare harness. */
+/** pi's flags that keep MCP servers and skills out of a worker. */
+const PI_CONTEXT_SWITCHES: ContextSwitches = { mcp: ["--no-mcp"], skills: ["--no-skills"] };
+
+/** Build one pi launch composition. Worker routes take the policy's tools and context;
+ * the ordinary interactive form remains the bare harness. */
 function piLaunchArgv(opts: SpawnOpts, worker: boolean, prompt: string | undefined, thinking?: ThinkingStrategy | null): string[] {
   const argv: string[] = ["pi"];
-  if (worker) argv.push(...piToolArgv(opts), ...piExtensionArgv(opts));
+  if (worker) argv.push(...piToolArgv(opts), ...contextArgv(PI_CONTEXT_SWITCHES, opts.workers));
   argv.push(...bridgeModelArgv(opts));
   if (thinking && opts.thinking !== undefined) argv.push(...thinking.launchArgs(opts.thinking));
   if (prompt !== undefined) argv.push(prompt);
@@ -472,11 +419,6 @@ export class PiAdapter extends PiBridgeAdapter implements AgentAdapter {
   installShim(_orchDir: OrchDir, opts?: ShimInstallOpts): void {
     installExtensionLink(this.id, piExtensionDir(), PI_EXTENSION, opts);
   }
-}
-
-/** pi's `-e` tokens for one worker. */
-function piExtensionArgv(opts: SpawnOpts): string[] {
-  return bridgeExtensionArgv("pi", piExtensionDir(), PI_EXTENSION, opts.workers);
 }
 
 /** pi's tool-gating tokens for one worker; pi spells the built-ins switch --no-builtin-tools. */

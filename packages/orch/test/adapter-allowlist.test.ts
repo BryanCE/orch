@@ -4,9 +4,8 @@ import { ompAdapter } from "../src/adapters/omp.ts";
 import type { WorkerPolicy } from "../src/types/policy.ts";
 
 const INHERIT: WorkerPolicy = {
-  inheritExtensions: true,
   inheritMcp: false,
-  excludeExtensions: {},
+  inheritSkills: true,
   builtinTools: true,
   allowTools: [],
   compactAtTokens: {},
@@ -14,9 +13,8 @@ const INHERIT: WorkerPolicy = {
 };
 
 const LOCKED_DOWN: WorkerPolicy = {
-  inheritExtensions: false,
   inheritMcp: false,
-  excludeExtensions: {},
+  inheritSkills: true,
   builtinTools: false,
   allowTools: ["read", "bash", "orch_ask"],
   compactAtTokens: {},
@@ -24,17 +22,24 @@ const LOCKED_DOWN: WorkerPolicy = {
 };
 
 describe("pi worker launch obeys the worker policy", () => {
-  test("orch's bridge extension always loads, whatever the policy", () => {
+  // pi's own discovery loads orch's bridge with the user's extensions; orch picks none of them.
+  test("no policy touches which extensions pi loads", () => {
     for (const policy of [INHERIT, LOCKED_DOWN]) {
-      const command = piAdapter.restrictedInteractiveArgv({ workers: policy }).join(" ");
-      // --no-extensions disables discovery; the explicit -e paths still load.
-      expect(command).toContain("--no-extensions");
-      expect(command).toContain("pi-bridge.js");
+      const argv = piAdapter.restrictedInteractiveArgv({ workers: policy });
+      expect(argv).not.toContain("--no-extensions");
+      expect(argv).not.toContain("-e");
     }
   });
 
+  test("a lean policy launches pi with no MCP server and no skills", () => {
+    const argv = piAdapter.restrictedInteractiveArgv({ workers: { ...INHERIT, inheritSkills: false } });
+    expect(argv).toContain("--no-mcp");
+    expect(argv).toContain("--no-skills");
+    expect(piAdapter.restrictedInteractiveArgv({ workers: { ...INHERIT, inheritMcp: true } })).not.toContain("--no-mcp");
+  });
+
   test("a read-only policy names the tools the worker keeps and leaves the built-ins on", () => {
-    const reporter: WorkerPolicy = { inheritExtensions: false, inheritMcp: false, excludeExtensions: {}, builtinTools: true, allowTools: ["read", "grep", "find", "ls", "edit", "write", "orch_ask"], compactAtTokens: {}, readOnly: { out: "/repo/out" } };
+    const reporter: WorkerPolicy = { inheritMcp: false, inheritSkills: true, builtinTools: true, allowTools: ["read", "grep", "find", "ls", "edit", "write", "orch_ask"], compactAtTokens: {}, readOnly: { out: "/repo/out" } };
     const command = piAdapter.restrictedInteractiveArgv({ workers: reporter }).join(" ");
     expect(command).toContain("--tools read,grep,find,ls,edit,write,orch_ask");
     expect(command).not.toContain("--no-builtin-tools");
@@ -67,8 +72,7 @@ describe("pi worker launch obeys the worker policy", () => {
     expect(argv[0]).toBe("pi");
     expect(argv).toContain("--no-builtin-tools");
     expect(argv).toContain("read,bash,orch_ask");
-    expect(argv).toContain("--no-extensions");
-    expect(argv.some((token) => token.endsWith("pi-bridge.js"))).toBe(true);
+    expect(argv).not.toContain("--no-extensions");
     expect(argv.at(-1)).toBe("PROMPT");
   });
 
@@ -80,16 +84,17 @@ describe("pi worker launch obeys the worker policy", () => {
 });
 
 describe("omp worker launch obeys the worker policy through its own harness", () => {
-  test("omp loads its own bundle from its own config root, never pi's", () => {
-    const command = ompAdapter.restrictedInteractiveArgv({ workers: LOCKED_DOWN }).join(" ");
+  test("no policy touches which extensions omp loads", () => {
+    const argv = ompAdapter.restrictedInteractiveArgv({ workers: LOCKED_DOWN });
+    expect(argv).not.toContain("--no-extensions");
+    expect(argv).not.toContain("-e");
+  });
 
-    // The bundle path is OS-native, so compare with separators normalized.
-    const slashed = command.replaceAll("\\", "/");
-    expect(command).toContain("--no-extensions");
-    expect(command).toContain("omp-bridge.js");
-    expect(slashed).toContain(".omp/agent/extensions");
-    expect(command).not.toContain("pi-bridge.js");
-    expect(slashed).not.toContain(".pi/agent");
+  test("a lean policy launches omp with no skills; omp has no MCP switch", () => {
+    const argv = ompAdapter.restrictedHeadlessCmd("PROMPT", { workers: { ...LOCKED_DOWN, inheritSkills: false } });
+    expect(argv).toContain("--no-skills");
+    expect(argv).not.toContain("--no-mcp");
+    expect(argv.at(-1)).toBe("PROMPT");
   });
 
   test("omp drops built-ins with --no-tools, the flag its CLI actually has", () => {

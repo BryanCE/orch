@@ -101,8 +101,6 @@ function completeSettings(): Record<string, unknown> {
     mail: { to_spawner: "events", to_worker: "prompt", to_orch: "events" },
     models: { allowed: { pi: ["openai/test"] }, preferred: { pi: ["openai/test"] } },
     workers: {
-      inherit_extensions: false,
-      exclude_extensions: { pi: ["one"] },
       builtin_tools: false,
       allow_tools: ["read"],
     },

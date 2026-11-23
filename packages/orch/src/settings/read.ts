@@ -172,7 +172,6 @@ const settingsValueExtractors = {
   mail: (root: Partial<SettingsFile>): OrchSettings["mail"] => ({ ...SETTINGS_DEFAULTS.mail, ...root.mail }),
   models: (root: Partial<SettingsFile>) => ({ allowed: root.models?.allowed ?? {}, preferred: root.models?.preferred ?? {} }),
   workers: (root: Partial<SettingsFile>) => ({
-    exclude_extensions: {},
     allow_tools: [],
     verify_commands: [],
     ...SETTINGS_DEFAULTS.workers,

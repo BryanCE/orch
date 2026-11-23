@@ -4,7 +4,7 @@ import * as path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { declaredRuntime } from "../settings/read.ts";
 import { settingsTemporaryPath } from "../settings/schema.ts";
-import { workerPolicyFrom } from "../policy/workers.ts";
+import { contextArgv, workerPolicyFrom } from "../policy/workers.ts";
 import { presenceEntry } from "../presence/store.ts";
 import { errnoCode, errorMessage, isRecord, packageRoot, reinstallCommand, textValue } from "../util.ts";
 import { CLAUDE_HOOK_EVENTS, CLAUDE_HOOK_MATCHERS, claudeHookCommand, claudeHookShimPath, claudeSettingsPath, claudeWorkerSettingsPath } from "./claude-hooks.ts";
@@ -17,7 +17,7 @@ import type { AdapterCommand, AgentAdapter, HarnessModel, HookReportRole, Lifecy
 import type { CheckResult } from "../types/doctor.ts";
 import type { Logger, OrchDir } from "../types/core.ts";
 import type { OrchSettings } from "../types/settings.ts";
-import type { ThinkingLevel, WorkerPolicy } from "../types/policy.ts";
+import type { ContextSwitches, ThinkingLevel, WorkerPolicy } from "../types/policy.ts";
 import { CLAUDE_TOOLS } from "../../extensions/claude/vocabulary.ts";
 import { readOnlyTools } from "../policy/read-only.ts";
 
@@ -78,36 +78,19 @@ const COMPACT_WINDOW_ENV = "CLAUDE_CODE_AUTO_COMPACT_WINDOW";
 /** Claude's switch for the claude.ai connectors, which `--strict-mcp-config` does not name. */
 const CLAUDEAI_MCP_ENV = "ENABLE_CLAUDEAI_MCP_SERVERS";
 
-/** The two values of a worker policy Claude reads from a settings file, not from its argv. */
-interface ClaudeWorkerKeys {
-  /** Plugins turned off, in Claude's naming, sorted so equal policies give equal files. */
-  readonly disabledPlugins: readonly string[];
-  /** Whether the claude.ai connectors load. */
-  readonly connectors: boolean;
-}
-
-function claudeWorkerKeys(policy: WorkerPolicy): ClaudeWorkerKeys {
-  return { disabledPlugins: [...(policy.excludeExtensions.claude ?? [])].sort(), connectors: policy.inheritMcp };
-}
-
-/** A settings file with one policy's plugin exclusions and connector switch in place of whatever it held.
- *  The file's `env` overrides the process env, so it never holds the compaction point: each launch sets
- *  that for its own model. */
-function withWorkerKeys(current: Record<string, unknown>, keys: ClaudeWorkerKeys): Record<string, unknown> {
-  const { env: _fileEnv, enabledPlugins: _orchOwned, ...rest } = current;
+/** A settings file with one policy's connector switch in place of whatever it held. The file's `env`
+ *  overrides the process env, so it never holds the compaction point: each launch sets that for its
+ *  own model. */
+function withConnectorSwitch(current: Record<string, unknown>, policy: WorkerPolicy): Record<string, unknown> {
+  const { env: _fileEnv, ...rest } = current;
   const { [COMPACT_WINDOW_ENV]: _launchOwned, [CLAUDEAI_MCP_ENV]: _connectorsOwned, ...userEnv } = isRecord(current.env) ? current.env : {};
-  const env = keys.connectors ? userEnv : { ...userEnv, [CLAUDEAI_MCP_ENV]: "false" };
-  const enabledPlugins: Record<string, false> = Object.fromEntries(keys.disabledPlugins.map((plugin) => [plugin, false]));
-  return {
-    ...rest,
-    ...(Object.keys(env).length ? { env } : {}),
-    ...(Object.keys(enabledPlugins).length ? { enabledPlugins } : {}),
-  };
+  const env = policy.inheritMcp ? userEnv : { ...userEnv, [CLAUDEAI_MCP_ENV]: "false" };
+  return { ...rest, ...(Object.keys(env).length ? { env } : {}) };
 }
 
-/** The install's worker settings file with orch's hooks and the install policy's two values in place. */
+/** The install's worker settings file with orch's hooks and the install policy's connector switch in place. */
 function withOrchKeys(current: Record<string, unknown>, hooks: Record<string, unknown>, settings: OrchSettings): Record<string, unknown> {
-  return { ...withWorkerKeys(current, claudeWorkerKeys(workerPolicyFrom(settings))), hooks };
+  return { ...withConnectorSwitch(current, workerPolicyFrom(settings)), hooks };
 }
 
 /** orch's hook entries, one per Claude hook event. */
@@ -192,10 +175,10 @@ function settingsArgv(opts: SpawnOpts): string[] {
   return ["--settings", opts.workers === undefined ? claudeSettingsPath(opts.orchDir) : workerSettingsFile(opts.orchDir, opts.workers)];
 }
 
-/** A worker that does not inherit MCP loads no server, so no MCP tool definition costs tokens. */
-function mcpArgv(opts: SpawnOpts): string[] {
-  return opts.workers?.inheritMcp ? [] : ["--strict-mcp-config"];
-}
+/** Claude's flags that keep MCP servers and skills out of a worker. A bare `--disallowedTools` name takes
+ *  the Skill tool, and the skill list it carries, out of context; `/clear` still works. The `=` form keeps
+ *  the variadic flag from taking the prompt after it. */
+const CLAUDE_CONTEXT_SWITCHES: ContextSwitches = { mcp: ["--strict-mcp-config"], skills: ["--disallowedTools=Skill"] };
 
 /** Claude's `--tools` for a read-only worker: the tools that read, and the two that write when it has an output directory. */
 function readOnlyArgv(opts: SpawnOpts): string[] {
@@ -244,10 +227,10 @@ function publishSnapshot(file: string, text: string): void {
   });
 }
 
-/** The settings file a launch under `policy` passes Claude: the install file with this policy's two
- *  values, named for the digest of its text. Written on every call; the install file is read, never it. */
+/** The settings file a launch under `policy` passes Claude: the install file with this policy's
+ *  connector switch, named for the digest of its text. Written on every call; the install file is read, never it. */
 function workerSettingsFile(orchDir: OrchDir, policy: WorkerPolicy): string {
-  const text = settingsText(withWorkerKeys(installSettingsForLaunch(claudeSettingsPath(orchDir)), claudeWorkerKeys(policy)));
+  const text = settingsText(withConnectorSwitch(installSettingsForLaunch(claudeSettingsPath(orchDir)), policy));
   const file = claudeWorkerSettingsPath(orchDir, createHash("sha256").update(text).digest("hex"));
   publishSnapshot(file, text);
   return file;
@@ -299,7 +282,7 @@ export function diagnoseClaudeShim(root: string, orchDir: OrchDir, settings: Orc
   }
   return isDeepStrictEqual(fileSettings, expected)
     ? { id, label, status: "ok", detail: `all orch Claude hooks are current (${shim})` }
-    : rewrite(`missing or stale orch Claude hooks, plugin exclusions out of step with workers.exclude_extensions.claude, a connector switch out of step with workers.inherit_mcp, or a compaction point the launch owns, in ${settingsPath}`);
+    : rewrite(`missing or stale orch Claude hooks, a connector switch out of step with workers.inherit_mcp, or a compaction point the launch owns, in ${settingsPath}`);
 }
 
 /**
@@ -333,7 +316,7 @@ class ClaudeAdapter implements AgentAdapter {
   readonly sessionView = { readSessionView: (input: SessionViewInput): SessionView | undefined => this.readSessionView(input) };
   readonly workspaceTrust = null;
   readonly shim = shimRole(this);
-  /** The worker settings file holds the plugin exclusions and hooks orch derives from its settings. */
+  /** The worker settings file holds the connector switch and hooks orch derives from its settings. */
   readonly settingsFile = { sync: (orchDir: OrchDir, settings: OrchSettings): string | null => syncWorkerSettings(orchDir, settings) };
   readonly defaultModel = null;
   readonly models = { listModels: (catalogue: ModelCatalogue): readonly HarnessModel[] => parseClaudeModelsOutput(catalogue.read("claude", CLAUDE_MODELS_ARGV, CLAUDE_MODELS_REQUEST)) };
@@ -361,14 +344,14 @@ class ClaudeAdapter implements AgentAdapter {
   readonly sessionPidEnv = HARNESS_SESSION_ENV.claude.sessionPid;
 
   interactiveArgv(opts: SpawnOpts): readonly string[] {
-    const argv = [...buildInteractiveArgv("claude", opts), ...settingsArgv(opts), ...mcpArgv(opts), ...readOnlyArgv(opts)];
+    const argv = [...buildInteractiveArgv("claude", opts), ...settingsArgv(opts), ...contextArgv(CLAUDE_CONTEXT_SWITCHES, opts.workers), ...readOnlyArgv(opts)];
     if (opts.thinking !== undefined) argv.push(...this.thinking.launchArgs(opts.thinking));
     return argv;
   }
 
   /** Run Claude Code's print mode for detached workers. */
   headlessCmd(prompt: string, opts: SpawnOpts): string[] {
-    const flags = ["-p", ...settingsArgv(opts), ...mcpArgv(opts), ...readOnlyArgv(opts)];
+    const flags = ["-p", ...settingsArgv(opts), ...contextArgv(CLAUDE_CONTEXT_SWITCHES, opts.workers), ...readOnlyArgv(opts)];
     if (opts.thinking !== undefined) flags.push(...this.thinking.launchArgs(opts.thinking));
     return buildHeadlessArgv("claude", flags, opts, prompt);
   }

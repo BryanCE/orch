@@ -1,7 +1,7 @@
 // Type-only: `keyof typeof` over a runtime binding, erased at compile time, so
 // this creates no runtime edge out of the types layer.
 import type { VOCABULARY } from "../policy/vocabulary.ts";
-import type { CompactionTable, ExtensionExclusions, OrchSettings } from "./settings.ts";
+import type { CompactionTable, OrchSettings } from "./settings.ts";
 import type { ReadOnly } from "../policy/read-only.ts";
 import type { AgentAdapter } from "./adapter.ts";
 
@@ -69,22 +69,22 @@ export type Role = Extract<Term, "orch" | "slave">;
 export const ROLES = ["orch", "slave"] as const satisfies readonly Role[];
 
 /**
- * What a spawned worker is allowed to load, expressed in orch vocabulary and
- * resolved once here. Adapters translate this policy into their own harness's
- * flags; no adapter decides the policy itself.
- *
- * The defaults inherit: a worker runs with the same extensions and tools the
- * user gets interactively. Hardcoding a minimal set stripped every user
- * extension from every worker with no way to opt back in, which is why the
- * exclusions are now a named list the user owns.
+ * What a spawned worker may use, expressed in orch vocabulary and resolved once here.
+ * Adapters translate this policy into their own harness's flags; no adapter decides the
+ * policy itself. A worker loads the user's extensions and plugins exactly as the harness
+ * finds them: orch adds its own bridge and never chooses what else loads.
  */
+/** A harness's own flags that keep one kind of context out of a worker. Empty: the harness has no switch for it. */
+export interface ContextSwitches {
+  readonly mcp: readonly string[];
+  readonly skills: readonly string[];
+}
+
 export interface WorkerPolicy {
-  /** Load the harness's own discovered extensions alongside orch's bridge. */
-  readonly inheritExtensions: boolean;
   /** Load the user's MCP servers; false launches the worker with none. */
   readonly inheritMcp: boolean;
-  /** Extensions to drop when inheriting, by harness, each in that harness's own naming. */
-  readonly excludeExtensions: ExtensionExclusions;
+  /** Load the user's skills; false launches the worker with no skill list in its context. */
+  readonly inheritSkills: boolean;
   /** Keep the harness's built-in tools; false restricts to `allowTools` only. */
   readonly builtinTools: boolean;
   /** The exact tool allowlist, or empty for no restriction. Orch's own tools are always in it. */

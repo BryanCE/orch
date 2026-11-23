@@ -94,6 +94,13 @@ describe("CodexAdapter", () => {
     ]);
   });
 
+  test("a worker that does not inherit skills launches without the skill list", () => {
+    const adapter = new CodexAdapter();
+    const workers = { inheritMcp: false, inheritSkills: false, builtinTools: true, allowTools: [], compactAtTokens: {}, readOnly: null };
+    expect(adapter.interactiveArgv({ workers })).toEqual(["codex", "-c", "skills.include_instructions=false"]);
+    expect(adapter.headlessCmd("fix tests", { workers: { ...workers, inheritSkills: true } })).toEqual(["codex", "exec", "--json", "fix tests"]);
+  });
+
   test("detects a completed notify turn and marks ambiguous output as fallback", () => {
     const adapter = new CodexAdapter();
     const notify = JSON.stringify({ type: CODEX_TURN_COMPLETE });

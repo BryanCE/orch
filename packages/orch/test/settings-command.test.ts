@@ -12,7 +12,6 @@ import { LAUNCH_ENV } from "../src/identity/launch.ts";
 import { mintAgentId } from "../src/shared/agent-id.ts";
 import { AGENT_SETTINGS_GRANT } from "../src/policy/agent-settings.ts";
 import { isRecord } from "../src/util.ts";
-import { claudeSettingsPath } from "../src/adapters/claude-hooks.ts";
 import { removeTempDir, tempOrchDir } from "../test/helpers/tempdir.ts";
 import { captureStdout } from "../test/helpers/stdout.ts";
 import { serveFileDaemon, servedServices } from "../test/helpers/daemon-state.ts";
@@ -226,15 +225,6 @@ describe("orch settings", () => {
     const directory = tempDir();
     writeSettingsFixture(directory, { enabled: { adapters: ["pi"], backends: ["headless"] }, defaults: { adapter: "pi", backend: "headless" } });
     expect(await runSettings(directory, {}, "skills.link", "[\"/tmp/a\",\"/tmp/b\"]")).toContain("skills.link = [\"/tmp/a\",\"/tmp/b\"]");
-  });
-
-  // A Claude worker reads its settings file only at launch; an exclusion that waited for doctor never reached it.
-  test("a plugin exclusion reaches the Claude worker settings file with no doctor run", async () => {
-    const directory = tempDir();
-    writeSettingsFixture(directory, { enabled: { adapters: ["claude"], backends: ["headless"] }, defaults: { adapter: "claude", backend: "headless" } });
-    await runSettings(directory, {}, "workers.exclude_extensions", "{\"claude\":[\"tsgo-lsp@bryan-local\"]}");
-    const workerSettings: unknown = JSON.parse(fs.readFileSync(claudeSettingsPath(directory), "utf8"));
-    expect(isRecord(workerSettings) ? workerSettings.enabledPlugins : undefined).toEqual({ "tsgo-lsp@bryan-local": false });
   });
 
   test("refuses an invalid boolean and names the allowed values", async () => {

@@ -76,6 +76,15 @@ describe("commands/lifecycle", () => {
     });
   });
 
+  test("restart --all with no agent to act on says so, not the usage line", async () => {
+    await withFleet(async (root, key, orchId) => {
+      const services = await swapServices(root);
+      releaseLease(root, key, orchId);
+      const refusal = await cmdRestart(services, ["--all"]).then(() => null, (error: unknown) => error);
+      expect(refusal instanceof Error ? refusal.message : null).toStartWith("orch restart --all: you own no agents");
+    });
+  });
+
   test("restart --harness quits with the old harness, launches the new one, and records it", async () => {
     await withFleet(async (root, key) => {
       seedLiveProcess(root, key);

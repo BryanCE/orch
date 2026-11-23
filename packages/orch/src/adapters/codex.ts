@@ -7,7 +7,8 @@ import { codexNotifyArgv, codexNotifyShimPath, editCodexNotifyConfig } from "./c
 import { detectCodexState, extractCodexResult, readCodexSessionView, type CodexResultExtractionInput } from "../../extensions/codex/events.ts";
 import { buildHeadlessArgv, buildInteractiveArgv, launchCompaction, shimRole, type AgentState } from "../shared/harness.ts";
 import { HARNESS_SESSION_ENV } from "../shared/session-env.ts";
-import { compactionArgs } from "../policy/workers.ts";
+import { compactionArgs, contextArgv } from "../policy/workers.ts";
+import type { ContextSwitches } from "../types/policy.ts";
 import type { AdapterCommand, AgentAdapter, HarnessModel, Prerequisite, SessionView, SessionViewInput, ShimInstallOpts, SpawnOpts, StateDetectionInput, SteerRequest } from "../types/adapter.ts";
 import type { CheckResult, FixDescriptor } from "../types/doctor.ts";
 import type { Logger, OrchDir } from "../types/core.ts";
@@ -17,6 +18,8 @@ const CODEX_ACP_INSTALL = "bun add -g @agentclientprotocol/codex-acp";
 
 /** codex's config key for the token count at which a session compacts. */
 const CODEX_COMPACT_KEY = "model_auto_compact_token_limit";
+/** Codex's flags that keep the skill list out of a worker. Codex has no switch that turns off every MCP server. */
+const CODEX_CONTEXT_SWITCHES: ContextSwitches = { mcp: [], skills: ["-c", "skills.include_instructions=false"] };
 
 /** codex's config folder; `CODEX_HOME` moves it. */
 function codexHome(): string {
@@ -133,12 +136,12 @@ export class CodexAdapter implements AgentAdapter {
   readonly stateFallback = true;
 
   interactiveArgv(opts: SpawnOpts): readonly string[] {
-    return [...buildInteractiveArgv("codex", opts), ...compactionArgs(this, opts)];
+    return [...buildInteractiveArgv("codex", opts), ...compactionArgs(this, opts), ...contextArgv(CODEX_CONTEXT_SWITCHES, opts.workers)];
   }
 
   /** Run Codex's documented JSON event stream in a detached process. */
   headlessCmd(prompt: string, opts: SpawnOpts): string[] {
-    return buildHeadlessArgv("codex", ["exec", "--json", ...compactionArgs(this, opts)], opts, prompt);
+    return buildHeadlessArgv("codex", ["exec", "--json", ...compactionArgs(this, opts), ...contextArgv(CODEX_CONTEXT_SWITCHES, opts.workers)], opts, prompt);
   }
 
   detectState(input: StateDetectionInput): AgentState {

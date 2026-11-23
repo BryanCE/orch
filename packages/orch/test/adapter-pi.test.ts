@@ -63,10 +63,10 @@ describe("PiAdapter", () => {
     expect(adapter.lifecycleControl).not.toBeNull();
   });
 
-  test("restricted workers explicitly load the bundled pi extension", () => {
-    const command = adapter.restrictedInteractiveArgv({}).join(" ");
-    expect(command).toContain("--no-extensions");
-    expect(command).toMatch(/-e .*pi-bridge\.js/);
+  test("a worker launch leaves extension discovery to pi", () => {
+    const argv = adapter.restrictedInteractiveArgv({});
+    expect(argv).not.toContain("--no-extensions");
+    expect(argv).not.toContain("-e");
   });
 
   test("declares its lifecycle slash-commands", () => {

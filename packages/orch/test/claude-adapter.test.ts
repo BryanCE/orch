@@ -161,19 +161,25 @@ describe("Claude adapter", () => {
   });
 
   test("builds the interactive Claude launch command", () => {
-    expect(claudeAdapter.interactiveArgv({}).join(" ")).toBe("claude --strict-mcp-config");
+    expect(claudeAdapter.interactiveArgv({}).join(" ")).toBe("claude");
   });
 
   test("loads no MCP server unless the worker policy inherits MCP", () => {
-    const policy = { inheritExtensions: true, inheritMcp: false, excludeExtensions: {}, builtinTools: true, allowTools: [], compactAtTokens: {}, readOnly: null };
+    const policy = { inheritMcp: false, inheritSkills: true, builtinTools: true, allowTools: [], compactAtTokens: {}, readOnly: null };
     expect(claudeAdapter.interactiveArgv({ workers: { ...policy, inheritMcp: false } })).toEqual(["claude", "--strict-mcp-config"]);
     expect(claudeAdapter.headlessCmd("reply", { workers: { ...policy, inheritMcp: false } })).toEqual(["claude", "-p", "--strict-mcp-config", "reply"]);
     expect(claudeAdapter.interactiveArgv({ workers: { ...policy, inheritMcp: true } })).toEqual(["claude"]);
     expect(claudeAdapter.headlessCmd("reply", { workers: { ...policy, inheritMcp: true } })).toEqual(["claude", "-p", "reply"]);
   });
 
+  test("a worker that does not inherit skills launches without the Skill tool, and the prompt stays last", () => {
+    const policy = { inheritMcp: true, inheritSkills: false, builtinTools: true, allowTools: [], compactAtTokens: {}, readOnly: null };
+    expect(claudeAdapter.headlessCmd("reply", { workers: policy })).toEqual(["claude", "-p", "--disallowedTools=Skill", "reply"]);
+    expect(claudeAdapter.interactiveArgv({ workers: { ...policy, inheritSkills: true } })).toEqual(["claude"]);
+  });
+
   test("a read-only worker launches with only the tools that read, and the two that write when it has an output directory", () => {
-    const policy = { inheritExtensions: false, inheritMcp: false, excludeExtensions: {}, builtinTools: true, allowTools: [], compactAtTokens: {} };
+    const policy = { inheritMcp: false, inheritSkills: true, builtinTools: true, allowTools: [], compactAtTokens: {} };
     const reader = { ...policy, readOnly: { out: null } };
     const reporter = { ...policy, readOnly: { out: "/repo/out" } };
     expect(claudeAdapter.interactiveArgv({ workers: reader })).toEqual(["claude", "--strict-mcp-config", "--tools", "Read,Grep,Glob"]);
@@ -192,7 +198,7 @@ describe("Claude adapter", () => {
     { thinking: undefined, effort: undefined },
   ] satisfies { thinking: ThinkingLevel | undefined; effort: string | undefined }[])("launches with effort for $thinking", ({ thinking, effort }) => {
     const effortArgv = effort === undefined ? [] : ["--effort", effort];
-    const settingsArgv = ["--settings", claudeSettingsPath(orchDir), "--strict-mcp-config"];
+    const settingsArgv = ["--settings", claudeSettingsPath(orchDir)];
     expect(claudeAdapter.interactiveArgv({ orchDir, model: "opus", thinking })).toEqual(["claude", "--model", "opus", ...settingsArgv, ...effortArgv]);
     expect(claudeAdapter.headlessCmd("reply", { orchDir, model: "opus", thinking })).toEqual(["claude", "-p", ...settingsArgv, ...effortArgv, "--model", "opus", "reply"]);
   });
@@ -204,12 +210,12 @@ describe("Claude adapter", () => {
 
   test("loads orch-owned settings in interactive and headless launches", () => {
     const settingsPath = claudeSettingsPath(orchDir);
-    expect(claudeAdapter.interactiveArgv({ orchDir })).toEqual(["claude", "--settings", settingsPath, "--strict-mcp-config"]);
-    expect(claudeAdapter.headlessCmd("reply", { orchDir })).toEqual(["claude", "-p", "--settings", settingsPath, "--strict-mcp-config", "reply"]);
+    expect(claudeAdapter.interactiveArgv({ orchDir })).toEqual(["claude", "--settings", settingsPath]);
+    expect(claudeAdapter.headlessCmd("reply", { orchDir })).toEqual(["claude", "-p", "--settings", settingsPath, "reply"]);
   });
 
   test("pins headless print mode to the hook-driven presence path", () => {
-    expect(claudeAdapter.headlessCmd("reply", {})).toEqual(["claude", "-p", "--strict-mcp-config", "reply"]);
+    expect(claudeAdapter.headlessCmd("reply", {})).toEqual(["claude", "-p", "reply"]);
   });
 
   test("detects state from a live presence status", () => {
@@ -354,7 +360,7 @@ describe("Claude adapter", () => {
 
 describe("worker settings snapshots", () => {
   const base = testLaunch().workers;
-  const withPlugins = (ids: string[]) => ({ ...base, excludeExtensions: { ...base.excludeExtensions, claude: ids } });
+  const withMcp = (inheritMcp: boolean) => ({ ...base, inheritMcp });
   const install = { model: "x", hooks: Object.fromEntries(CLAUDE_HOOK_EVENTS.map((event) => [event, [{ hooks: [{ type: "command", command: `orch-hook ${event}` }] }]])) };
   let dir: OrchDir;
   function settingsFileOf(argv: readonly string[]): string {
@@ -368,21 +374,19 @@ describe("worker settings snapshots", () => {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, JSON.stringify(value));
   }
-  const snapshotSchema = z.object({ model: z.string().optional(), hooks: z.record(z.string(), z.unknown()), enabledPlugins: z.record(z.string(), z.boolean()).optional(), env: z.record(z.string(), z.string()).optional() });
+  const snapshotSchema = z.object({ model: z.string().optional(), hooks: z.record(z.string(), z.unknown()), env: z.record(z.string(), z.string()).optional() });
   const readSnapshot = (file: string) => snapshotSchema.parse(JSON.parse(fs.readFileSync(file, "utf8")));
   const digest = /settings\.[0-9a-f]{64}\.json$/;
   beforeEach(() => { dir = tempOrchDir("orch-claude-workers-"); });
   afterEach(() => { removeTempDir(dir); });
 
-  test("policies that differ get two files, each with its own plugins and the install's keys", () => {
+  test("policies that differ get two files, each with the install's keys", () => {
     writeInstall();
-    const a = settingsFileOf(claudeAdapter.interactiveArgv({ orchDir: dir, workers: withPlugins(["one@m"]) }));
-    const b = settingsFileOf(claudeAdapter.interactiveArgv({ orchDir: dir, workers: withPlugins(["two@m"]) }));
+    const a = settingsFileOf(claudeAdapter.interactiveArgv({ orchDir: dir, workers: withMcp(false) }));
+    const b = settingsFileOf(claudeAdapter.interactiveArgv({ orchDir: dir, workers: withMcp(true) }));
     expect(a).not.toBe(b);
-    for (const [file, plugin] of [[a, "one@m"], [b, "two@m"]]) {
-      if (!file || !plugin) throw new Error("missing fixture");
+    for (const file of [a, b]) {
       const data = readSnapshot(file);
-      expect(data.enabledPlugins).toEqual({ [plugin]: false });
       expect(data.model).toBe("x");
       expect(data.hooks).toEqual(install.hooks);
       expect(file).toMatch(digest);
@@ -391,7 +395,7 @@ describe("worker settings snapshots", () => {
   });
   test("equal policies share a file; a changed install file gives a new one and leaves the old", () => {
     writeInstall();
-    const launch = () => settingsFileOf(claudeAdapter.interactiveArgv({ orchDir: dir, workers: withPlugins(["one@m"]) }));
+    const launch = () => settingsFileOf(claudeAdapter.interactiveArgv({ orchDir: dir, workers: withMcp(false) }));
     const first = launch();
     const text = fs.readFileSync(first, "utf8");
     expect(launch()).toBe(first);
@@ -408,7 +412,7 @@ describe("worker settings snapshots", () => {
   test("a launch never changes the install file", () => {
     writeInstall();
     const before = fs.readFileSync(claudeSettingsPath(dir), "utf8");
-    for (const id of ["one@m", "two@m"]) claudeAdapter.interactiveArgv({ orchDir: dir, workers: withPlugins([id]) });
+    for (const inheritMcp of [false, true]) claudeAdapter.interactiveArgv({ orchDir: dir, workers: withMcp(inheritMcp) });
     expect(fs.readFileSync(claudeSettingsPath(dir), "utf8")).toBe(before);
   });
   test("a launch refuses a bad install file", () => {

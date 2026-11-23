@@ -1,7 +1,7 @@
 import * as path from "node:path";
 import { OMP_TOOLS } from "../../extensions/omp/vocabulary.ts";
 import { isRecord } from "../util.ts";
-import { bridgeExtensionArgv, bridgeModelArgv, diagnoseExtensionLink, installExtensionLink, PiBridgeAdapter, settingsDefaultModel, toolPolicyArgv } from "./pi.ts";
+import { bridgeModelArgv, diagnoseExtensionLink, installExtensionLink, PiBridgeAdapter, settingsDefaultModel, toolPolicyArgv } from "./pi.ts";
 import { HARNESS_SESSION_ENV } from "../shared/session-env.ts";
 import { homeDir } from "../shared/home.ts";
 import { everywhere } from "../shared/prerequisites.ts";
@@ -9,6 +9,8 @@ import type { AgentAdapter, HarnessModel, ModelCatalogue, Prerequisite, ShimInst
 import type { CheckResult } from "../types/doctor.ts";
 import type { ExtensionName, Logger, OrchDir } from "../types/core.ts";
 import type { OrchSettings } from "../types/settings.ts";
+import type { ContextSwitches } from "../types/policy.ts";
+import { contextArgv } from "../policy/workers.ts";
 
 // orch's omp (oh-my-pi) integration. omp is its OWN harness: its own binary, its
 // own config root, its own extension bundle (extensions/omp/), and its own settle
@@ -51,16 +53,14 @@ function parseOmpModelsOutput(stdout: string): readonly HarnessModel[] {
   return payload.models.flatMap(modelRow);
 }
 
-/** omp's `-e` tokens for one worker. */
-function ompExtensionArgv(opts: SpawnOpts): string[] {
-  return bridgeExtensionArgv("omp", path.join(ompAgentDir(), "extensions"), OMP_EXTENSION, opts.workers);
-}
-
 /** omp's tool-gating tokens for one worker. omp's `--no-tools` drops built-in tools
  *  and keeps extension tools; it has no `--no-builtin-tools`. */
 function ompToolArgv(opts: SpawnOpts): string[] {
   return toolPolicyArgv("--no-tools", opts.workers, opts.tools);
 }
+
+/** omp's flags that keep skills out of a worker. omp has no switch that turns off every MCP server. */
+const OMP_CONTEXT_SWITCHES: ContextSwitches = { mcp: [], skills: ["--no-skills"] };
 
 /** Adapter for omp (@oh-my-pi/pi-coding-agent), driven through orch's omp-bridge extension. */
 class OmpAdapter extends PiBridgeAdapter implements AgentAdapter {
@@ -91,10 +91,9 @@ class OmpAdapter extends PiBridgeAdapter implements AgentAdapter {
     return ["omp", ...bridgeModelArgv(opts)];
   }
 
-  /** Start omp as an orch worker: orch's bridge always, plus whatever extensions
-   * and tools the worker policy admits. */
+  /** Start omp as an orch worker under the policy's tools and context. */
   restrictedInteractiveArgv(opts: SpawnOpts): readonly string[] {
-    return ["omp", ...ompToolArgv(opts), ...ompExtensionArgv(opts), ...bridgeModelArgv(opts)];
+    return ["omp", ...ompToolArgv(opts), ...contextArgv(OMP_CONTEXT_SWITCHES, opts.workers), ...bridgeModelArgv(opts)];
   }
 
   /** omp's single binary serves headless runs too — no launcher wrapper. */
@@ -104,7 +103,7 @@ class OmpAdapter extends PiBridgeAdapter implements AgentAdapter {
 
   /** Start omp headless under the same worker policy as an interactive omp worker. */
   restrictedHeadlessCmd(prompt: string, opts: SpawnOpts): string[] {
-    return ["omp", ...ompToolArgv(opts), ...ompExtensionArgv(opts), ...bridgeModelArgv(opts), prompt];
+    return ["omp", ...ompToolArgv(opts), ...contextArgv(OMP_CONTEXT_SWITCHES, opts.workers), ...bridgeModelArgv(opts), prompt];
   }
 
   /** Verify the extension link and bundle written by installShim. */

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { policyTools, readOnlyPolicy, workerPolicyFrom } from "../src/policy/workers.ts";
+import { contextArgv, policyTools, readOnlyPolicy, workerPolicyFrom } from "../src/policy/workers.ts";
 import { SETTINGS_DEFAULTS } from "../src/settings/schema.ts";
 import type { OrchSettings } from "../src/types/settings.ts";
 
@@ -14,7 +14,7 @@ const settings = (workerPeerTools?: boolean, allowTools: string[] = []): OrchSet
   defaults: { ...SETTINGS_DEFAULTS.defaults, models: {} },
   fleet: { worker_peer_tools: workerPeerTools ?? false, max_agents_per_pack: 10, max_agents_per_tab: 4, max_depth: 1, cross_space: false, orch_peers: false, max_agents_per_space: {}, min_free_memory_mb: 2048 },
   models: { allowed: {}, preferred: {} },
-  workers: { inherit_extensions: true, inherit_mcp: false, exclude_extensions: {}, builtin_tools: true, allow_tools: allowTools, verify_commands: [], compact_at_tokens: {} },
+  workers: { inherit_mcp: false, inherit_skills: false, builtin_tools: true, allow_tools: allowTools, verify_commands: [], compact_at_tokens: {} },
   queue: { max_retries: 1, dispatch_concurrency: 4 },
   daemon: { tcp_port: 3716, outbox_drain_ms: 1000, work_tick_ms: 5_000, liveness_poll_ms: 5_000, report_timeout_ms: 500, bridge_reconnect_ms: 1000, outbox_max_attempts: 120, subscriber_queue_bytes: 8_388_608 },
   timeouts: { dispatch_ack_ms: 10_000, wait_ms: 300_000, adapter_command_ms: 60_000, notify_ms: 3_000, spawn_attach_ms: 60_000, spawn_attach_poll_ms: 500, lock_wait_ms: 180_000, lock_poll_ms: 1_000, reset_ready_ms: 75_000, reset_poll_ms: 250, daemon_probe_ms: 10_000, acp_probe_ms: 5_000, server_ready_ms: 30_000, session_close_ms: 2_000, abort_gap_ms: 500, machine_ms: 600_000 },
@@ -43,10 +43,18 @@ describe("worker tool policy", () => {
     const policy = readOnlyPolicy(settings(true, ["bash"]), { out: null }, tools);
     expect(policy.readOnly).toEqual({ out: null });
     expect(policy.allowTools).toEqual(["read", "grep", "orch_ask", "orch_agents", "orch_send", "orch_read"]);
-    expect(policy.inheritExtensions).toBe(false);
     expect(policy.inheritMcp).toBe(false);
     expect(policy.builtinTools).toBe(true);
     expect(readOnlyPolicy(settings(), { out: null }, tools).allowTools).toEqual(["read", "grep", "orch_ask"]);
+  });
+
+  test("context flags drop what the policy does not inherit, and nothing without a policy", () => {
+    const switches = { mcp: ["--no-mcp"], skills: ["--no-skills"] };
+    const policy = workerPolicyFrom(settings());
+    expect(contextArgv(switches, policy)).toEqual(["--no-mcp", "--no-skills"]);
+    expect(contextArgv(switches, { ...policy, inheritSkills: true })).toEqual(["--no-mcp"]);
+    expect(contextArgv(switches, { ...policy, inheritMcp: true, inheritSkills: true })).toEqual([]);
+    expect(contextArgv(switches, undefined)).toEqual([]);
   });
 
   test("an output directory adds the harness's write tools", () => {

@@ -59,8 +59,9 @@ export async function lifecycleTargets(services: DaemonClient, self: CallerSelf,
 export async function requireLifecycleTargets(services: DaemonClient, verb: string, args: readonly string[]): Promise<{ invocation: Invocation; self: CallerSelf; targets: string[]; json: boolean; steal: boolean; selection: AgentFlags }> {
   const invocation = parseCommand(verb, args);
   const self = await whoAmI(services);
-  const { targets } = await lifecycleTargets(services, self, invocation);
-  if (!targets.length) throw usageError(invocation);
+  const { targets, all } = await lifecycleTargets(services, self, invocation);
+  if (!all && !targets.length) throw usageError(invocation);
+  if (!targets.length) die(`orch ${verb} --all: you own no agents. Name the agent instead: orch ${verb} <target>.`);
   const { flags } = invocation;
   return { invocation, self, targets, json: flags.has("--json"), steal: flags.has("--steal"), selection: agentFlags(flags) };
 }

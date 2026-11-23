@@ -41,8 +41,6 @@ export type NotificationPosition = (typeof NOTIFICATION_POSITIONS)[number];
 /** Compaction point in tokens, by harness, then by that harness's model spec. A pair with no
  *  entry launches on the harness's own default. */
 export type CompactionTable = Partial<Record<AdapterId, Readonly<Record<string, number>>>>;
-/** Extensions a worker does not load, by harness. */
-export type ExtensionExclusions = Partial<Record<AdapterId, string[]>>;
 
 /** Settings normalized for consumers: every section present and defaults applied. */
 export interface OrchSettings {
@@ -52,7 +50,7 @@ export interface OrchSettings {
   fleet: { max_agents_per_pack: number; max_agents_per_tab: number; max_depth: number; max_agents_total?: number; max_agents_per_space: Record<string, number>; min_free_memory_mb: number; worker_peer_tools: boolean; cross_space: boolean; orch_peers: boolean };
   mail: { to_spawner: MailDelivery; to_worker: MailDelivery; to_orch: MailDelivery };
   models: { allowed: Partial<Record<AdapterId, string[]>>; preferred: Partial<Record<AdapterId, string[]>> };
-  workers: { inherit_extensions: boolean; inherit_mcp: boolean; exclude_extensions: ExtensionExclusions; builtin_tools: boolean; allow_tools: string[]; verify_commands: string[]; compact_at_tokens: CompactionTable };
+  workers: { inherit_mcp: boolean; inherit_skills: boolean; builtin_tools: boolean; allow_tools: string[]; verify_commands: string[]; compact_at_tokens: CompactionTable };
   agents: { writable_settings: string[] };
   queue: { max_retries: number; dispatch_concurrency: number };
   retention: { ended_agents_days: number | null; ended_agent_rows_ms: number; queue_days: number; events_days: number; runs_days: number; outbox_days: number; control_outcomes_days: number; logs_days: number; sweep_interval_ms?: number };

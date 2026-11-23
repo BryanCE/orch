@@ -29,8 +29,6 @@ export type SpawnFlags = Omit<AgentFlags, "adapterFlag" | "modelFlag"> & {
   tab: string | null;
   /** The directory the agent starts in: the spawner's own unless `--dir` names another. */
   cwd: string;
-  /** The harness command `--cmd` named, or null for the adapter's own. */
-  cmd: string | null;
   /** A host from settings.hosts to run the agents on, or null for this machine. */
   host: string | null;
   /** What --dir said, or null when it said nothing. */
@@ -98,7 +96,6 @@ export function spawnFlagsOf(invocation: Invocation): SpawnFlags {
     form,
     tab: flags.value("--tab") ?? null,
     cwd: flags.value("--dir") ?? process.cwd(),
-    cmd: flags.value("--cmd") ?? null,
     host: flags.value("--host") ?? null,
     dirFlag: flags.value("--dir") ?? null,
     space: flags.value("--space") ?? null,
@@ -183,12 +180,10 @@ export function resolveLaunchAgent(flags: AgentFlags, settings: OrchSettings): {
   return { harness, model: tuning.model, thinking: tuning.thinking };
 }
 
-/** One harness per agent. `--cmd` is one harness's command, so it refuses a mixed fleet. */
+/** One harness per agent. */
 function resolveSpawnAdapters(flags: SpawnFlags, settings: OrchSettings, n: number): AdapterId[] {
-  const adapters = perAgent(flags.at, "--harness", flags.harnessFlags, n)
+  return perAgent(flags.at, "--harness", flags.harnessFlags, n)
     .map((harness) => pickAdapter(harness === undefined ? {} : { adapterFlag: harness }, settings));
-  if (flags.cmd !== null && new Set(adapters).size > 1) throw usageError(flags.at, "--cmd launches one harness; give one --harness with it");
-  return adapters;
 }
 
 /** What `--read-only` and `--out` ask of one agent: null for an ordinary agent, else its output
@@ -209,10 +204,8 @@ export function resolveSpawnSettings(flags: SpawnFlags, settings: OrchSettings):
     if (flags.dirFlag === null) throw usageError(flags.at, "--host needs --dir <path on that host>: this machine's directory names nothing there");
     if (flags.backendFlag !== undefined) throw usageError(flags.at, "--host runs the agents with no plexer on that host; drop --plexer");
     if (flags.worktree.wanted || flags.worktree.provider !== undefined) throw usageError(flags.at, "--host cannot make a worktree on that host yet; drop --worktree");
-    if (flags.cmd !== null) throw usageError(flags.at, "--host launches each harness's own command; drop --cmd");
   }
   if (!flags.readOnly && flags.outDirs.length > 0) throw usageError(flags.at, "--out names where a read-only agent may write; add --read-only");
-  if (flags.readOnly && flags.cmd !== null) throw usageError(flags.at, "--read-only is held by the harness's own launch, and --cmd replaces that launch; drop one");
   const worktree = flags.host === null ? resolveWorktreeIntent(flags.at, flags.worktree, settings) : null;
   const names = resolveSpawnNames(flags.at, flags.positional);
   const n = names.length;
@@ -232,7 +225,6 @@ export function resolveSpawnSettings(flags: SpawnFlags, settings: OrchSettings):
     params: {
       agents,
       form: flags.form,
-      cmd: flags.cmd,
       plexer: flags.backendFlag ?? null,
       cwd: flags.cwd,
       tab: flags.tab,

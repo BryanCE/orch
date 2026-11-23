@@ -207,6 +207,7 @@ const HELP: Readonly<Record<string, string>> = {
   "logging.stall_ms": "How long the daemon's event loop may stall before the daemon logs it, in milliseconds.",
   "logging.stall_poll_ms": "How often the daemon looks at the sampled event-loop delay for a stall, in milliseconds.",
   "retention.ended_agents_days": "Days to keep a gone agent's JSONL history under $ORCH_DIR/agents; none keeps it forever.",
+  "retention.ended_agent_rows_ms": "How long a gone agent stays in the store after it ends, in milliseconds, so orch status and orch result still name it. orch clean --all removes it at once.",
   "retention.queue_days": "Days to retain settled queue tasks.",
   "retention.events_days": "Days to retain events.",
   "retention.runs_days": "Days to retain completed runs.",

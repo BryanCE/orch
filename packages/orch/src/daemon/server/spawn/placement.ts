@@ -1,4 +1,3 @@
-import { shellLine } from "../../../util.ts";
 import { basename } from "node:path";
 import { assertNameFree } from "../../../policy/name.ts";
 import { mintAgentId } from "../../../shared/agent-id.ts";
@@ -22,7 +21,7 @@ import type { TerminalPreparer } from "../../../types/held-session.ts";
 import { projectDirectory } from "./project.ts";
 import type { CreatedAgent, OpenFleetHomeRequest, SpawnPlacement, SpawnPlacementRequest, TabSpawnSpec } from "../../../types/command.ts";
 import { liveFleet, type CallerSelf } from "./admission.ts";
-import { launchArgv, resolveAdapterOrDie } from "./models.ts";
+import { resolveAdapterOrDie } from "./models.ts";
 import type { HomeSubject } from "../../../types/backend.ts";
 import type { AgentWorktree } from "../../../types/worktree.ts";
 import { localAgentPlan, type LocalSpawnAgentPlan, type SpawnSettings } from "./plan.ts";
@@ -133,7 +132,7 @@ function spawnOptsOf(orchDir: OrchDir, spec: TabSpawnSpec, key: string, env: Rea
   return {
     form: spec.form, key, env, cwd: spec.cwd, name: spec.name, workspace: spec.workspace, group: spec.group,
     orchDir, project: spec.project, model: spec.model, thinking, preferredModels: spec.launch.preferredModels,
-    tools: spec.launch.tools, workers: spec.launch.workers, cmd: spec.cmd,
+    tools: spec.launch.tools, workers: spec.launch.workers,
   };
 }
 
@@ -210,9 +209,9 @@ export interface AgentWorkspace {
 
 /** Make the agent's workspace and have its harness trust it. A worktree is a
  *  directory no harness has seen, so every launch path comes through here. */
-export function prepareWorkspace(from: string, intent: WorktreeIntent | null, name: string, adapter: AgentAdapter, cmd: string): AgentWorkspace {
+export function prepareWorkspace(from: string, intent: WorktreeIntent | null, name: string, adapter: AgentAdapter): AgentWorkspace {
   const workspace = intent === null ? { cwd: from, worktree: undefined } : createAgentWorktree(intent, from, name);
-  adapter.workspaceTrust?.preTrustWorkspace(workspace.cwd, cmd);
+  adapter.workspaceTrust?.preTrustWorkspace(workspace.cwd);
   return workspace;
 }
 
@@ -228,7 +227,7 @@ async function placeAgent(services: DaemonContext, settings: SpawnSettings, plan
   const { space, workspace, group } = place;
   const name = plan.name;
   const adapter = resolveAdapterOrDie(plan.adapter);
-  const { cwd, worktree } = prepareWorkspace(settings.cwd, settings.worktree, name, adapter, plan.cmd ?? shellLine(launchArgv(adapter, launch, plan, null)));
+  const { cwd, worktree } = prepareWorkspace(settings.cwd, settings.worktree, name, adapter);
   try {
     return await tileAgentIntoGroup(services, {
     prepareTerminal,
@@ -245,7 +244,6 @@ async function placeAgent(services: DaemonContext, settings: SpawnSettings, plan
     model: plan.model,
     thinking: plan.thinking,
     launch,
-    ...(plan.cmd === null ? {} : { cmd: plan.cmd }),
     worktree,
     spawner: self.id,
     owner: self.id ?? undefined,

@@ -122,7 +122,6 @@ export async function conveneCouncil(state: DaemonState, params: ParamsOf<"counc
         tab,
         space: params.space,
         cwd: params.cwd,
-        cmd: null,
         host: null,
         worktree: null,
         agents: members.map((member) => ({ ...member, prompt: null, readOnly: { out: memberDirectory(directory, member.name) } })),

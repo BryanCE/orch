@@ -1,11 +1,10 @@
-import { shellLine } from "../../../util.ts";
 // `spawn` and `tile`, done by orchd. The caller's plexer runs on this machine, so orchd admits the
 // launch, places it in that plexer (or launches headless, or on a linked host), makes each
 // agent's worktree, and launches every agent. The CLI waits for them to come up and reports.
 import { heldBackend } from "../../../backends/registry.ts";
 import { terminalAttach, terminalPreparer } from "../session-agents.ts";
 import { FORM_SESSION_OWNER, FORM_STDIO, type FormId } from "../../../types/form.ts";
-import { launchPolicy, prepareLaunch } from "../launch-policy.ts";
+import { prepareLaunch } from "../launch-policy.ts";
 import type { LaunchPolicy } from "../../../types/policy.ts";
 import { mintAgentId } from "../../../shared/agent-id.ts";
 import { takesModel } from "../../../shared/harness.ts";
@@ -16,9 +15,9 @@ import { errorMessage } from "../../../util.ts";
 import { callerSelf } from "../handlers/self.ts";
 import { spawnHeadless } from "../handlers/lifecycle.ts";
 import { resolveTabFor } from "../tabs.ts";
-import { launchArgv, admitLaunchModel, resolveAdapterOrDie } from "./models.ts";
+import { admitLaunchModel, resolveAdapterOrDie } from "./models.ts";
 import { localAgentPlan, planSpawn, plexerRequest, selectBackend, selectSpawnForm, worktreeIntent, type SpawnAgentPlan, type SpawnSettings } from "./plan.ts";
-import { admitSpawn, assertNewSpaceGranted, assertSpaceCapacity, assertSpawnCapacity, assertSpawnPolicy, assertTabCapacity, claimSpawnNames, liveFleet, type CallerSelf } from "./admission.ts";
+import { admitSpawnModels, admitSpawn, assertNewSpaceGranted, assertSpaceCapacity, assertSpawnCapacity, assertSpawnPolicy, assertTabCapacity, claimSpawnNames, liveFleet, type CallerSelf } from "./admission.ts";
 import { projectDirectory } from "./project.ts";
 import { discardUnusedWorkspace, findGroupInSpace, growFleetIntoGroup, openFleetHome, prepareWorkspace, resolveSpawnPlacement, spawnBackend, spawnEnv, spawnOneIntoTab, type SpawnNotes } from "./placement.ts";
 import { freeTabLabel, liveTabLabels } from "./tab-label.ts";
@@ -104,7 +103,6 @@ function spawnedResult(settings: SpawnSettings, created: readonly CreatedAgent[]
 async function executeHeadlessSpawn(state: DaemonState, params: ParamsOf<"spawn">, self: CallerSelf, settings: SpawnSettings, environment: AgentEnvironment, notes: SpawnNotes): Promise<SpawnResult> {
   const services = state.services;
   const settingsFile = services.settingsFor(projectDirectory(state.directory, self.id, settings.cwd)).settings;
-  if (settings.commandFlag) throw new SpawnRefusalError("--cmd requires a backend that places agents; headless launches use the selected adapter.");
   // A headless agent here has no TTY to idle on: it runs its prompt and exits, so work
   // dispatched after launch would arrive at a dead process. An agent on a linked host runs in
   // a PTY that host's orchd holds, and idles there waiting for a dispatch like any other.
@@ -123,12 +121,11 @@ async function executeHeadlessSpawn(state: DaemonState, params: ParamsOf<"spawn"
   const names = claimSpawnNames(views, presence, settings.agents.map((agent) => agent.name), space);
   for (const name of names) {
     const plan = planFor(settings, name);
-    const adapter = resolveAdapterOrDie(plan.adapter);
     const project = projectDirectory(state.directory, self.id, settings.cwd);
     // On another host, --dir names a directory there: nothing here is made or trusted for it.
-    const { cwd, worktree } = settings.host === null
-      ? prepareWorkspace(settings.cwd, settings.worktree, name, adapter, plan.cmd ?? shellLine(launchArgv(adapter, launchPolicy(services, { adapter, project, model: plan.model, name, readOnly: plan.readOnly }, (message) => new SpawnRefusalError(message)), plan, null)))
-      : { cwd: settings.cwd, worktree: undefined };
+    const { cwd, worktree } = plan.form === null
+      ? { cwd: settings.cwd, worktree: undefined }
+      : prepareWorkspace(settings.cwd, settings.worktree, name, resolveAdapterOrDie(plan.adapter));
     try {
       // ONE key per agent, minted before launch and passed as the launch credential.
       const key = mintAgentId();
@@ -174,10 +171,10 @@ async function prepareAgents(state: DaemonState, settings: SpawnSettings, names:
   const prepared: PreparedAgent[] = [];
   try {
     for (const name of names) {
-      const plan = planFor(settings, name);
+      const plan = localAgentPlan(planFor(settings, name));
       const adapter = resolveAdapterOrDie(plan.adapter);
       const launch = await prepareLaunch(state, { adapter, project, model: plan.model, name, readOnly: plan.readOnly }, (message) => new SpawnRefusalError(message));
-      const { cwd, worktree } = prepareWorkspace(settings.cwd, settings.worktree, name, adapter, plan.cmd ?? shellLine(launchArgv(adapter, launch, plan, null)));
+      const { cwd, worktree } = prepareWorkspace(settings.cwd, settings.worktree, name, adapter);
       const key = mintAgentId();
       const env = spawnEnv(state.directory, key, adapter, plan.form, launch);
       prepared.push({ name, cwd, key, launch, env, worktree, handle: undefined });
@@ -250,7 +247,6 @@ async function launchPrepared(state: DaemonState, prepared: readonly PreparedAge
         backend, adapter: resolveAdapterOrDie(plan.adapter), adapterId: plan.adapter, name: item.name, cwd: item.cwd, space, workspace, group: groupId,
         project: projectDirectory(state.directory, self.id, settings.cwd),
         form: plan.form, model: plan.model, thinking: plan.thinking, launch: item.launch,
-        ...(plan.cmd === null ? {} : { cmd: plan.cmd }),
         worktree: item.worktree,
         spawner: self.id, owner: self.id ?? undefined,
         intoHandle: item.handle, key: item.key, env: item.env,
@@ -328,13 +324,18 @@ export async function spawnAgents(state: DaemonState, params: ParamsOf<"spawn">)
   const self = spawner(state, params.caller);
   const project = services.settingsFor(projectDirectory(state.directory, self.id, params.cwd));
   const settingsFile = params.agents.some((agent) => agent.prompt?.trim()) ? validProjectSettings(project) : project.settings;
+  // Provenance depth and pack size refuse first: before a model is admitted, a backend is
+  // resolved or any space is allocated.
+  const { views, presence } = liveFleet(state.directory);
+  assertSpawnPolicy(settingsFile, params.space ?? self.space, params.agents.length, views, presence, self.id);
   const environment = callerEnvironment(self);
   const notes: SpawnNotes = [];
   const requested = plexerRequest(params, settingsFile);
   const chosen = params.host === null
     ? spawnBackend(services.logger, { backend: requested.backend.id, space: params.space, backendChosen: requested.backendChosen }, environment.plexer, notes)
     : requested.backend;
-  const settings = admitSpawn(state.directory, self, settingsFile, planSpawn(params, settingsFile, chosen), services.models);
+  const settings = planSpawn(admitSpawnModels(params, settingsFile, services.models), settingsFile, chosen);
+  admitSpawn(settings);
   const partitions = new Map<string, SpawnAgentPlan[]>();
   for (const agent of settings.agents) {
     const partition = partitions.get(agent.backend.id);
@@ -430,8 +431,7 @@ export async function tileAgent(state: DaemonState, params: ParamsOf<"tile">): P
   const intent = worktreeIntent(params.worktree, settingsFile);
   const project = projectDirectory(state.directory, self.id, params.cwd);
   const launch = await prepareLaunch(state, { adapter, project, model, name: agent.name, readOnly: null }, (message) => new SpawnRefusalError(message));
-  const command = params.cmd ?? shellLine(launchArgv(adapter, launch, { model, thinking: agent.thinking }, null));
-  const { cwd, worktree } = prepareWorkspace(params.cwd, intent, agent.name, adapter, command);
+  const { cwd, worktree } = prepareWorkspace(params.cwd, intent, agent.name, adapter);
   const spec: TabSpawnSpec = {
     prepareTerminal: terminalPreparer(state),
     backend, adapter, adapterId: agent.harness, name: agent.name, cwd, worktree, space,
@@ -441,7 +441,6 @@ export async function tileAgent(state: DaemonState, params: ParamsOf<"tile">): P
     group: tab.id,
     // Same planner `spawn` uses, off the same tab-wide geometry.
     placement: planTilePlacement(layout, settingsFile.tiling.first_split),
-    ...(params.cmd === null ? {} : { cmd: params.cmd }),
     model,
     thinking: agent.thinking,
     launch,

@@ -1,4 +1,7 @@
+import { randomUUID } from "node:crypto";
 import type { JsonRecord, Logger, OrchDir } from "../../types/core.ts";
+import type { AgentAdapter } from "../../types/adapter.ts";
+import { echoesPrompts } from "../../shared/harness.ts";
 import { registerMemoReset, storeReplaced } from "../../store/connection.ts";
 import { reopenReplacedStore } from "./store-recovery.ts";
 import { pendingQuestion } from "../../store/question-rows.ts";
@@ -15,7 +18,7 @@ import { placeHere } from "../../process-place.ts";
 import { askingEventFromRow, transitionEventFromRow } from "./status-events.ts";
 import { forgetCapacity } from "./capacity.ts";
 import { acknowledgeDelivery } from "../../control/ack.ts";
-import { takeEcho, type TypedPrompt } from "../../control/echo.ts";
+import { expectEcho, takeEcho, type TypedPrompt } from "../../control/echo.ts";
 import { prepareWorkerTask } from "../../worker-prompt.ts";
 
 /** Row fields a history line never repeats: the line's `ts` and its directory already say them. */
@@ -123,6 +126,15 @@ function promptStatus(prompt: string, typed: TypedPrompt | undefined, now: numbe
   };
 }
 
+/** Open the run of the prompt an agent takes at launch, which no dispatch carries: its status row
+ *  holds the run's id, which a harness's status and result reports keep, and a harness that
+ *  echoes each prompt binds its echo to the same run. The run then outlives the agent. */
+export function openLaunchRun(orchDir: OrchDir, adapter: AgentAdapter, key: string, prompt: string, now = Date.now()): void {
+  const id = randomUUID();
+  if (echoesPrompts(adapter)) expectEcho(key, { id, kind: "run", text: prompt });
+  recordAgentStatus(orchDir, placeHere(orchDir, key), { dispatchId: id, task: prepareWorkerTask(prompt) }, now);
+}
+
 export function acceptPromptReport(orchDir: OrchDir, key: string, prompt: string, publish: (event: NotifyEvent) => void, now = Date.now()): { ok: true } {
   const typed = takeEcho(key, prompt);
   if (typed !== undefined) acknowledgeDelivery(typed.id);
@@ -173,11 +185,12 @@ export function startLivenessTick(
   intervalMs: number,
   publish: (event: NotifyEvent) => void,
   logger: Logger,
+  endedRowsMs: () => number,
 ): { stop(): void } {
   // An agent is alive while its harness process runs. Once it is gone its
   // exit is announced, it is ended unless it still owns a running agent, and
-  // its rows leave the store when nothing points at them; the JSONL history
-  // keeps what it did.
+  // its rows leave the store `endedRowsMs` after it ended, once nothing points at
+  // them; the JSONL history keeps what it did.
   const tick = (): void => {
     const startedAt = Date.now();
     if (storeReplaced(orchDir)) reopenReplacedStore(orchDir, logger);
@@ -195,7 +208,7 @@ export function startLivenessTick(
     }
     const ended = endDeadAgents(orchDir, Date.now());
     if (ended.length > 0) logger.info("agents.ended", { agents: ended.join(",") });
-    const reaped = reapDeadAgentRecords(orchDir);
+    const reaped = reapDeadAgentRecords(orchDir, endedRowsMs(), Date.now());
     if (reaped.length > 0) logger.info("agents.reaped", { agents: reaped.join(",") });
     logger.trace("tick.liveness", { exited, ended: ended.length, reaped: reaped.length, elapsedMs: Date.now() - startedAt });
   };

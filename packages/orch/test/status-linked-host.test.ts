@@ -125,7 +125,7 @@ test("the liveness tick never marks a far agent on a downed link exited, nor rea
   const events: NotifyEvent[] = [];
   farReportsWorking(orchDir);
   const { logger, records } = recordingLogger();
-  const tick = startLivenessTick(orchDir, 1, (event) => events.push(event), logger);
+  const tick = startLivenessTick(orchDir, 1, (event) => events.push(event), logger, () => 0);
   const deadline = Date.now() + 2_000;
   while (records.filter((record) => record.event === "tick.liveness").length < 3 && Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, 5));

@@ -33,6 +33,7 @@ import { presenceEntry } from "../../../presence/store.ts";
 import { isAgentState } from "../../../agent-state.ts";
 import { pendingQuestions, recordQuestion } from "../../../store/question-rows.ts";
 import { governWrite } from "./write.ts";
+import { openLaunchRun } from "../status-report.ts";
 import { assertHostAdmits } from "../spawn/admission.ts";
 import { atAgentHost, driveOnHost } from "./host.ts";
 import type { LifecycleVerb } from "../../../types/adapter.ts";
@@ -89,7 +90,6 @@ export async function spawnHeadless(state: DaemonState, params: ParamsOf<"spawn-
   const prompt = params.prompt === null || params.worker === undefined
     ? params.prompt
     : workerText(state, key, state.services.settingsFor(params.project), params.prompt, params.worker, params.readOnly === null ? {} : { readOnly: params.readOnly });
-  if (FORM_STDIO[form] === "none" && prompt === null) throw new Error(`cannot spawn ${key}: a headless agent needs its prompt at launch`);
   const opts: BackendSpawnOpts = {
     form,
     key,
@@ -113,7 +113,10 @@ export async function spawnHeadless(state: DaemonState, params: ParamsOf<"spawn-
   if (FORM_STDIO[form] !== "none") {
     return spawnHeldLaunch(state, adapter, { ...opts, key, firstPrompt: prompt, spawner: peer === undefined ? params.spawner : null, ...(peer === undefined ? {} : { origin: { askedBy: peer, spawner: params.spawner } }) });
   }
+  if (prompt === null) throw new Error(`cannot spawn ${key}: a headless agent needs its prompt at launch`);
   const handle = headlessBackend.spawn(adapter, { ...opts, spawner: params.spawner });
+  // It takes its prompt at launch, not as a dispatch: its run opens here, before its first report.
+  openLaunchRun(directory, adapter, key, prompt);
   const running = headlessBackend.process.running(handle);
   return { form, key, backend: headlessBackend.id, handle: JSON.stringify(handle), process: hostedHere(running.pid, running.startToken) };
 }

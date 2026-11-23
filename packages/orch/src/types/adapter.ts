@@ -209,7 +209,7 @@ export interface SessionViewRole {
 }
 
 export interface WorkspaceTrustRole {
-  preTrustWorkspace(cwd: string, cmd: string): void;
+  preTrustWorkspace(cwd: string): void;
 }
 
 export interface ShimRole {

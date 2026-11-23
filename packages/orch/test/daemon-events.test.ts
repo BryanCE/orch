@@ -6,7 +6,9 @@ import { selectRun, selectRuns } from "../src/store/run-rows.ts";
 import { orm } from "../src/store/connection.ts";
 import { insertAgent, renameAgent, ensureHarness } from "../src/store/agent-rows.ts";
 import { setSpace } from "../src/store/interval-rows.ts";
-import { acceptPromptReport, acceptResultReport, acceptStatusReport, startLivenessTick } from "../src/daemon/server/status-report.ts";
+import { acceptPromptReport, acceptResultReport, acceptStatusReport, openLaunchRun, startLivenessTick } from "../src/daemon/server/status-report.ts";
+import { piAdapter } from "../src/adapters/pi.ts";
+import { claudeAdapter } from "../src/adapters/claude.ts";
 import { confirmDelivery } from "../src/control/ack.ts";
 import { echoAwaited, expectEcho, forgetEchoes } from "../src/control/echo.ts";
 import { askingEventFromRow, transitionEventFromRow } from "../src/daemon/server/status-events.ts";
@@ -183,6 +185,31 @@ describe("daemon presence events", () => {
     const finishedAt = Date.parse("2026-01-01T00:01:00.000Z");
     acceptResultReport(orchDir, key, { text: resultText, dispatchId: "dispatch-result", finishedAt });
     expect(selectRun(orchDir, "dispatch-result")?.result).toBe(resultText);
+  });
+
+  test("a prompt taken at launch settles a run its reports never name", () => {
+    const orchDir = tempOrchDir();
+    const key = mintAgentId();
+    seedAgent(orchDir, key);
+    openLaunchRun(orchDir, piAdapter, key, "reply ok");
+    const dispatchId = selectAgentStatus(orchDir, key)?.dispatchId;
+    expect(dispatchId).toBeString();
+    report(orchDir, key, { state: "working", task: "reply ok", startedAt: 3 }, () => { /* working */ });
+    report(orchDir, key, { state: "done", finishedAt: 4 }, () => { /* done */ });
+    acceptResultReport(orchDir, key, { text: "ok", finishedAt: 4 });
+    expect(selectRun(orchDir, dispatchId ?? "")).toMatchObject({ agentKey: key, state: "done", task: "reply ok", result: "ok" });
+  });
+
+  test("a harness that echoes its launch prompt binds the echo to the launch's run", () => {
+    const orchDir = tempOrchDir();
+    const key = mintAgentId();
+    seedAgent(orchDir, key, { harnessId: "claude" });
+    openLaunchRun(orchDir, claudeAdapter, key, "reply ok");
+    const dispatchId = selectAgentStatus(orchDir, key)?.dispatchId;
+    acceptPromptReport(orchDir, key, "reply ok", () => { /* working */ });
+    expect(selectAgentStatus(orchDir, key)).toMatchObject({ state: "working", dispatchId, task: "reply ok" });
+    acceptResultReport(orchDir, key, { text: "ok", finishedAt: 5 });
+    expect(selectRun(orchDir, dispatchId ?? "")?.result).toBe("ok");
   });
 
   test("a result that names no model or usage keeps what the working run recorded", () => {
@@ -503,7 +530,7 @@ describe("daemon presence events", () => {
     const events: NotifyEvent[] = [];
     const { logger, records } = recordingLogger();
     report(orchDir, key, { state: "working" }, (event) => events.push(event));
-    const tick = startLivenessTick(orchDir, 10, (event) => events.push(event), logger);
+    const tick = startLivenessTick(orchDir, 10, (event) => events.push(event), logger, () => 0);
     await waitFor(() => events.some((event) => eventState(event) === "exited"));
     tick.stop();
     expect(events.some((event) => eventState(event) === "exited")).toBe(true);

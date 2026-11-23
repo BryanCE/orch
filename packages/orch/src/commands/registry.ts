@@ -23,7 +23,6 @@ const HARNESS: FlagSpec = { name: "--harness", arity: "one", placeholder: "<harn
 const PLEXER: FlagSpec = { name: "--plexer", arity: "one", placeholder: "<plexer>", help: `Plexer id: ${BACKEND_IDS.join(", ")}.` };
 const DIR: FlagSpec = { name: "--dir", arity: "one", placeholder: "<path>", help: "Directory the agent starts in. Default: the spawner's own." };
 const COUNCIL_DIR: FlagSpec = { name: "--dir", arity: "one", placeholder: "<path>", help: "Directory the council was convened from. Default: this one." };
-const CMD: FlagSpec = { name: "--cmd", arity: "one", placeholder: "<command>", help: "Harness command to launch. Default: the harness's own." };
 const COUNT: FlagSpec = { name: "-n", arity: "one", placeholder: "<count>", help: "How many." };
 const ONLY: FlagSpec = { name: "--only", arity: "one", placeholder: "<state,...>", help: "Keep only rows in these states." };
 const HIDE: FlagSpec = { name: "--hide", arity: "one", placeholder: "<state,...>", help: "Drop rows in these states." };
@@ -208,7 +207,7 @@ const AGENTS: readonly CommandSpec[] = [
     flags: [
       { name: "--tab", arity: "one", placeholder: "<tab>", help: "The tab label. Default: a random label like elk-glacier-01." },
       { ...MODEL, arity: "many", help: "The model. One, or one per name." },
-      DIR, CMD, THINKING,
+      DIR, THINKING,
       { name: "--host", arity: "one", placeholder: "<host>", help: "Run the agents on this host from settings.hosts, in --dir there; inside a plexer a pane here shows each one." },
       { ...HARNESS, arity: "many", help: `Harness id: ${ADAPTER_IDS.join(", ")}. One, or one per name.` },
       { name: "--form", arity: "one", placeholder: `<${FORM_IDS.join("|")}>`, help: `Form for every name: ${FORM_IDS.join(", ")}.` },
@@ -223,7 +222,7 @@ const AGENTS: readonly CommandSpec[] = [
       WORKTREE, WORKTREE_PROVIDER,
     ],
   },
-  { name: "tile", section: "agents", args: "<tab> <name>", summary: "Add one named agent to an existing tab.", flags: [MODEL, DIR, CMD, THINKING, HARNESS, PLEXER, WORKTREE, WORKTREE_PROVIDER] },
+  { name: "tile", section: "agents", args: "<tab> <name>", summary: "Add one named agent to an existing tab.", flags: [MODEL, DIR, THINKING, HARNESS, PLEXER, WORKTREE, WORKTREE_PROVIDER] },
   {
     name: "council", section: "agents",
     summary: "Agents on different models review one subject and score it, round by round.",
@@ -271,7 +270,6 @@ const AGENTS: readonly CommandSpec[] = [
     summary: "Relaunch the harness process.",
     flags: [
       ALL,
-      { ...CMD, help: "The command to relaunch with. Default: the recorded harness command." },
       { ...HARNESS, help: "Relaunch on this harness. Default: the recorded one." },
       { ...MODEL, help: "Model for the relaunch. Required when --harness changes the harness." },
       { name: "--form", arity: "one", placeholder: "<tui|acp|server>", help: "Relaunch in this form, resuming the recorded session. Default: the agent's current form." },

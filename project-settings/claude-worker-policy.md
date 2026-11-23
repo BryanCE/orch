@@ -78,7 +78,7 @@ export interface LaunchRequest {
  *  calls. Launch it on one of: <harnesses that can>". */
 export async function prepareLaunch(state: DaemonState, request: LaunchRequest, refusal: (message: string) => Error): Promise<LaunchPolicy>;
 
-/** The same policy with no write, for a preview or a plan. It reads the project file and the
+/** The same policy with no write, inside `prepareLaunch`. It reads the project file and the
  *  model catalogue, so it is not pure; it changes nothing. */
 export function launchPolicy(services: Pick<DaemonServices, "settingsFor" | "models">, request: LaunchRequest, refusal: (message: string) => Error): LaunchPolicy;
 ```
@@ -138,28 +138,16 @@ Changes that follow from the table:
   calls `refreshStaleShims`. `prepareLaunch` does both, once per launch.
 - **Restart.** The refresh at `relaunch.ts:211` goes. `prepareLaunch` refreshes the planned
   adapter, which `relaunchTarget` resolves from `request.harness`.
-- **Previews.** The plan still needs a policy for the command it shows, and for `--cmd`.
-  - `planSpawn(params, settings, chosen)` gains a fourth parameter,
-    `policyOf: (agent) => WorkerPolicy`.
-  - `spawnAgents` passes `(agent) => launchPolicy(services, {...}, spawnRefusal).workers`, with
-    the model `admitLaunchModel` expanded. The expansion moves from `admitSpawn`
-    (`admission.ts:215`) to before `planSpawn`. A preview keyed by the expanded model is the
-    command the backend runs (`spawn/models.ts:32-34`).
+- **The plan.** It carries no command. `planSpawn(params, settings, chosen?)` refuses, for a
+  local agent, a harness that cannot run it read-only, through `requireReadOnlyAble`. A host
+  spawn's far host refuses it in `prepareLaunch`, with the same message.
+  - `admitSpawnModels` expands each local agent's model before `planSpawn`, so the plan carries
+    the spec the harness receives. A linked host admits its own agents' models.
   - `spawnAgents` runs `assertSpawnPolicy` before it expands the models, so depth and pack
     size still refuse first.
-  - `SpawnAgentPlan.cmd` becomes `string | null`, and is null for a spawn on a linked host. The
-    asking host neither previews a command nor admits a model for an agent it does not run, so
-    `policyOf` is not called for it.
-  - A harness that cannot run read-only is refused by `policyOf` at plan time for a local spawn.
-    For a host spawn, the far host's `prepareLaunch` refuses it with the same message.
-  - The tests that call `planSpawn` change:
-  - `commands-spawn.test.ts:14`;
-  - `spawn-viewers.test.ts:100` and `:201`.
-- **`SpawnAgentPlan.workers`** is replaced by `readOnly`. The plan's `cmd` is a preview:
-  `policyCommand` with `orchDir: null`.
-- **`tileAgent`'s `launchCommand`** (`spawn/index.ts:426`) is a preview, built with
-  `orchDir: null` from the same `prepareLaunch` result as its spec. `tileAgent` resolves one
-  policy.
+- **`SpawnAgentPlan.workers`** is replaced by `readOnly`.
+- **Trust.** `WorkspaceTrustRole.preTrustWorkspace(cwd)` takes the directory only: the harness
+  that trusts it is the harness that launches.
 - **`adapterCommand`** has no caller left and is deleted. `commands-lifecycle.test.ts:104`
   compares against `policyCommand`.
 - **`relaunchTarget`.** `restartAttached` calls `planRelaunch` only for its `relaunch`. So
@@ -169,12 +157,10 @@ Changes that follow from the table:
   `planRelaunch` calls `agentSettings` a second time. `planRelaunch` is `relaunchTarget` plus
   the command.
 
-## Part B: real launches pass `orchDir`, previews pass none
+## Part B: every launch passes `orchDir`
 
-`policyCommand`'s `launch` gains a required `orchDir: OrchDir | null`, and it maps `null` to an
-absent `SpawnOpts.orchDir`. It is `null` for the two previews, the plan's `cmd` and `tileAgent`'s
-`launchCommand`. It is `state.directory` for `planRelaunch`. A type that requires the field
-makes every caller choose.
+`launchArgv(adapter, launch, tuning, orchDir: OrchDir)` requires it. Its one caller is
+`planRelaunch`, with `state.directory`.
 
 The adapter rule, written on `SpawnOpts.orchDir`: an adapter may write its own launch config
 under `orchDir` while it builds the argv, and a build with no `orchDir` writes nothing. Every
@@ -411,52 +397,40 @@ its tool and extension limits.
 - `policyEnvNames(adapter)` in `policy/workers.ts` is every env name a launch policy can set for
   the harness: its compaction names, `READ_ONLY_ENV` and `OUT_DIR_ENV`.
 
-### One launch program
-`types/backend.ts`:
-```ts
-/** What a launch runs: the harness's argv, or the shell line `--cmd` gave. */
-export type LaunchProgram =
-  | { readonly kind: "argv"; readonly argv: readonly string[] }
-  | { readonly kind: "shell"; readonly line: string };
-```
-- `launchProgram(adapter, opts)` in `backends/backend.ts` replaces `createInteractiveCommand`.
-  `opts.cmd` gives `shell`. Otherwise it gives `argv`, from `opts.program`, else
+### Every launch is argv
+There is no `--cmd` and no shell-line launch. A launch is `readonly string[]`.
+- `launchProgram(adapter, opts)` in `backends/backend.ts` returns the argv: `opts.program`, else
   `workerLaunch.restrictedInteractiveArgv`, else `interactiveArgv`. An empty argv throws.
-- `launchArgv(adapter, launch, tuning, orchDir)` in `spawn/models.ts` replaces `launchCommand` and
-  returns the argv. A trust check and a preview take `shellLine(argv)`.
+- `launchArgv(adapter, launch, tuning, orchDir)` in `spawn/models.ts` returns a restart's argv.
 
 ### Each backend quotes for its own shell
 `shared/shell.ts` holds the one renderer:
 ```ts
 /** The shell a backend's pane or process runs a line in. */
 export type ShellDialect = "posix" | "cmd";
-/** `program` as one line of `dialect`: argv quoted for it, a `--cmd` line as given. */
-export function shellCommand(dialect: ShellDialect, program: LaunchProgram): string;
-/** The line that starts `program` with `env` set and `unset` removed, in a shell that is
- *  already running. posix: `env -u A K='v' <command>`, and a `--cmd` line runs under `sh -c`.
- *  cmd: `set "A=" & set "K=v" & <command>`. */
-export function shellLaunchLine(dialect: ShellDialect, program: LaunchProgram, env: Readonly<Record<string, string>>, unset: readonly string[]): string;
+/** `argv` as one line of `dialect`, each argument quoted for it. */
+export function shellCommand(dialect: ShellDialect, argv: readonly string[]): string;
+/** The line that starts `argv` with `env` set and `unset` removed, in a shell that is already
+ *  running. posix: `env -u A K='v' <command>`. cmd: `set "A=" & set "K=v" & <command>`. */
+export function shellLaunchLine(dialect: ShellDialect, argv: readonly string[], env: Readonly<Record<string, string>>, unset: readonly string[]): string;
 ```
-- posix quotes with `shellQuote`. cmd wraps each argument in double quotes and doubles a `"` in it.
+- posix is `shellLine`, which quotes with `shellQuote`. cmd wraps each argument in double quotes and doubles a `"` in it.
 - `hostShellDialect()` in `host.ts` is `cmd` on Windows and `posix` elsewhere, beside `hostShell`.
 - `AgentInputRole` gains `readonly shell: ShellDialect`: the shell its pane types into. tmux, orca
   and herdr declare `posix`. held declares `hostShellDialect()`.
-- held runs `[...hostShell(), shellCommand(hostShellDialect(), program)]`. tmux runs
-  `shellCommand("posix", program)`, and orca puts it after its `cd` and `env` prefix.
-- herdr starts `argv` raw, through `launchProgram`, so a worker gets its restricted argv. A
-  `shell` program is refused: herdr starts the harness itself and cannot run `--cmd`.
+- held runs `[...hostShell(), shellCommand(hostShellDialect(), argv)]`. tmux runs
+  `shellCommand("posix", argv)`, and orca puts it after its `cd` and `env` prefix.
+- herdr starts `argv` raw, through `launchProgram`, so a worker gets its restricted argv.
 
-### A relaunch takes the program
-- `RelaunchRole.relaunch(handle, program: LaunchProgram, opts)`. `relaunchPlace` and
-  `relaunchTerminal` take the program. `restartAttached` and `adoptTerminal` pass
-  `{ kind: "argv", argv: prepared.program }`.
-- `planRelaunch` returns `program`: `request.cmd` as `shell`, else `launchArgv(...)` with
-  `orchDir: state.directory`. Its `command`, for the outcome and the trust check, is
-  `shellCommand("posix", program)`.
+### A relaunch takes the argv
+- `RelaunchRole.relaunch(handle, argv, opts)`. `relaunchPlace` and `relaunchTerminal` take the
+  argv. `restartAttached` and `adoptTerminal` pass `prepared.program`.
+- `planRelaunch` returns `argv`: `launchArgv(...)` with `orchDir: state.directory`. Its
+  `command`, for the outcome, is `shellCommand("posix", argv)`.
 
 ### A pane restart relaunches with its project's env
 The pane fallback builds the relaunch's opts with `restartOpts` and submits
-`shellLaunchLine(pane.input.shell, program, agentLaunchEnv(opts), unset)`, where `unset` is each
+`shellLaunchLine(pane.input.shell, argv, agentLaunchEnv(opts), unset)`, where `unset` is each
 `policyEnvNames(adapter)` name the new env does not set. A key the project dropped is gone after
 the restart, as on a relaunching role. This replaces the pane-fallback limit in Part C.
 

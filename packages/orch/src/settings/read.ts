@@ -193,6 +193,7 @@ const settingsValueExtractors = {
   }),
   retention: (root: Partial<SettingsFile>) => ({
     ended_agents_days: settingOr(root.retention?.ended_agents_days, SETTINGS_DEFAULTS.retention.ended_agents_days),
+    ended_agent_rows_ms: settingOr(root.retention?.ended_agent_rows_ms, SETTINGS_DEFAULTS.retention.ended_agent_rows_ms),
     queue_days: settingOr(root.retention?.queue_days, SETTINGS_DEFAULTS.retention.queue_days),
     events_days: settingOr(root.retention?.events_days, SETTINGS_DEFAULTS.retention.events_days),
     runs_days: settingOr(root.retention?.runs_days, SETTINGS_DEFAULTS.retention.runs_days),

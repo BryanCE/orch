@@ -39,7 +39,7 @@ describe("reap walks the provenance tree (H3)", () => {
     // Only the middle of the chain runs. Its parent is dead, and so is its child.
     seedLiveProcess(d, "child");
 
-    expect(reapDeadAgentRecords(d)).toEqual(["grand"]);
+    expect(reapDeadAgentRecords(d, 0, Date.now())).toEqual(["grand"]);
 
     // Reaping the root would orphan the live child, so the sweep leaves it alone.
     expect(agentView(d, "orch")).not.toBeNull();
@@ -51,7 +51,7 @@ describe("reap walks the provenance tree (H3)", () => {
 
     // Nothing runs. The leaf has no descendants, so it goes first, then its
     // parent has none either, and the root goes last.
-    expect(reapDeadAgentRecords(d)).toEqual(["grand", "child", "orch"]);
+    expect(reapDeadAgentRecords(d, 0, Date.now())).toEqual(["grand", "child", "orch"]);
     expect(agentView(d, "grand")).toBeNull();
     expect(agentView(d, "child")).toBeNull();
     expect(agentView(d, "orch")).toBeNull();
@@ -62,8 +62,8 @@ describe("reap walks the provenance tree (H3)", () => {
     // `grand` is still working; its parent and grandparent are gone.
     seedLiveProcess(d, "grand");
 
-    expect(reapDeadAgentRecords(d)).toEqual([]);
-    expect(reapDeadAgentRecords(d)).toEqual([]);
+    expect(reapDeadAgentRecords(d, 0, Date.now())).toEqual([]);
+    expect(reapDeadAgentRecords(d, 0, Date.now())).toEqual([]);
 
     // Nothing in the chain may go while the leaf is alive: deleting `child`
     // would erase the grandchild's provenance while the grandchild still runs.

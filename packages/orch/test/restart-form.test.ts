@@ -300,7 +300,7 @@ describe("restart through the lifecycle handler", () => {
       process: { host: hostIdentity().id, pid: process.pid, startToken: `restart-handler-${key}` },
     });
 
-    const reason = await refusal(applyLifecycle(harness.state, { target: key, request: { verb: "restart", harness: null, model: null, thinking: null, cmd: null, form: "acp" } }));
+    const reason = await refusal(applyLifecycle(harness.state, { target: key, request: { verb: "restart", harness: null, model: null, thinking: null, form: "acp" } }));
 
     expect(reason).toBe("cannot switch switcher to acp: its backend headless does not run that form");
     expect(formOf(harness, key)).toBe("tui");

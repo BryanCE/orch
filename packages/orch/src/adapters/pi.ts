@@ -40,7 +40,6 @@ function piExtensionDir(): string {
 /** pi's shipped bundle, built from extensions/pi/. */
 const PI_EXTENSION: ExtensionName = "pi-bridge";
 /** Binaries that start pi. */
-const PI_BINARIES = ["pi"];
 
 const EXTENSION_SUFFIXES = [".ts", ".js", ".mjs"];
 
@@ -153,12 +152,6 @@ export function parsePiModelsOutput(output: string): readonly HarnessModel[] {
 
 /** Ask pi itself which authenticated models it can run. */
 const PI_MODELS_ARGV = ["--list-models"] as const;
-
-/** True when a launch command starts one of the named binaries. */
-function launchesBinary(binaries: readonly string[], cmd: string): boolean {
-  const executable = cmd.trim().split(/\s+/)[0];
-  return executable !== undefined && binaries.includes(executable);
-}
 
 /** Pre-approve a workspace in a harness's trust store so its first launch does not block. */
 function writeTrustEntry(trustFile: string, cwd: string) {
@@ -424,7 +417,7 @@ export class PiAdapter extends PiBridgeAdapter implements AgentAdapter {
   readonly sessionEnvMarker = HARNESS_SESSION_ENV.pi.marker;
   readonly sessionIdEnv = HARNESS_SESSION_ENV.pi.sessionId;
 
-  readonly workspaceTrust = { preTrustWorkspace: (cwd: string, cmd: string): void => this.preTrustWorkspace(cwd, cmd) };
+  readonly workspaceTrust = { preTrustWorkspace: (cwd: string): void => this.preTrustWorkspace(cwd) };
   readonly shim = {
     installShim: (orchDir: OrchDir, _settings: OrchSettings, _logger: Logger, opts?: ShimInstallOpts): void => this.installShim(orchDir, opts),
     diagnoseShim: (orchDir: OrchDir, _settings: OrchSettings, _logger: Logger): CheckResult => this.diagnoseShim
@@ -465,9 +458,8 @@ export class PiAdapter extends PiBridgeAdapter implements AgentAdapter {
     return diagnoseExtensionLink(this.id, piExtensionDir(), PI_EXTENSION);
   }
 
-  /** Pre-trust cwd in pi's trust store when the launch command actually starts pi. */
-  preTrustWorkspace(cwd: string, cmd: string): void {
-    if (!launchesBinary(PI_BINARIES, cmd)) return;
+  /** Pre-trust cwd in pi's trust store, so its first launch there does not block. */
+  preTrustWorkspace(cwd: string): void {
     writeTrustEntry(path.join(piAgentDir(), "trust.json"), cwd);
   }
 

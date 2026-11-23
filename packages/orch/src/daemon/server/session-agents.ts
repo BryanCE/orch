@@ -256,7 +256,7 @@ async function adoptTerminal(state: DaemonState, adapter: AgentAdapter, key: str
   const terminal: TerminalControl = {
     relaunch: async (argv) => {
       if (quit === undefined) throw new Error(`harness ${adapter.id} declares no text that quits its terminal program`);
-      await relaunchTerminal(state, placeHere(directory, key), quit, { kind: "argv", argv }, opts);
+      await relaunchTerminal(state, placeHere(directory, key), quit, argv, opts);
     },
   };
   let opened: HeldSession;

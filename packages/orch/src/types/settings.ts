@@ -55,7 +55,7 @@ export interface OrchSettings {
   workers: { inherit_extensions: boolean; inherit_mcp: boolean; exclude_extensions: ExtensionExclusions; builtin_tools: boolean; allow_tools: string[]; verify_commands: string[]; compact_at_tokens: CompactionTable };
   agents: { writable_settings: string[] };
   queue: { max_retries: number; dispatch_concurrency: number };
-  retention: { ended_agents_days: number | null; queue_days: number; events_days: number; runs_days: number; outbox_days: number; control_outcomes_days: number; logs_days: number; sweep_interval_ms?: number };
+  retention: { ended_agents_days: number | null; ended_agent_rows_ms: number; queue_days: number; events_days: number; runs_days: number; outbox_days: number; control_outcomes_days: number; logs_days: number; sweep_interval_ms?: number };
   lock: { retries: number; interval_ms: number; stale_ms: number };
   questions?: { renag_ms: number; renag_limit: number };
   monitor: { on: readonly NotifyState[]; summary_chars: number };

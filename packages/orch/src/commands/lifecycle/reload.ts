@@ -74,9 +74,9 @@ export async function cmdReload(services: Services, args: string[]): Promise<voi
   reportReloads(results, json);
 }
 
-/** The restart request every target gets: the harness, model and command the caller named. */
-function restartRequest(selection: AgentFlags, cmd: string | null, form: FormId | null): Extract<LifecycleRequest, { verb: "restart" }> {
-  return { verb: "restart", harness: selection.adapterFlag ?? null, model: selection.modelFlag ?? null, thinking: selection.thinkingFlag ?? null, cmd, form };
+/** The restart request every target gets: the harness and model the caller named. */
+function restartRequest(selection: AgentFlags, form: FormId | null): Extract<LifecycleRequest, { verb: "restart" }> {
+  return { verb: "restart", harness: selection.adapterFlag ?? null, model: selection.modelFlag ?? null, thinking: selection.thinkingFlag ?? null, form };
 }
 
 /** What a restart prints for one agent: the bridge line when a bridge came back, else its form. */
@@ -87,7 +87,7 @@ function restartLine(name: string, outcome: LifecycleOutcome): string {
 
 export async function cmdRestart(services: Services, args: string[]): Promise<void> {
   const { invocation, self, targets, json, steal, selection } = await requireLifecycleTargets(services, "restart", args);
-  const request = restartRequest(selection, invocation.flags.value("--cmd") ?? null, formFlag(invocation));
+  const request = restartRequest(selection, formFlag(invocation));
   const results: ReloadResult[] = [];
   let ok = 0;
   for (const target of targets) {

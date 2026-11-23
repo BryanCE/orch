@@ -45,7 +45,7 @@ graders:
   - type: llm
     name: design-decided
     focus: { source: file, path: wave.md }
-    criteria: The wave decides, in its own text, how each agent's harness, model, launch command, and preferred models resolve when the agents run different harnesses, and how `--cmd` behaves for a fleet with mixed harnesses. It names the test file and the cases to add. Leaving any of these to an agent fails.
+    criteria: The wave decides, in its own text, how each agent's harness, model, launch command, and preferred models resolve when the agents run different harnesses. It names the test file and the cases to add. Leaving any of these to an agent fails.
   - type: tool_used
     name: skill-fired
     tool: Skill

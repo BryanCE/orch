@@ -41,7 +41,7 @@ describe("reap drops a dead agent's settled work", () => {
     enqueueTask(d, { id: "dropped", text: "t", opts: {}, enqueuedBy: "worker", scopePackId: "boss" });
     insertCancellation(d, "dropped", "worker");
 
-    expect(reapDeadAgentRecords(d)).toEqual(["worker"]);
+    expect(reapDeadAgentRecords(d, 0, Date.now())).toEqual(["worker"]);
     expect(agentView(d, "worker")).toBeNull();
     expect(listTasks(d).map((task) => task.id)).toEqual([]);
   });
@@ -51,7 +51,7 @@ describe("reap drops a dead agent's settled work", () => {
     seedLiveProcess(d, "boss");
     enqueueTask(d, { id: "waiting", text: "t", opts: {}, enqueuedBy: "worker", scopePackId: "boss" });
 
-    expect(reapDeadAgentRecords(d)).toEqual([]);
+    expect(reapDeadAgentRecords(d, 0, Date.now())).toEqual([]);
     expect(agentView(d, "worker")).not.toBeNull();
     expect(listTasks(d).map((task) => task.id)).toEqual(["waiting"]);
   });
@@ -64,12 +64,12 @@ describe("reap drops a dead agent's settled work", () => {
     approveGrantRequest(d, spent.id, hostIdFrom("host"));
     spendGrant(d, action("spent"), "worker");
     recordGrantRequest(d, action("pending"), "worker");
-    expect(reapDeadAgentRecords(d)).toEqual(["worker"]);
+    expect(reapDeadAgentRecords(d, 0, Date.now())).toEqual(["worker"]);
 
     seedOrch(d, "asker");
     const open = recordGrantRequest(d, action("open"), "asker");
     approveGrantRequest(d, open.id, hostIdFrom("host"));
-    expect(reapDeadAgentRecords(d)).toEqual([]);
+    expect(reapDeadAgentRecords(d, 0, Date.now())).toEqual([]);
     expect(grantIsApproved(d, action("open"))).toBe(true);
   });
 });

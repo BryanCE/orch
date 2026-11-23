@@ -390,18 +390,15 @@ export class HerdrBackend implements Backend<HerdrHandle> {
    *
    *  herdr's `agent start` builds `argv = [interactive_agent_executable(kind),
    *  ...args]` (its `src/app/agents.rs`), so orch supplies the ARGUMENTS and
-   *  herdr supplies the binary. So a `--cmd` line is refused here, and a worker's
-   *  flags come from its restricted launch, as on every other backend.
+   *  herdr supplies the binary. A worker's flags come from its restricted launch,
+   *  as on every other backend.
    *  Raw and unquoted: herdr quotes for the
    *  target shell itself (`interactive_shell_command`).
    *
    *  herdr rejects any argument containing a control character, so an adapter
    *  that produced one is refused here with a message naming the argument. */
   private launchArgs(adapter: AgentAdapter, opts: BackendSpawnOpts): string[] {
-    const program = launchProgram(adapter, opts);
-    if (program.kind === "shell") throw new Error("herdr starts the harness itself, so it cannot run a --cmd line; spawn without --cmd");
-    const argv = program.argv;
-    const args = argv.slice(1);
+    const args = launchProgram(adapter, opts).slice(1);
     const control = args.find((arg) => /[\u0000-\u001f\u007f]/.test(arg));
     if (control !== undefined) {
       throw new Error(`herdr refuses control characters in agent arguments: ${JSON.stringify(control)}`);

@@ -64,10 +64,6 @@ export interface PlacementInventoryRole<Handle = BackendHandle> {
   coordinateOf(handle: Handle): string | null;
 }
 
-/** What a launch runs: the harness's argv, or the shell line `--cmd` gave. */
-export type LaunchProgram =
-  | { readonly kind: "argv"; readonly argv: readonly string[] }
-  | { readonly kind: "shell"; readonly line: string };
 
 export interface AgentInputRole<Handle = BackendHandle> {
   /** The shell its pane types a line into. */
@@ -96,8 +92,8 @@ export interface AgentStatusRole<Handle = BackendHandle> { wait(handle: Handle, 
  * directory and environment, and answers the new place's handle and process.
  */
 export interface RelaunchRole<Handle = BackendHandle> {
-  /** End the place's program and run `program` in a fresh place with the env `opts` builds. */
-  relaunch(handle: Handle, program: LaunchProgram, opts: BackendSpawnOpts): Promise<{ readonly handle: Handle; readonly process: LocalProcess }>;
+  /** End the place's program and run `argv` in a fresh place with the env `opts` builds. */
+  relaunch(handle: Handle, argv: readonly string[], opts: BackendSpawnOpts): Promise<{ readonly handle: Handle; readonly process: LocalProcess }>;
 }
 
 /** Request to create one plexer group (a plexer's tab or window). */
@@ -325,8 +321,6 @@ export interface BackendSpawnOpts {
   readonly tools?: string;
   /** What this worker may load; the adapter maps it onto its harness's flags. */
   readonly workers?: WorkerPolicy;
-  /** Verbatim launch command overriding the adapter's own; `orch spawn --cmd`. */
-  readonly cmd?: string;
   /** The program the agent's terminal runs in place of the harness's own command: the harness's
    *  terminal program attached to a session orchd opened for the agent. Its first element is the
    *  harness's own executable. */

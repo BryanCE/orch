@@ -29,16 +29,15 @@ export function resolveAdapterOrDie(id: string): AgentAdapter {
   }
 }
 
-/** The argv a launch under `launch` runs, for a preview, a trust check or a restart: the
- *  harness's worker launch when it has one. With `orchDir` set it may write the harness's
- *  launch config there; with null it writes nothing. */
+/** The argv a restart under `launch` runs: the harness's worker launch when it has one. The
+ *  harness may write its launch config under `orchDir`. */
 export function launchArgv(
   adapter: AgentAdapter,
   launch: LaunchPolicy,
   tuning: { readonly model?: string; readonly thinking?: ThinkingLevel },
-  orchDir: OrchDir | null,
+  orchDir: OrchDir,
 ): readonly string[] {
-  const opts = { ...tuning, preferredModels: launch.preferredModels, tools: launch.tools, workers: launch.workers, ...(orchDir === null ? {} : { orchDir }) };
+  const opts = { ...tuning, preferredModels: launch.preferredModels, tools: launch.tools, workers: launch.workers, orchDir };
   return adapter.workerLaunch?.restrictedInteractiveArgv(opts) ?? adapter.interactiveArgv(opts);
 }
 

@@ -133,12 +133,19 @@ export function endDeadAgents(root: OrchDir, now: number): string[] {
   return ended;
 }
 
-/** Delete the rows of every agent whose process is gone, children before
- *  parents. An agent a remaining row still points at stays for a later sweep;
- *  that is a reference holding, never a failure. Answers with the ids removed. */
-export function reapDeadAgentRecords(root: OrchDir): string[] {
+/** Whether an agent that ended is still inside `keepMs` of its ending, so `orch status` and
+ *  `orch result` still name it. */
+function keptAfterEnding(root: OrchDir, agentId: string, keepMs: number, now: number): boolean {
+  const endedAt = agentView(root, agentId)?.endedAt ?? null;
+  return endedAt !== null && now - endedAt < keepMs;
+}
+
+/** Delete the rows of every agent whose process is gone and that ended at least `keepMs`
+ *  before `now`, children before parents. An agent a remaining row still points at stays for a
+ *  later sweep; that is a reference holding, never a failure. Answers with the ids removed. */
+export function reapDeadAgentRecords(root: OrchDir, keepMs: number, now: number): string[] {
   const removed: string[] = [];
-  let dead = [...loadPresence(root).values()].filter((entry) => entry.liveness === "dead" && reapedHere(root, entry.key)).map((entry) => entry.key);
+  let dead = [...loadPresence(root).values()].filter((entry) => entry.liveness === "dead" && reapedHere(root, entry.key) && !keptAfterEnding(root, entry.key, keepMs, now)).map((entry) => entry.key);
   while (dead.length > 0) {
     const referenced = spawnerIds(root);
     const leaves = dead.filter((id) => !referenced.has(id));

@@ -53,7 +53,7 @@ function settingsFixture(days: Partial<OrchSettings["retention"]> = {}): OrchSet
     queue: { max_retries: 1, dispatch_concurrency: 4 },
     logging: { ...SETTINGS_DEFAULTS.logging },
     lock: { retries: 50, interval_ms: 100, stale_ms: 10_000 },
-    retention: { ended_agents_days: 90, queue_days: 14, events_days: 7, runs_days: 30, outbox_days: 7, control_outcomes_days: 30, logs_days: 7, ...days },
+    retention: { ended_agents_days: 90, ended_agent_rows_ms: 3_600_000, queue_days: 14, events_days: 7, runs_days: 30, outbox_days: 7, control_outcomes_days: 30, logs_days: 7, ...days },
     monitor: SETTINGS_DEFAULTS.monitor,
     monitor_tool: SETTINGS_DEFAULTS.monitor_tool,
     timeouts: { dispatch_ack_ms: 10_000, wait_ms: 300_000, adapter_command_ms: 60_000, notify_ms: 3_000, spawn_attach_ms: 60_000, spawn_attach_poll_ms: 500, lock_wait_ms: 180_000, lock_poll_ms: 1_000, reset_ready_ms: 75_000, reset_poll_ms: 250, daemon_probe_ms: 10_000, acp_probe_ms: 5_000, server_ready_ms: 30_000, session_close_ms: 2_000, abort_gap_ms: 500, machine_ms: 600_000 },
@@ -212,7 +212,7 @@ describe("retention sweep", () => {
     db.run(sql`INSERT INTO agent_plexers(agent_id,plexer_id) VALUES (${agentId},${"headless"})`);
     acquireLease(orchDir, agentId, holder, Date.parse(old));
 
-    expect(reapDeadAgentRecords(orchDir)).toEqual([agentId]);
+    expect(reapDeadAgentRecords(orchDir, 0, Date.now())).toEqual([agentId]);
     expect(row(db, sql`SELECT id FROM agents WHERE id=${agentId}`)).toBeUndefined();
     expect(row(db, sql`SELECT agent_id FROM agent_worktrees WHERE agent_id=${agentId}`)).toBeUndefined();
     expect(row(db, sql`SELECT agent_id FROM agent_plexers WHERE agent_id=${agentId}`)).toBeUndefined();
@@ -228,7 +228,7 @@ describe("retention sweep", () => {
     const orchDir = fixture();
     seedAgent("deadparent", {}, orchDir);
     seedAgent("deadchild1", { spawnedBy: "deadparent" }, orchDir);
-    expect(reapDeadAgentRecords(orchDir).sort()).toEqual(["deadchild1", "deadparent"]);
+    expect(reapDeadAgentRecords(orchDir, 0, Date.now()).sort()).toEqual(["deadchild1", "deadparent"]);
     expect(row(orm(orchDir), sql`SELECT id FROM agents WHERE id='deadparent'`)).toBeUndefined();
   });
 
@@ -237,14 +237,14 @@ describe("retention sweep", () => {
     seedAgent("deadparent", {}, orchDir);
     seedAgent("livechild1", { spawnedBy: "deadparent" }, orchDir);
     seedLiveProcess(orchDir, "livechild1");
-    expect(reapDeadAgentRecords(orchDir)).toEqual([]);
+    expect(reapDeadAgentRecords(orchDir, 0, Date.now())).toEqual([]);
     expect(row(orm(orchDir), sql`SELECT id FROM agents WHERE id='deadparent'`)).not.toBeUndefined();
   });
 
   test("a dead agent a task still points at stays for a later reap", () => {
     const orchDir = fixture();
     seedQueueTask(orchDir, "queued", "queued", "2026-01-31T00:00:00.000Z");
-    expect(reapDeadAgentRecords(orchDir)).toEqual([]);
+    expect(reapDeadAgentRecords(orchDir, 0, Date.now())).toEqual([]);
     expect(row(orm(orchDir), sql`SELECT id FROM agents WHERE id='queue-agent'`)).not.toBeUndefined();
   });
 
@@ -264,7 +264,7 @@ describe("retention sweep", () => {
     const key = "deadagentm";
     const dir = presenceDir(orchDir, key);
     seedAgent(key, {}, orchDir);
-    reapDeadAgentRecords(orchDir);
+    reapDeadAgentRecords(orchDir, 0, Date.now());
     touchHistory(dir, new Date(OLD));
     expect(sweepExpiredRows(orchDir, settingsFixture({ ended_agents_days: 7 }), NOW, testLogger).ended_agents).toBe(1);
     expect(existsSync(dir)).toBe(false);
@@ -301,7 +301,7 @@ describe("retention sweep", () => {
     seedStatus(orchDir, key, {});
     ageAgent(orchDir, key, OLD);
     touchHistory(dir, new Date(OLD));
-    expect(reapDeadAgentRecords(orchDir)).toEqual([]);
+    expect(reapDeadAgentRecords(orchDir, 0, Date.now())).toEqual([]);
     expect(sweepExpiredRows(orchDir, settingsFixture({ ended_agents_days: 1 }), NOW, testLogger).ended_agents).toBe(0);
     expect(existsSync(dir)).toBe(true);
     expect(row(orm(orchDir), sql`SELECT id FROM agents WHERE id=${key}`)).not.toBeUndefined();

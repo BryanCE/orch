@@ -153,12 +153,13 @@ describe("the preferred quicklist reaches every launch route", () => {
     expect(seen()?.preferredModels).toEqual([]);
   });
 
-  test("the previewed command is the command a launch runs", () => {
-    const previewed = launchArgv(piAdapter, testLaunch(QUICKLIST), { model: "openai/gpt-5.6" }, null);
-    expect(previewed.join(" ")).toContain("--model openai/gpt-5.6");
-    expect(previewed.join(" ")).toContain(`--models ${QUICKLIST.join(",")}`);
+  test("a restart's argv carries the model and the quicklist", () => {
+    const directory = makeTempOrchDir();
+    const argv = launchArgv(piAdapter, testLaunch(QUICKLIST), { model: "openai/gpt-5.6" }, directory);
+    expect(argv.join(" ")).toContain("--model openai/gpt-5.6");
+    expect(argv.join(" ")).toContain(`--models ${QUICKLIST.join(",")}`);
 
-    expect(launchArgv(piAdapter, testLaunch(), { model: "openai/gpt-5.6" }, null)).not.toContain("--models");
+    expect(launchArgv(piAdapter, testLaunch(), { model: "openai/gpt-5.6" }, directory)).not.toContain("--models");
   });
 
   test("a headless launch forwards the quicklist into the adapter's own options", () => {

@@ -96,7 +96,7 @@ export const SETTINGS_DEFAULTS = {
   fleet: { max_agents_per_pack: 10, max_agents_per_tab: 4, max_depth: 1, min_free_memory_mb: 2048, worker_peer_tools: false, cross_space: false, orch_peers: false },
   mail: { to_spawner: "prompt-unless-focused", to_worker: "prompt", to_orch: "prompt-unless-focused" },
   queue: { max_retries: 1, dispatch_concurrency: 4 },
-  retention: { ended_agents_days: 90, queue_days: 14, events_days: 7, runs_days: 30, outbox_days: 7, control_outcomes_days: 30, logs_days: 7, sweep_interval_ms: 3_600_000 },
+  retention: { ended_agents_days: 90, ended_agent_rows_ms: 3_600_000, queue_days: 14, events_days: 7, runs_days: 30, outbox_days: 7, control_outcomes_days: 30, logs_days: 7, sweep_interval_ms: 3_600_000 },
   lock: { retries: 50, interval_ms: 100, stale_ms: 10_000 },
   questions: { renag_ms: 120_000, renag_limit: 5 },
   monitor: { on: MONITOR_DEFAULT_ON, summary_chars: 400 },
@@ -237,6 +237,8 @@ export const SETTINGS_FILE_SCHEMA = z.strictObject({
   retention: z.strictObject({
     /** JSONL history of gone agents older than this many days; null keeps it forever. */
     ended_agents_days: PositiveInt.nullable().optional(),
+    /** How long a gone agent's store rows stay after it ends, in milliseconds. */
+    ended_agent_rows_ms: PositiveInt.optional(),
     /** Settled queue tasks older than this many days. */
     queue_days: PositiveInt.optional(),
     /** Stored events older than this many days. */

@@ -80,7 +80,7 @@ function cleanWorktrees(directory: OrchDir, config: WorktreeConfig, from: string
 export function cleanStore(directory: OrchDir, config: WorktreeConfig, logger: Logger, params: ParamsOf<"clean">): ResultOf<"clean"> {
   const malformed = reapMalformedPresenceDirs(directory);
   const closed = closeOutboxForDeadTargets(directory);
-  const reaped = params.all ? reapDeadAgentRecords(directory) : [];
+  const reaped = params.all ? reapDeadAgentRecords(directory, 0, Date.now()) : [];
   const removed = params.all ? reapExpiredPresenceDirs(directory, new Date()) : [];
   const live = livePresenceHolders(directory);
   const worktrees = params.worktreesIn === null ? null : cleanWorktrees(directory, config, params.worktreesIn, params.all, logger);

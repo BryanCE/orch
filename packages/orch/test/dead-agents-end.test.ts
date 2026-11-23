@@ -45,7 +45,7 @@ describe("a dead agent that owns nothing running is ended", () => {
     expect(endDeadAgents(d, NOW)).toEqual(["orch"]);
     expect(agentView(d, "orch")?.endedAt).toBe(NOW);
     // The far agent's row is that host's to follow, so it stays, and the orch's row with it.
-    expect(reapDeadAgentRecords(d)).toEqual([]);
+    expect(reapDeadAgentRecords(d, 0, Date.now())).toEqual([]);
     expect(agentView(d, "orch")).not.toBeNull();
     // Ended once: a later pass has nothing left to end.
     expect(endDeadAgents(d, NOW + 1)).toEqual([]);
@@ -108,5 +108,16 @@ describe("a dead agent that owns nothing running is ended", () => {
 
     expect(endDeadAgents(d, NOW)).toEqual([]);
     expect(agentView(d, "orch")?.endedAt).toBeNull();
+  });
+});
+
+describe("an ended agent stays in the store for the retention window", () => {
+  test("its rows stay until keepMs after it ended, then go", () => {
+    const d = fixture();
+    expect(endDeadAgents(d, NOW)).toEqual(["orch"]);
+    expect(reapDeadAgentRecords(d, 100, NOW + 99)).toEqual([]);
+    expect(agentView(d, "orch")).not.toBeNull();
+    expect(reapDeadAgentRecords(d, 100, NOW + 100)).toEqual(["orch"]);
+    expect(agentView(d, "orch")).toBeNull();
   });
 });

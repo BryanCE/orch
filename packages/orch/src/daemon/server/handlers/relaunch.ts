@@ -1,7 +1,6 @@
 import { shellCommand, shellLaunchLine } from "../../../shared/shell.ts";
 import { agentLaunchEnv } from "../../../policy/spawner.ts";
 import { policyEnvNames } from "../../../policy/workers.ts";
-import type { LaunchProgram } from "../../../types/backend.ts";
 // Reload and restart: the harness relaunched in place, where the agent runs. This orchd does it
 // for its own agents through their plexer and records the relaunch; an agent on a linked host is
 // that host's orchd's to reload or restart, with its own settings and code.
@@ -17,7 +16,6 @@ import { selectAgentStatus } from "../../../store/status-rows.ts";
 import { agentLocation } from "../../../store/interval-rows.ts";
 import { hereIsLive } from "../../../process-place.ts";
 import { resolveTuningOrDie } from "../../../shared/tuning.ts";
-import { CommandRefusal } from "../../../refusal.ts";
 import { launchArgv, admitLaunchModel, resolveAdapterOrDie } from "../spawn/models.ts";
 import { applyVerb, reclaim } from "./lifecycle.ts";
 import { restartPipes, switchForm } from "./restart-form.ts";
@@ -108,21 +106,19 @@ function relaunchTarget(state: DaemonState, key: string, recorded: AgentAdapter,
 }
 
 /** Prepare the target launch and its command before ending the running agent. */
-async function planRelaunch(state: DaemonState, agent: HereAgent, recorded: AgentAdapter, request: RestartRequest): Promise<{ readonly adapter: AgentAdapter; readonly relaunch: Relaunch; readonly view: AgentView; readonly launch: LaunchPolicy; readonly program: LaunchProgram; readonly command: string }> {
+async function planRelaunch(state: DaemonState, agent: HereAgent, recorded: AgentAdapter, request: RestartRequest): Promise<{ readonly adapter: AgentAdapter; readonly relaunch: Relaunch; readonly view: AgentView; readonly launch: LaunchPolicy; readonly argv: readonly string[]; readonly command: string }> {
   const view = agentView(state.directory, agent.id);
   if (view === null) throw new Error(`unknown agent: ${agent.id}`);
   const { adapter, relaunch } = relaunchTarget(state, agent.id, recorded, request);
   const launch = await prepareRelaunch(state, view, adapter, relaunch.model);
-  if (launch.workers.readOnly !== null && request.cmd !== null) throw new CommandRefusal("this agent is read-only, and --cmd replaces the launch that holds it to that; restart it without --cmd");
-  const program: LaunchProgram = request.cmd === null ? { kind: "argv", argv: launchArgv(adapter, launch, relaunch, state.directory) } : { kind: "shell", line: request.cmd };
-  const command = shellCommand("posix", program);
-  return { adapter, relaunch, view, launch, program, command };
+  const argv = launchArgv(adapter, launch, relaunch, state.directory);
+  return { adapter, relaunch, view, launch, argv, command: shellCommand("posix", argv) };
 }
 
 /** The planned harness may need its workspace trusted before it starts there. */
-function preTrust(state: DaemonState, agent: HereAgent, adapter: AgentAdapter, command: string): void {
+function preTrust(state: DaemonState, agent: HereAgent, adapter: AgentAdapter): void {
   const cwd = agentLocation(state.directory, agent.id)?.cwd;
-  if (cwd !== undefined) adapter.workspaceTrust?.preTrustWorkspace(cwd, command);
+  if (cwd !== undefined) adapter.workspaceTrust?.preTrustWorkspace(cwd);
 }
 
 /** Answer a restart once the relaunched harness's bridge reports, from a report newer than
@@ -138,14 +134,14 @@ async function awaitRelaunchedBridge(state: DaemonState, agent: HereAgent, wasUp
  *  then records. The relaunched harness claims the row afresh, so the old claim goes first. */
 async function relaunchInPlace(state: DaemonState, agent: HereAgent, recorded: AgentAdapter, request: RestartRequest, place: { readonly role: RelaunchRole; readonly handle: BackendHandle }): Promise<LifecycleOutcome> {
   const key = agent.id;
-  const { adapter, relaunch, view, launch, program, command } = await planRelaunch(state, agent, recorded, request);
+  const { adapter, relaunch, view, launch, argv, command } = await planRelaunch(state, agent, recorded, request);
   if (view.form === null) throw new Error(`${view.name} records no form to relaunch in`);
   const opts = restartOpts(state, agent, view, launch, relaunch, view.form);
-  preTrust(state, agent, adapter, command);
+  preTrust(state, agent, adapter);
   const wasUpdatedAt = selectAgentStatus(state.directory, key)?.updatedAt;
   reclaim(state.directory, { target: key, relaunch });
   try {
-    await relaunchPlace(state, agent, place, program, opts);
+    await relaunchPlace(state, agent, place, argv, opts);
   } catch (error: unknown) {
     return outcomeOf(state, agent, { ok: false, reason: `relaunch failed: ${errorMessage(error)}`, command, relaunched: relaunch, bridge: false });
   }
@@ -155,13 +151,13 @@ async function relaunchInPlace(state: DaemonState, agent: HereAgent, recorded: A
 /** Restart a terminal agent whose terminal program attaches to its session on a server orchd
  *  holds: orchd lets the session go, relaunches the terminal program on the recorded session, or a
  *  fresh one when none is recorded, and drives it again. Null for any other agent, and for a
- *  restart onto another harness or command, which relaunches the plain way. */
+ *  restart onto another harness, which relaunches the plain way. */
 async function restartAttached(state: DaemonState, agent: HereAgent, recorded: AgentAdapter, request: RestartRequest): Promise<LifecycleOutcome | null> {
   const key = agent.id;
   const role = terminalAttach(recorded);
   const view = agentView(state.directory, key);
   const form = view?.form ?? null;
-  if (role === null || view === null || form === null || FORM_STDIO[form] !== "terminal" || request.cmd !== null || (request.harness !== null && request.harness !== recorded.id)) return null;
+  if (role === null || view === null || form === null || FORM_STDIO[form] !== "terminal" || (request.harness !== null && request.harness !== recorded.id)) return null;
   const { text: quitText } = recordedHarness(state, key, "restart");
   const { relaunch } = relaunchTarget(state, key, recorded, request);
   // Built before the running session ends, so a refusal leaves the agent running.
@@ -170,11 +166,10 @@ async function restartAttached(state: DaemonState, agent: HereAgent, recorded: A
   const sessionId = selectAgentStatus(state.directory, key)?.sessionId ?? null;
   await endSessionAgent(key);
   const prepared = await prepareTerminal(state, recorded, role, opts, sessionId);
-  const program: LaunchProgram = { kind: "argv", argv: prepared.program };
-  const command = shellCommand("posix", program);
+  const command = shellCommand("posix", prepared.program);
   reclaim(state.directory, { target: key, relaunch });
   try {
-    await relaunchTerminal(state, agent, quitText, program, prepared.opts);
+    await relaunchTerminal(state, agent, quitText, prepared.program, prepared.opts);
   } catch (error: unknown) {
     prepared.abandon();
     return outcomeOf(state, agent, { ok: false, reason: `relaunch failed: ${errorMessage(error)}`, command, relaunched: relaunch, bridge: false });
@@ -190,8 +185,8 @@ async function restartInForm(state: DaemonState, agent: HereAgent, recorded: Age
   const current = agentView(state.directory, agent.id)?.form ?? null;
   const switching = request.form !== null && request.form !== current;
   if (!switching && (current === null || FORM_STDIO[current] !== "pipes")) return null;
-  if (request.harness !== null || request.model !== null || request.thinking !== null || request.cmd !== null) {
-    throw new Error(`cannot restart ${agent.id} in a form and on another harness, model or command at once`);
+  if (request.harness !== null || request.model !== null || request.thinking !== null) {
+    throw new Error(`cannot restart ${agent.id} in a form and on another harness or model at once`);
   }
   const wasUpdatedAt = selectAgentStatus(state.directory, agent.id)?.updatedAt;
   const { awaitBridge } = request.form !== null && switching ? await switchForm(state, agent, recorded, request.form) : await restartPipes(state, agent, recorded);
@@ -224,12 +219,12 @@ async function restartHere(state: DaemonState, agent: HereAgent, request: Restar
     reclaim(state.directory, { target: key });
     return verbAndAwaitBridge(state, agent, "restart", null);
   }
-  const { adapter, relaunch, view, launch, program, command } = await planRelaunch(state, agent, recorded, request);
-  preTrust(state, agent, adapter, command);
+  const { adapter, relaunch, view, launch, argv, command } = await planRelaunch(state, agent, recorded, request);
+  preTrust(state, agent, adapter);
   if (view.form === null) throw new Error(`${view.name} records no form to relaunch in`);
   // The pane's shell still holds the old launch's env: the line sets the new one and removes what it dropped.
   const opts = restartOpts(state, agent, view, launch, relaunch, view.form);
-  const line = shellLaunchLine(pane.input.shell, program, agentLaunchEnv(opts), policyEnvNames(adapter));
+  const line = shellLaunchLine(pane.input.shell, argv, agentLaunchEnv(opts), policyEnvNames(adapter));
   if (!await quitToShell(state, pane, quitText)) {
     state.services.logger.warn("lifecycle.restart-exit-timeout", { command: quitText }, { agentId: key });
     return outcomeOf(state, agent, { ok: false, reason: `agent did not exit after ${quitText} - skipping relaunch`, command, relaunched: null, bridge: false });

@@ -244,7 +244,7 @@ export async function startDaemon(): Promise<DaemonState> {
     state.wake.wake();
   };
   const livenessPollMs = services.settings.current().daemon.liveness_poll_ms;
-  state.livenessTick = startLivenessTick(directory, livenessPollMs, publishPresenceEvent, services.logger);
+  state.livenessTick = startLivenessTick(directory, livenessPollMs, publishPresenceEvent, services.logger, () => services.settings.current().retention.ended_agent_rows_ms);
   const logging = services.settings.current().logging;
   state.loopWatchdog = startLoopWatchdog(services.logger, logging.stall_ms, logging.stall_poll_ms);
   state.workLoopRunning = true;

@@ -171,8 +171,6 @@ export interface TabSpawnSpec {
    *  letting the launch mint a second one. */
   key?: string;
   env?: Readonly<Record<string, string>>;
-  /** Verbatim launch command from `--cmd`; absent lets the adapter build it. */
-  cmd?: string;
   worktree?: AgentWorktree;
   /** The launching agent's id; null for an unregistered caller. */
   spawner: string | null;

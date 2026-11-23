@@ -334,7 +334,7 @@ export class TmuxBackend implements Backend<TmuxHandle> {
 
   spawn(adapter: AgentAdapter, opts: BackendSpawnOpts): TmuxHandle {
     if (!this.isInsideSession()) throw new Error("tmux spawn requires running inside a tmux session");
-    // An explicit --cmd is the caller's launch line verbatim; without one the adapter's argv, quoted for the pane's shell.
+    // The adapter's argv, quoted for the pane's shell.
     const command = shellCommand("posix", launchProgram(adapter, opts));
 
     const cwd = opts.cwd ?? process.cwd();

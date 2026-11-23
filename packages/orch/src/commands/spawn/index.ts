@@ -79,7 +79,6 @@ export async function cmdTile(services: Services, args: string[]) {
   const tiled = await writeRpc(services, "tile", {
     tab: target,
     agent: { name, harness, model, thinking },
-    cmd: flags.value("--cmd") ?? null,
     plexer: launch.backendFlag ?? null,
     cwd: flags.value("--dir") ?? process.cwd(),
     worktree,

@@ -231,20 +231,22 @@ describe("commands/spawn", () => {
     tempDirs.push(dir);
     const settings = planned(parseSpawnFlags(["a", "b", "--harness", "pi", "--harness", "omp"]), mixedSettingsFor(dir));
     expect(settings.agents.map((agent) => agent.adapter)).toEqual(["pi", "omp"]);
-    // With no --cmd the plan carries no command: each launch builds its own.
-    expect(settings.agents.map((agent) => agent.cmd)).toEqual([null, null]);
+  });
+
+  test("a read-only agent on a harness that cannot hold it is refused at plan time", () => {
+    const dir = tempOrchDir("orch-spawn-read-only-codex-");
+    tempDirs.push(dir);
+    const settings = testServices({
+      orchDir: dir,
+      settings: { enabled: { adapters: ["codex"], backends: ["headless"] }, defaults: { adapter: "codex", backend: "headless", models: { codex: "gpt-6-luna" } } },
+    }).settings.current();
+    expect(() => planned(parseSpawnFlags(["a", "--read-only"]), settings)).toThrow("codex cannot run a read-only: orch has no way to refuse its tool calls. Launch it on one of: pi, omp, claude.");
   });
 
   test("refuses an incorrect number of harnesses", () => {
     const dir = tempOrchDir("orch-spawn-harness-count-");
     tempDirs.push(dir);
     expect(() => planned(parseSpawnFlags(["a", "b", "c", "--harness", "pi", "--harness", "omp"]), mixedSettingsFor(dir))).toThrow(/--harness accepts one value for all agents or exactly 3 values/);
-  });
-
-  test("refuses --cmd with more than one harness", () => {
-    const dir = tempOrchDir("orch-spawn-harness-cmd-");
-    tempDirs.push(dir);
-    expect(() => planned(parseSpawnFlags(["a", "b", "--harness", "pi", "--harness", "omp", "--cmd", "pi"]), mixedSettingsFor(dir))).toThrow(/--cmd launches one harness/);
   });
 
   test("resolves each agent's model against its own harness", () => {
@@ -353,12 +355,11 @@ describe("commands/spawn", () => {
       expect(readOnlyOf(["a", "b", "--read-only", "--dir", "/repo", "--out", "/x/one", "--out", "two"], dir)).toEqual([{ out: "/x/one" }, { out: "/repo/two" }]);
     });
 
-    test("--out without --read-only, a wrong count, and --cmd are refused", () => {
+    test("--out without --read-only and a wrong count are refused", () => {
       const dir = tempOrchDir("orch-spawn-read-only-");
       tempDirs.push(dir);
       expect(() => readOnlyOf(["a", "--out", "x"], dir)).toThrow(/--out names where a read-only agent may write; add --read-only/);
       expect(() => readOnlyOf(["a", "b", "c", "--read-only", "--out", "x", "--out", "y"], dir)).toThrow(/--out accepts one value for all agents or exactly 3 values/);
-      expect(() => readOnlyOf(["a", "--read-only", "--cmd", "pi"], dir)).toThrow(/--read-only is held by the harness's own launch/);
     });
 
     test("a read-only agent is planned with its read-only request", () => {

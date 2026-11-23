@@ -12,7 +12,7 @@ import type { OrchDir } from "../../../types/core.ts";
 import type { AgentView, GrantAction } from "../../../types/store.ts";
 import type { PresenceEntry } from "../../../types/presence.ts";
 import type { OrchSettings } from "../../../types/settings.ts";
-import type { ResultOf } from "../../client/protocol.ts";
+import type { ParamsOf, ResultOf } from "../../client/protocol.ts";
 import type { SpawnSettings } from "./plan.ts";
 import { admitLaunchModel } from "./models.ts";
 import { admitHome } from "../handlers/grant.ts";
@@ -190,32 +190,26 @@ export function assertNewSpaceGranted(directory: OrchDir, actor: string | null, 
     + `then retry this exact command. Or pass --space <space> to place the fleet in an open space,`
     + ` or drop --plexer and pass --prompt to launch headless with no space at all.`);
 }
-/** Everything that can refuse a spawn, run before it creates anything. A refused
- *  spawn leaves no handle, no worktree and no queue entry. Returns the settings the
- *  launch runs on: every agent's model admitted, so a short name is expanded once
- *  here and the plans downstream carry the spec the harness receives. */
-export function admitSpawn(
-  directory: OrchDir,
-  self: CallerSelf,
-  settingsFile: OrchSettings,
-  settings: SpawnSettings,
-  catalogue: ModelCatalogue,
-): SpawnSettings {
-  const { views, presence } = liveFleet(directory);
-  // Provenance depth and pack size come first: before a backend is resolved and
-  // before any space is allocated.
-  assertSpawnPolicy(settings, settings.space ?? self.space, settings.agents.length, views, presence, self.id);
+/** Each local agent's model admitted, before the plan: a short name comes back expanded, so the
+ *  plan's preview and every launch run the spec the harness receives. A linked host admits its
+ *  own agents' models. */
+export function admitSpawnModels(params: ParamsOf<"spawn">, settingsFile: OrchSettings, catalogue: ModelCatalogue): ParamsOf<"spawn"> {
+  if (params.host !== null) return params;
+  return { ...params, agents: params.agents.map((agent) => ({ ...agent, model: admitLaunchModel(settingsFile, agent.harness, catalogue, agent.model) })) };
+}
+
+/** What refuses a planned spawn before it creates anything: the host's memory and the name
+ *  prefix. A refused spawn leaves no handle, no worktree and no queue entry. Depth and pack size
+ *  refused before the plan (`assertSpawnPolicy`). */
+export function admitSpawn(settings: SpawnSettings): void {
   // Memory is the limit of the host the agents run on; a linked host's orchd checks its own.
   if (settings.host === null) assertHostMemory(settings);
-  // Each launch refreshes its harness's shim and builds its policy where it runs (`prepareLaunch`).
-  const agents = settings.agents.map((agent) => ({ ...agent, model: admitLaunchModel(settingsFile, agent.adapter, catalogue, agent.model) }));
   // A plexer may reject an invalid prefix, so no placement side effect may precede it.
   try {
     assertValidAgentName(settings.prefix);
   } catch (error: unknown) {
     throw new SpawnRefusalError(errorMessage(error));
   }
-  return { ...settings, agents };
 }
 
 /** Assert every already-resolved name is free in this space, before anything

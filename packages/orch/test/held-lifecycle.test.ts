@@ -18,6 +18,7 @@ import { placeHere } from "../src/process-place.ts";
 import { recordingLogger } from "./helpers/logger.ts";
 import { errorMessage } from "../src/util.ts";
 import type { AgentState } from "../src/agent-state.ts";
+import { writeClaudeInstallSettings } from "./helpers/settings.ts";
 import type { CallerCredential, OrchDir } from "../src/types/core.ts";
 import type { DaemonState } from "../src/daemon/server/state.ts";
 import type { HostGreeting } from "../src/types/host.ts";
@@ -113,7 +114,7 @@ describe("reload and restart of an agent held on a linked host", () => {
     const old = held.pty.last();
     const chunks = await viewer(held);
     bridgeReportsOnRelaunch(held);
-    const outcome = await applyLifecycle(held.near, { target: held.key, request: { verb: "restart", harness: null, model: null, thinking: null, cmd: null, form: null } });
+    const outcome = await applyLifecycle(held.near, { target: held.key, request: { verb: "restart", harness: null, model: null, thinking: null, form: null } });
     expect(outcome.ok).toBe(true);
     expect(outcome.reason).toBeNull();
     expect(outcome.command).toContain("gpt-5.6-luna");
@@ -136,7 +137,7 @@ describe("reload and restart of an agent held on a linked host", () => {
   test("restart with --model relaunches on that model, and both hosts record it", async () => {
     const held = await heldFar("lc-3");
     bridgeReportsOnRelaunch(held);
-    const outcome = await applyLifecycle(held.near, { target: held.key, request: { verb: "restart", harness: null, model: "openai/gpt-5.6-sol", thinking: null, cmd: null, form: null } });
+    const outcome = await applyLifecycle(held.near, { target: held.key, request: { verb: "restart", harness: null, model: "openai/gpt-5.6-sol", thinking: null, form: null } });
     expect(outcome).toMatchObject({ ok: true, reason: null, relaunched: { harnessId: "pi", model: "openai/gpt-5.6-sol", thinking: "medium" } });
     expect(outcome.command).toContain("gpt-5.6-sol");
     expect(agentView(held.far.orchDir, held.key)?.tuning.model).toBe("openai/gpt-5.6-sol");
@@ -145,10 +146,12 @@ describe("reload and restart of an agent held on a linked host", () => {
 
   test("restart with another --harness relaunches the PTY on that harness, and both hosts record it", async () => {
     const held = await heldFar("lc-4");
+    // A claude launch on the far host reads that install's hooks.
+    writeClaudeInstallSettings(held.far.orchDir);
     bridgeReportsOnRelaunch(held);
-    const outcome = await applyLifecycle(held.near, { target: held.key, request: { verb: "restart", harness: "claude", model: "haiku", thinking: null, cmd: null, form: null } });
+    const outcome = await applyLifecycle(held.near, { target: held.key, request: { verb: "restart", harness: "claude", model: "haiku", thinking: null, form: null } });
     expect(outcome).toMatchObject({ ok: true, reason: null, relaunched: { harnessId: "claude", model: "haiku" } });
-    expect(outcome.command).toMatch(/^claude\b/);
+    expect(outcome.command).toStartWith("'claude' ");
     expect(held.pty.last().child.pid).not.toBe(held.pty.spawned[0]?.child.pid);
     expect(agentView(held.far.orchDir, held.key)?.harnessId).toBe("claude");
     expect(agentView(held.near.directory, held.key)?.harnessId).toBe("claude");
@@ -160,9 +163,9 @@ describe("reload and restart of an agent held on a linked host", () => {
     const events: NotifyEvent[] = [];
     // The far orchd's tick fires every millisecond, so it runs between the old program's exit
     // and the new one being recorded.
-    ticks.push(startLivenessTick(held.far.orchDir, 1, (event) => { events.push(event); held.far.emit(event); }, recordingLogger().logger));
+    ticks.push(startLivenessTick(held.far.orchDir, 1, (event) => { events.push(event); held.far.emit(event); }, recordingLogger().logger, () => 0));
     bridgeReportsOnRelaunch(held);
-    const outcome = await applyLifecycle(held.near, { target: held.key, request: { verb: "restart", harness: null, model: null, thinking: null, cmd: null, form: null } });
+    const outcome = await applyLifecycle(held.near, { target: held.key, request: { verb: "restart", harness: null, model: null, thinking: null, form: null } });
     expect(outcome.ok).toBe(true);
     expect(events.filter((event) => event.type === "transition" && event.newState === "exited")).toEqual([]);
     expect(agentView(held.far.orchDir, held.key)?.endedAt).toBeNull();
@@ -171,7 +174,7 @@ describe("reload and restart of an agent held on a linked host", () => {
 
   test("a restart whose harness never reports back says so, as it does here", async () => {
     const held = await heldFar("lc-5");
-    const outcome = await applyLifecycle(held.near, { target: held.key, request: { verb: "restart", harness: null, model: null, thinking: null, cmd: null, form: null } });
+    const outcome = await applyLifecycle(held.near, { target: held.key, request: { verb: "restart", harness: null, model: null, thinking: null, form: null } });
     expect(outcome.ok).toBe(false);
     expect(outcome.reason).toBe("relaunched but bridge status did not refresh within 3s");
   });
@@ -238,7 +241,7 @@ describe("an agent held on a linked host that exits on its own", () => {
     const held = await heldFar("ex-1");
     const chunks = await viewer(held);
     // The far orchd's liveness tick sees the program gone and publishes the exit, as orchd does.
-    ticks.push(startLivenessTick(held.far.orchDir, 20, (event) => { held.far.emit(event); }, recordingLogger().logger));
+    ticks.push(startLivenessTick(held.far.orchDir, 20, (event) => { held.far.emit(event); }, recordingLogger().logger, () => 0));
     held.pty.last().finish();
     await until("the agent reads ended here", () => agentView(held.near.directory, held.key)?.endedAt !== null);
     await until("the viewer ends", () => chunks.at(-1)?.kind === "end");

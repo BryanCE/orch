@@ -1,5 +1,5 @@
 // What one spawn launches, planned by orchd from what the CLI asked for and orchd's own settings:
-// the plexer, each agent's harness command, the worker policy, and the worktree intent.
+// the plexer, each agent's harness and form, and the worktree intent.
 import { heldBackend, resolveBackend } from "../../../backends/registry.ts";
 import { SpawnRefusalError } from "../../../refusal.ts";
 import { errorMessage } from "../../../util.ts";
@@ -20,8 +20,6 @@ interface SpawnAgentCommon {
   readonly backend: Backend;
   readonly name: string;
   readonly adapter: AdapterId;
-  /** The command `--cmd` gave, or null for the harness's own, which each launch builds from its policy. */
-  readonly cmd: string | null;
   readonly model: string;
   readonly thinking: ThinkingLevel;
   /** The initial task, or null when the fleet starts idle. All agents have one or none have one. */
@@ -50,7 +48,6 @@ export interface SpawnSettings {
    *  chosen plexer is one orch may open a home in. A plexer orch only probed is not. */
   readonly backendChosen: boolean;
   readonly cwd: string;
-  readonly commandFlag: boolean;
   readonly space: string | null;
   /** The linked host the agents run on, headless; null runs them here. */
   readonly host: { readonly name: string } | null;
@@ -113,11 +110,13 @@ export function planSpawn(params: ParamsOf<"spawn">, settings: OrchSettings, cho
   const requested = plexerRequest(params, settings);
   const backend = chosen ?? requested.backend;
   const agents = params.agents.map((agent): SpawnAgentPlan => {
-    // Refused here, before anything is made, as every launch would refuse it.
-    requireReadOnlyAble(resolveAdapterOrDie(agent.harness), agent.name, agent.readOnly, (message) => new SpawnRefusalError(message));
-    const common = { requestedForm: params.form, name: agent.name, adapter: agent.harness, cmd: params.cmd, model: agent.model, thinking: agent.thinking, prompt: agent.prompt, backend, readOnly: agent.readOnly };
+    const common = { requestedForm: params.form, name: agent.name, adapter: agent.harness, model: agent.model, thinking: agent.thinking, prompt: agent.prompt, backend, readOnly: agent.readOnly };
+    // A far agent's launch is built on its host, which refuses what it cannot run.
     if (params.host !== null) return { ...common, form: null };
-    return { ...common, ...selectSpawnForm(params.form, settings.defaults.forms, resolveAdapterOrDie(agent.harness), backend, heldBackend) };
+    const adapter = resolveAdapterOrDie(agent.harness);
+    // Refused here, before anything is made, as its launch would refuse it.
+    requireReadOnlyAble(adapter, agent.name, agent.readOnly, (message) => new SpawnRefusalError(message));
+    return { ...common, ...selectSpawnForm(params.form, settings.defaults.forms, adapter, backend, heldBackend) };
   });
   const first = agents[0];
   if (first === undefined) throw new SpawnRefusalError("spawn requires at least one agent");
@@ -126,7 +125,6 @@ export function planSpawn(params: ParamsOf<"spawn">, settings: OrchSettings, cho
     tab: params.tab,
     backendChosen: requested.backendChosen,
     cwd: params.cwd,
-    commandFlag: params.cmd !== null,
     space: params.space,
     host: params.host === null ? null : { name: params.host },
     prefix: first.name,

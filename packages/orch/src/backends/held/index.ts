@@ -24,7 +24,7 @@ import { hostedHere } from "../../local-process.ts";
 import { definedEnv } from "../../util.ts";
 import { isAgentId } from "../../shared/agent-id.ts";
 import type { AgentAdapter, Prerequisite } from "../../types/adapter.ts";
-import type { AgentInputRole, Backend, BackendId, BackendSpawnOpts, CaptureRole, ProcessRole, RelaunchRole, LaunchProgram } from "../../types/backend.ts";
+import type { AgentInputRole, Backend, BackendId, BackendSpawnOpts, CaptureRole, ProcessRole, RelaunchRole } from "../../types/backend.ts";
 import type { StdioKind } from "../../types/form.ts";
 import type { HeldPtysByPid, HeldStartRequest, PtyHolder } from "../../types/pty.ts";
 
@@ -59,9 +59,9 @@ function boundPtys(): HeldPtysByPid {
 export type HeldProgram = Pick<HeldStartRequest, "file" | "args">;
 
 /** A held PTY runs its program through this host's shell, quoted for that shell, as a pane would run it. */
-function shellRun(program: LaunchProgram): HeldProgram {
+function shellRun(argv: readonly string[]): HeldProgram {
   const [file, ...args] = hostShell();
-  return { file, args: [...args, shellCommand(hostShellDialect(), program)] };
+  return { file, args: [...args, shellCommand(hostShellDialect(), argv)] };
 }
 
 function requirePid(handle: HeldHandle): number {
@@ -99,9 +99,9 @@ const heldInput: AgentInputRole<HeldHandle> = {
 /** The PTY's program is the harness, through this host's shell: a relaunch ends it and runs the
  *  command the same way, in a new PTY with the same directory and the environment the launch's opts build, as a held spawn does. */
 const heldRelaunch: RelaunchRole<HeldHandle> = {
-  relaunch: async (handle, program, opts) => {
+  relaunch: async (handle, argv, opts) => {
     const pid = requirePid(handle);
-    const relaunched = await boundPtys().relaunchPid(pid, shellRun(program).args, heldLaunchEnv(opts));
+    const relaunched = await boundPtys().relaunchPid(pid, shellRun(argv).args, heldLaunchEnv(opts));
     if (relaunched === null) throw new Error(`no PTY held here runs pid ${pid}`);
     const next = String(relaunched.pid);
     return { handle: next, process: heldBackend.process.running(next) };

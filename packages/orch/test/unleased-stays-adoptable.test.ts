@@ -46,7 +46,7 @@ function fixture(): OrchDir {
  *  section, so that section is the whole value and there is nothing to cast past. */
 function aggressiveRetention(): Pick<OrchSettings, "retention"> {
   return {
-    retention: { ended_agents_days: 0, queue_days: 0, events_days: 0, runs_days: 0, outbox_days: 0, control_outcomes_days: 0, logs_days: 0 },
+    retention: { ended_agents_days: 0, ended_agent_rows_ms: 0, queue_days: 0, events_days: 0, runs_days: 0, outbox_days: 0, control_outcomes_days: 0, logs_days: 0 },
   };
 }
 
@@ -56,7 +56,7 @@ const FAR_FUTURE = new Date(Date.now() + 3650 * 24 * 60 * 60 * 1000);
 /** One daemon pass: the retention sweep and the liveness tick's reap. */
 function sweep(d: OrchDir): string[] {
   sweepExpiredRows(d, aggressiveRetention(), FAR_FUTURE);
-  return reapDeadAgentRecords(d);
+  return reapDeadAgentRecords(d, 0, Date.now());
 }
 
 describe("unleased and idle stays alive and adoptable (D3)", () => {

@@ -401,11 +401,11 @@ const PANE_OUTCOME = z.discriminatedUnion("kind", [
 export type PaneOutcome = z.infer<typeof PANE_OUTCOME>;
 
 /** A harness relaunch in place: `reload` has the harness reload itself; `restart` quits it and
- *  launches it again, on another harness, model or command when one is named. The orchd where the
+ *  launches it again, on another harness or model when one is named. The orchd where the
  *  agent runs plans the launch with its own settings. */
 const LIFECYCLE_REQUEST = z.discriminatedUnion("verb", [
   z.object({ verb: z.literal("reload") }),
-  z.object({ verb: z.literal("restart"), harness: nonBlank.nullable(), model: nonBlank.nullable(), thinking: nonBlank.nullable(), cmd: nonBlank.nullable(), form: z.enum(FORM_IDS).nullable() }),
+  z.object({ verb: z.literal("restart"), harness: nonBlank.nullable(), model: nonBlank.nullable(), thinking: nonBlank.nullable(), form: z.enum(FORM_IDS).nullable() }),
 ]);
 export type LifecycleRequest = z.infer<typeof LIFECYCLE_REQUEST>;
 
@@ -725,7 +725,6 @@ export const RPC_PARAMS = {
   spawn: GOVERNANCE.extend({
     form: SPAWN_REGISTRATION.shape.form.nullable(),
     agents: z.array(SPAWN_AGENT).min(1),
-    cmd: nonBlank.nullable(),
     plexer: nonBlank.nullable(),
     cwd: nonBlank,
     tab: nonBlank.nullable(),
@@ -755,7 +754,6 @@ export const RPC_PARAMS = {
   tile: GOVERNANCE.extend({
     tab: nonBlank,
     agent: SPAWN_AGENT.omit({ prompt: true, readOnly: true }),
-    cmd: nonBlank.nullable(),
     plexer: nonBlank.nullable(),
     cwd: nonBlank,
     worktree: SPAWN_WORKTREE,

@@ -1,15 +1,9 @@
 {
   "schemaVersion": 1,
-  "council": {
-    "rounds": 4,
-    "models": {
-      "pi": [
-        "openai-codex/gpt-6.2-sol:medium"
-      ],
-      "claude": [
-        "opus:high",
-        "claude-fable-5-2:high"
-      ]
-    }
+  "workers": {
+    "verify_commands": [
+      "cd {cwd} && bun check",
+      "cd {cwd} && bun test packages/orch/test/<the test files you touched>"
+    ]
   }
 }

@@ -2,11 +2,8 @@
 // read the scores, and close it. The CLI parses and reports; orchd launches the members, sends
 // the rounds and scores each review.
 import { usageError } from "../cli/usage.ts";
-import { CommandRefusal } from "../refusal.ts";
 import { installManagerOf } from "../settings/manager.ts";
 import { projectSettings } from "../settings/project.ts";
-import { requireCouncilModelsAllowed } from "../settings/read.ts";
-import { errorMessage } from "../util.ts";
 import { councilLineup } from "../council/lineup.ts";
 import { renderTable } from "../table.ts";
 import { taskWithReferences } from "../worker-prompt.ts";
@@ -66,11 +63,6 @@ async function convene(services: Services, invocation: Invocation): Promise<void
   const install = installManagerOf(services.settings);
   const project = projectSettings(councilCwd(invocation), install);
   const settings = project.settings;
-  try {
-    requireCouncilModelsAllowed(project.file ?? install.file, settings);
-  } catch (error: unknown) {
-    throw new CommandRefusal(errorMessage(error));
-  }
   const flags = spawnFlagsOf(invocation);
   // The members launch as a spawn's agents do, so the same flags resolve them. The subject is
   // the round's, never a launch prompt: orchd sends it once every member is recorded.

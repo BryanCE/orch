@@ -1,7 +1,7 @@
 import { writeSettingsDefault, writeSettingsFullTree, writeSettingsModels, writeSettingsAllowedModels, writeSettingsPreferredModels, writeSettingsEnabled, writeSettingsRuntime } from "../settings/write.ts";
 import { DEFAULT_RUNTIME, ORCH_RUNTIMES, type OrchRuntime } from "../runtime.ts";
 import { signedOutFix } from "../shared/prerequisites.ts";
-import { assertModelListed, isAllowedModel } from "../policy/model.ts";
+import { assertModelListed, isAllowedModel, modelNames } from "../policy/model.ts";
 import { modelSpec, resolveThinking, splitThinkingSuffix } from "../policy/thinking.ts";
 import { allowlistWithDefault } from "../settings/read.ts";
 import { logStep, logWarning } from "./io.ts";
@@ -134,7 +134,7 @@ export async function resolveCouncilModels(
 ): Promise<OrchSettings["council"]["models"] | null> {
   let lineup = settings.council.models;
   for (const id of harnesses) {
-    const launchable = (await readHarnessCatalogue(id, offers, true)).models.filter((model) => isAllowedModel(settings, id, model.spec));
+    const launchable = (await readHarnessCatalogue(id, offers, true)).models.filter((model) => isAllowedModel(settings, id, model));
     if (!launchable.length) continue;
     const recorded = new Map((lineup[id] ?? []).map((model) => {
       const { bare, thinking } = splitThinkingSuffix(model);
@@ -144,7 +144,9 @@ export async function resolveCouncilModels(
     if (picked === null) return null;
     const members: string[] = [];
     for (const spec of picked) {
-      const level = await pick.thinking(id, spec, resolveThinking({ modelSuffix: recorded.get(spec), harness: id, settings }));
+      const names = modelNames(launchable.find((model) => model.spec === spec) ?? { spec });
+      const suffix = names.map((name) => recorded.get(name)).find((thinking) => thinking !== undefined);
+      const level = await pick.thinking(id, spec, resolveThinking({ modelSuffix: suffix, harness: id, settings }));
       if (level === null) return null;
       members.push(modelSpec(spec, level));
     }

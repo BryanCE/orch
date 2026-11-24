@@ -22,7 +22,7 @@ export function roundFileName(round: number): string {
 
 /** The layout a member is told to write, for a council that scores out of `scale`. */
 export function roundFileLayout(scale: number): string {
-  return `Score: <a whole number from 0 to ${scale}>/${scale}\n\n## Improvements\n\n1. <the change that would raise the score most>\n2. <the next one>`;
+  return `Score: <a whole number from 0 to ${scale}>/${scale}\n\n## Checks\n\n- <check id> <PASS, FAIL or N/A> <file:line> <what it shows>\n\n## Improvements\n\n1. <the change that would raise the score most>\n2. <the next one>`;
 }
 
 const SCORE_LINE = /^Score:\s*(\d+)\s*\/\s*(\d+)$/;

@@ -78,6 +78,31 @@ describe("picking the council's lineup", () => {
     expect(lineup).toEqual({ pi: ["openai-codex/gpt-6-luna:high", "openai-codex/gpt-6.1-sol:medium"], claude: ["sonnet:xhigh"] });
   });
 
+  test("a member and an allowlist recorded under the concrete name keep the alias the harness now lists", async () => {
+    const directory = tempOrchDir("orch-council-lineup-pick-");
+    directories.push(directory);
+    writeSettingsFixture(directory, {
+      enabled: { adapters: ["claude"], backends: [] },
+      models: { allowed: { claude: ["opus", "claude-fable-5-2"] } },
+      council: { models: { claude: ["claude-fable-5-2:high"] } },
+    });
+    const aliases: HarnessOffers = () => Promise.resolve([{ id: "claude", models: [{ spec: "opus" }, { spec: "fable", resolved: "claude-fable-5-2" }, { spec: "haiku" }], suggested: null, compaction: false, signIn: null, error: null }]);
+    const asked: { offered: string[]; already: string[] }[] = [];
+    const lineups: Awaited<ReturnType<typeof resolveCouncilModels>>[] = [];
+    await captureStdout(async () => {
+      lineups.push(await resolveCouncilModels(fileSettingsManager(directory).current(), aliases, ["claude"], {
+        models: (_harness, offered, already) => {
+          asked.push({ offered: offered.map((model) => model.spec), already: [...already] });
+          return Promise.resolve(["fable"]);
+        },
+        thinking: keepLevel,
+      }));
+    });
+
+    expect(asked).toEqual([{ offered: ["opus", "fable"], already: ["claude-fable-5-2"] }]);
+    expect(lineups).toEqual([{ claude: ["fable:high"] }]);
+  });
+
   test("an empty pick seats nobody from that harness", async () => {
     expect(await picked(settingsWith({ pi: ["openai-codex/gpt-6-luna"], claude: ["opus"] }), ["pi", "claude"], (harness) => Promise.resolve(harness === "pi" ? [] : ["opus"]))).toEqual({ claude: ["opus:medium"] });
   });

@@ -7,12 +7,12 @@ import {
   SETTINGS_DEFAULTS, SETTINGS_SCHEMA,
   type ProjectSettingsFile, type SettingsFile,
 } from "./schema.ts";
-import { allowlistWithDefault, parseSettingsRoot, parseSettingsText, settingsValues, requireCouncilModelsAllowed, requireEnabledComposition } from "./read.ts";
+import { allowlistWithDefault, parseSettingsRoot, parseSettingsText, settingsValues, requireEnabledComposition } from "./read.ts";
 import { withKeys } from "./unknown-keys.ts";
 import type { NotifyEntry, SettingsRepair } from "../types/settings.ts";
 import type { ThinkingLevel } from "../types/policy.ts";
 import type { SettingsManager, SettingsScope } from "../types/services.ts";
-import { mergeProjectSettings, parseProjectSettingsRoot, parseProjectSettingsText } from "./project.ts";
+import { parseProjectSettingsRoot, parseProjectSettingsText } from "./project.ts";
 
 /** Drop the harnesses whose list is empty: for both model maps an empty list means the same
  *  thing as no entry, and recording `[]` leaves settings.json claiming a selection nobody made. */
@@ -55,15 +55,12 @@ function serializeSettingsRoot(file: string, candidate: unknown): string {
   const { settings: parsed, newer } = parseSettingsRoot(candidate, file);
   const updated = withDefaultsAllowed(parsed);
   requireEnabledComposition(file, updated);
-  requireCouncilModelsAllowed(file, updated);
   return JSON.stringify(withKeys(updated, newer), null, 2) + "\n";
 }
 
-/** Validate and serialize a project file's root. An install-only key is refused by name, and a
- *  council lineup outside the merged `models.allowed` is refused as the install write refuses it. */
+/** Validate and serialize a project file's root. An install-only key is refused by name. */
 function serializeProjectRoot(file: string, scope: Extract<SettingsScope, { kind: "project" }>, candidate: unknown): string {
   const parsed = parseProjectSettingsRoot(candidate, file, scope.install.file);
-  requireCouncilModelsAllowed(file, mergeProjectSettings(file, scope.install.current(), parsed));
   return JSON.stringify({ ...parsed, schemaVersion: SETTINGS_SCHEMA }, null, 2) + "\n";
 }
 

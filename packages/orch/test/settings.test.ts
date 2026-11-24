@@ -328,27 +328,17 @@ describe("loadSettings", () => {
     expect(() => fileSettingsManager(directory).current()).toThrow(/defaults\.adapter.*"claude".*enabled: pi/);
   });
 
-  test("reads the council's models, held to each harness's allowlist", () => {
+  test("reads the council's models", () => {
     const directory = tempDir();
     const models = { allowed: { pi: ["openai-codex/*"], claude: ["sonnet"] } };
     writeSettingsFixture(directory, { enabled: { adapters: ["pi", "claude"], backends: [] }, models, council: { models: { pi: ["openai-codex/gpt-6-luna:high"], claude: ["sonnet"] } } });
     expect(fileSettingsManager(directory).current().council.models).toEqual({ pi: ["openai-codex/gpt-6-luna:high"], claude: ["sonnet"] });
-
-    writeSettingsFixture(directory, { enabled: { adapters: ["pi", "claude"], backends: [] }, models, council: { models: { claude: ["sonnet", "opus"] } } });
-    expect(() => fileSettingsManager(directory).current()).toThrow('council.models.claude: "opus" is not in models.allowed.claude - allowed: sonnet');
   });
 
   test("a harness with no allowlist takes any council model", () => {
     const directory = tempDir();
     writeSettingsFixture(directory, { enabled: { adapters: ["pi", "claude"], backends: [] }, council: { models: { claude: ["opus"] } } });
     expect(fileSettingsManager(directory).current().council.models).toEqual({ claude: ["opus"] });
-  });
-
-  test("an allowlist write that drops a council model is refused", () => {
-    const directory = tempDir();
-    writeSettingsFixture(directory, { enabled: { adapters: ["pi", "claude"], backends: [] }, models: { allowed: { claude: ["sonnet", "opus"] } }, council: { models: { claude: ["opus"] } } });
-    expect(() => writeSettingsAllowedModels(fileSettingsManager(directory), { claude: ["sonnet"] })).toThrow('council.models.claude: "opus" is not in models.allowed.claude');
-    expect(fileSettingsManager(directory).current().models.allowed.claude).toEqual(["sonnet", "opus"]);
   });
 
   test("rejects when settings.json is absent but a legacy config.toml exists", () => {

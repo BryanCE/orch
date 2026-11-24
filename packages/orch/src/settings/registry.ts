@@ -299,7 +299,7 @@ const HELP: Readonly<Record<string, string>> = {
   "council.directory": "Where councils keep their files, under the directory a council is convened from. Each council has a directory there named for it.",
   "council.scale": "What a council member scores out of. A score is a whole number from 0 to this.",
   "council.rounds": "How many rounds a council runs. A round past this is refused.",
-  "council.models": "Who sits on a council, by harness: one member per model, each with its thinking level, {\"<harness>\": [\"<model>:<level>\"]}. orch council convene launches this lineup when it names no member. A model with no level runs at the thinking default. Every model must be in that harness's models.allowed.",
+  "council.models": "Who sits on a council, by harness: one member per model, each with its thinking level, {\"<harness>\": [\"<model>:<level>\"]}. orch council convene launches this lineup when it names no member. A model with no level runs at the thinking default. Convene refuses a model that harness's models.allowed leaves out.",
   "skills.install": "Whether orch installs packaged skills.",
   "skills.store": "Directory holding the real skill files. The cross-harness standard is ~/.agents/skills.",
   "skills.link": "Harness skill directories orch symlinks into the store.",

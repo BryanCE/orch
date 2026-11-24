@@ -10,6 +10,11 @@ A council is several agents on different models that score one subject and list 
 improve it. You are the lead and the members only review. You read their reviews, improve the
 subject, and send it back for the next round, until the stopping point.
 
+You are the subject's author, so you never judge it to the members. A council is worth its
+cost only when each member scores the files alone. orch tells every member that your text is
+an author's claim, to check and not to trust. Write it so there is nothing to discount: what
+to read, the user's goal, what changed. No praise, no case for the design, no score to aim at.
+
 Read `orch help council` before the first command. It describes the build that is installed.
 
 ## The brief
@@ -18,8 +23,12 @@ A council costs one run per member per round, so it starts from a brief. Write t
 lines before you convene:
 
 - **Subject.** The exact files under review, and what in them you may change.
-- **Goal.** What a good one looks like, as criteria a member can score against. "Can be built
-  without one question" is a criterion. "Is good" is not.
+- **Goal.** What a good one looks like, as criteria a member can score against, in the
+  user's words. "Each step names the files it changes and the check that proves it done" is a
+  criterion. "Is good" is not. Every goal also holds this one: the
+  subject meets its goal with the most maintainable and performant design, sound abstractions
+  on industry-standard practice, and fixes the core problems in the parts it touches instead
+  of building beside them.
 - **Stopping point.** What ends the council before its last round, when the user named
   something: every member at 8 or above, or one round only. With nothing named, the council
   runs its full count of rounds.
@@ -35,7 +44,7 @@ convene in the same turn.
 
 ```bash
 orch council convene plan-review \
-  --prompt "Review the plan in plan.md. A good plan can be built without one question." --with plan.md
+  --prompt "Review the plan in plan.md. Each step names the files it changes and the check that proves it done." --with plan.md
 orch monitor                          # arm through the Monitor tool, in this same message
 orch council scores plan-review       # once every member is done
 orch council round plan-review "Rewrote section 2 and added the rollback steps." --with plan.md
@@ -43,7 +52,8 @@ orch council close plan-review
 ```
 
 1. **Convene.** Name the council for its subject. `--prompt` carries the brief's subject and
-   goal, and `--with` names each file a member must read. The members are the user's
+   goal and nothing else: not why the design is the way it is, not what you think of it, not
+   what a member should expect to find. `--with` names each file a member must read. The members are the user's
    `council.models` setting, one per model, each at the thinking level the setting gives it.
    Done when the command reports round 1 sent to every member.
 2. **Wait.** Arm `orch monitor`. Done when every member of the round has reported `DONE`.
@@ -51,27 +61,38 @@ orch council close plan-review
    its own directory, `.orch/councils/<council>/<member>/` unless the `council.directory`
    setting moves it. Its improvements are ordered, most important first. Done when the table
    shows no `running` and you have read every member's file.
-4. **Improve.** Go through every improvement every member listed. Make each one that serves
-   the goal, in the subject itself: the plan, the code, whatever is under review. Skip one
-   that is wrong or outside the subject, and keep a one-line reason. Done when each
-   improvement is made or has its reason, and the subject passes its own checks: a plan reads
-   whole, code passes the project's gate.
+4. **Improve.** Go through every improvement every member listed. Make the core fixes
+   first. Then make each other one that serves the goal, in the subject itself: the plan, the
+   code, whatever is under review. Skip one that is wrong or outside the subject, and keep a
+   one-line reason. Done when each improvement is made or has its reason, and the subject
+   passes its own checks: a plan reads whole, code passes the project's gate.
+
+   Then **audit the design** yourself. Read the parts the subject touches and ask what would
+   make this work, and the work after it, easier to build and maintain. A bad abstraction, a
+   missing read or a design that forces detours is a **core problem**: the real change is to
+   fix it where it lives, with the established pattern that fits, and rebuild the subject on
+   top of it. **Workarounds are the alarm**: a subject that gains special cases, adapters or
+   copies of another part's internals on each round is building beside a core problem. Put
+   the core fix in the subject: a plan builds it first, as its own change, and code changes
+   it. When the fix reaches past what the brief lets you change, tell the user in one line,
+   "X builds beside Y in Z; the fix is to change Y.", and wait.
 5. **Summarize.** Tell the user in a few lines: which round this was and how many remain,
-   each member's score and the mean with the change from the round before, what you changed,
-   and what you skipped and why.
+   each member's score and the mean with the change from the round before, which core fixes
+   you made, what else you changed, and what you skipped and why.
 6. **Check the stopping point.** When it is reached, go to step 7. Otherwise send the next
    round in the same turn, `orch council round <council> "<what changed, what you left and
    why>"`, and go back to step 2. Each member reads the subject again, rescores it, and reads
    what the others wrote in the round before.
 
-   For each improvement you skipped, the round text names the member that asked for it and
-   says why it was skipped:
+   The round text is facts: each change and where it is, each skipped improvement and the
+   one-line reason. Name the member that asked for a skipped one, and give the reason:
    - The other members outweighed it. Name them and their reason.
    - The subject solves the same problem another way. Say where.
    - It is outside the subject, or wrong. Say how.
-   Tell that member to score the decision on its merits, and not to mark the subject down
-   again for an item that has been ruled on. A member that keeps scoring down for a settled
-   item holds the mean flat and stops a council that is still improving.
+   The member judges the reason and scores as it sees fit. Never ask a member to stop marking
+   the subject down, never call an item settled, and never say how well a change worked. Only
+   the user settles an item: quote the ruling as theirs, `The user ruled: "<their words>"`.
+
 7. **Finish.** Report every round's scores, what moved across the rounds, and what is still
    open. The last round's changes are unscored, so say that. Ask the user one question: close
    the council, or raise `council.rounds` and go on. On their word, run
@@ -94,10 +115,11 @@ The council reaches its stopping point at the first of these:
 When the user rules on something the members are scoring, the members must hear it, or they
 keep scoring against it.
 
-- While a round runs: `orch council steer <council> "<the ruling, stated as decided>"`. It
+- While a round runs: `orch council steer <council> "The user ruled: \"<their words>\""`. It
   reaches every member still writing the round, and names each member that had finished.
 - Between rounds, and for each member the steer named: open the next round's text with the
-  ruling.
+  ruling, quoted the same way.
+- A steer carries the user's rulings and nothing else. It is never your argument.
 - Change the subject to match the ruling before the next round.
 
 ## Ask first
@@ -110,6 +132,7 @@ once they answer:
   `council.models` row of `orch settings`, in its Project view.
 - Two members want opposite changes, and choosing between them changes the goal.
 - An improvement most members ask for reaches outside the subject.
+- A core fix that reaches past what the brief lets you change, from step 4.
 - A command exits with `orch grant <id>`. Give the user that line, wait until they say it
   ran, then run the same command again.
 

@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { checkProjectSettings, checkSettingsFile } from "../src/daemon/server/doctor/settings-file.ts";
 import { runTestDoctor } from "./helpers/doctor.ts";
-import { writeProjectSettingsFixture, writeProjectSettingsText, writeSettingsFixture } from "./helpers/settings.ts";
+import { writeProjectSettingsText, writeSettingsFixture } from "./helpers/settings.ts";
 
 import type { OrchDir } from "../src/types/core.ts";
 const directories: OrchDir[] = [];
@@ -178,13 +178,5 @@ describe("project settings", () => {
     const result = await checkProjectSettings(projectSettings(directory, install));
     expect(result.status).toBe("fail");
     expect(result.detail).toContain("expected valid JSON");
-  });
-
-  test("rejects council models outside allowed models", async () => {
-    const { directory, install } = fixture();
-    writeProjectSettingsFixture(directory, { models: { allowed: { pi: ["openai-codex/gpt-6-luna"] } }, council: { models: { pi: ["openai-codex/gpt-6.2-sol:medium"] } } });
-    const result = await checkProjectSettings(projectSettings(directory, install));
-    expect(result.status).toBe("fail");
-    expect(result.detail).toContain("council.models.pi");
   });
 });

@@ -152,13 +152,6 @@ describe("project writes", () => {
     expect(() => writeRegisteredSetting(projectSettingsManager(dir, manager), "daemon.tcp_port", 9)).toThrow("install-only");
     expect(existsSync(path.join(dir, ".orch", "settings.json"))).toBe(false);
   });
-  test("a council lineup outside the merged models.allowed is refused", () => {
-    const manager = install({ models: { allowed: { pi: ["openai-codex/gpt-6-luna"] } } });
-    const dir = project();
-    expect(() => writeRegisteredSetting(projectSettingsManager(dir, manager), "council.models", {
-      pi: ["openai-codex/gpt-6.2-sol:medium"],
-    })).toThrow("council.models.pi");
-  });
   test("a clear removes the project's value so the install's applies", () => {
     const manager = install({ workers: { verify_commands: ["go vet"] } });
     const dir = project();

@@ -1,8 +1,10 @@
 import { intro, outro } from "@clack/prompts";
 import { DEFAULT_RUNTIME, ORCH_RUNTIMES, type OrchRuntime } from "../runtimes.ts";
 import { splitThinkingSuffix } from "../policy/thinking.ts";
+import { modelNames } from "../policy/model.ts";
+import { matchesModelPattern } from "../settings/read.ts";
 import { THINKING_LEVELS, type ThinkingLevel } from "../types/policy.ts";
-import { idOptions, promptAutocomplete, promptAutocompleteMultiselect, promptSelect, promptMultiselect } from "./io.ts";
+import { idOptions, logWarning, promptAutocomplete, promptAutocompleteMultiselect, promptSelect, promptMultiselect } from "./io.ts";
 import type { HarnessModel } from "../types/adapter.ts";
 import type { NotifierChoice } from "../types/notify.ts";
 import type { CataloguePicker } from "../types/command.ts";
@@ -105,16 +107,25 @@ const defaultCataloguePicker: CataloguePicker = (mode, message, options, maxItem
     ? promptAutocompleteMultiselect(message, [...options], maxItems)
     : promptMultiselect(message, options.map((option) => ({ ...option, hint: option.hint ?? "" })));
 
-/** One multi-select over a harness's catalogue, pre-checking what is already recorded. Large
+/** The recorded entries that name no model the harness lists, under any of its names. */
+function unlistedEntries(offered: readonly HarnessModel[], already: readonly string[]): string[] {
+  return already.filter((entry) => !offered.some((model) => modelNames(model).some((name) => matchesModelPattern([entry], name))));
+}
+
+/** One multi-select over a harness's catalogue, pre-checking what is already recorded under
+ *  any of a model's names, and naming a recorded entry the harness no longer lists. Large
  *  catalogues get the searchable bounded view; clearing the query browses them all. Null on cancel. */
 function pickFromCatalogue(
+  harnessId: string,
   message: string,
   offered: readonly HarnessModel[],
   already: readonly string[],
   pick: CataloguePicker,
 ): Promise<string[] | null> {
+  const unlisted = unlistedEntries(offered, already);
+  if (unlisted.length) logWarning(`${harnessId} no longer lists ${unlisted.join(", ")}. Pick its current name below; this pick replaces the old one.`);
   const checked = new Set(already);
-  const options = offered.map((model) => ({ ...modelOption(model), checked: checked.has(model.spec) }));
+  const options = offered.map((model) => ({ ...modelOption(model), checked: modelNames(model).some((name) => checked.has(name)) }));
   const searchable = offered.length > MODEL_PICKER_MAX_ITEMS;
   return pick(searchable ? "autocomplete" : "multiselect", message, options, MODEL_PICKER_MAX_ITEMS);
 }
@@ -134,7 +145,7 @@ export function selectAllowedModels(
   already: readonly string[],
   pick: CataloguePicker = defaultCataloguePicker,
 ): Promise<string[] | null> {
-  return pickFromCatalogue(`Models ${harnessId} may spawn, and cycle in its own picker (${howToPick(offered)}, none = allow all)`, offered, already, pick);
+  return pickFromCatalogue(harnessId, `Models ${harnessId} may spawn, and cycle in its own picker (${howToPick(offered)}, none = allow all)`, offered, already, pick);
 }
 
 /** Multi-select the models of one harness that sit on a council, one member per model. The
@@ -145,7 +156,7 @@ export function selectCouncilModels(
   already: readonly string[],
   pick: CataloguePicker = defaultCataloguePicker,
 ): Promise<string[] | null> {
-  return pickFromCatalogue(`Council members on ${harnessId}, one per model (${howToPick(offered)}, none = no member on ${harnessId})`, offered, already, pick);
+  return pickFromCatalogue(harnessId, `Council members on ${harnessId}, one per model (${howToPick(offered)}, none = no member on ${harnessId})`, offered, already, pick);
 }
 
 /** Pick the thinking effort one council member runs at, starting on the level it has now.

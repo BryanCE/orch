@@ -108,6 +108,14 @@ describe("setup model list picker", () => {
     expect(kept).toEqual(["opus"]);
   });
 
+  test("a member recorded under the concrete name the harness now runs as an alias stays checked", async () => {
+    const { seen, pick } = capture();
+
+    await selectCouncilModels("claude", [{ spec: "fable", resolved: "claude-fable-5-2" }, { spec: "opus" }], ["claude-fable-5-2"], pick);
+
+    expect(seen[0]).toMatchObject({ checked: ["fable"] });
+  });
+
   test("the thinking prompt names the member and its harness, offers every level, and starts on the current one", async () => {
     const seen: { message: string; levels: string[]; initial: string | undefined }[] = [];
 

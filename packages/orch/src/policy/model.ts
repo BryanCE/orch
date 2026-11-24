@@ -11,10 +11,16 @@ import type { OrchSettings } from "../types/settings.ts";
  * any adapter sees the request.
  */
 
-/** True when the bare model passes that harness's allowlist, which always holds its default; no patterns means no restriction. */
-export function isAllowedModel(settings: OrchSettings, harness: AdapterId, bareModel: string): boolean {
+/** Every name a harness gives one model: the spec it takes, and the concrete model an alias runs now. */
+export function modelNames(model: HarnessModel): readonly string[] {
+  return model.resolved === undefined ? [model.spec] : [model.spec, model.resolved];
+}
+
+/** True when the model passes that harness's allowlist under any of its names, so a harness that
+ *  renames a model to an alias keeps it allowed. The allowlist always holds the default; no patterns means no restriction. */
+export function isAllowedModel(settings: OrchSettings, harness: AdapterId, model: HarnessModel): boolean {
   const patterns = allowedModelPatterns(settings, harness);
-  return patterns.length === 0 || matchesModelPattern(patterns, bareModel);
+  return patterns.length === 0 || modelNames(model).some((name) => matchesModelPattern(patterns, name));
 }
 
 export type ModelExpansion =
@@ -24,9 +30,10 @@ export type ModelExpansion =
   | { readonly kind: "unlisted"; readonly from: string };
 
 /** Expand a short model name (`luna`) to the one listed, allowed spec that contains it
- * (`<provider>/gpt-5.6-luna`). Exactly one match expands; zero is unlisted; more than one
- * is ambiguous and names them. A bare spec that is itself listed, or a harness that
- * enumerates nothing, passes through as listed. */
+ * (`<provider>/gpt-5.6-luna`), and a concrete name to the alias that runs it. A model named
+ * exactly beats one that only contains the name. Exactly one match expands; zero is unlisted;
+ * more than one is ambiguous and names them. A bare spec that is itself listed, or a harness
+ * that enumerates nothing, passes through as listed. */
 export function expandModelSpec(
   settings: OrchSettings,
   harness: AdapterId,
@@ -37,10 +44,11 @@ export function expandModelSpec(
     return { kind: "listed", spec: bare };
   }
 
-  const candidates = offered
-    .filter((model) => model.spec.toLowerCase().includes(bare.toLowerCase()))
-    .filter((model) => isAllowedModel(settings, harness, model.spec))
-    .map((model) => model.spec);
+  const allowed = offered.filter((model) => isAllowedModel(settings, harness, model));
+  const exact = allowed.filter((model) => modelNames(model).includes(bare));
+  const needle = bare.toLowerCase();
+  const matching = exact.length > 0 ? exact : allowed.filter((model) => modelNames(model).some((name) => name.toLowerCase().includes(needle)));
+  const candidates = matching.map((model) => model.spec);
   if (candidates.length > 1) return { kind: "ambiguous", from: bare, candidates: candidates.sort() };
   const spec = candidates[0];
   if (spec !== undefined) return { kind: "expanded", spec, from: bare };
@@ -89,7 +97,7 @@ export function assertModelListed(harness: AdapterId, offered: readonly HarnessM
 }
 
 function allowlistRefusal(settings: OrchSettings, harness: AdapterId, offered: readonly HarnessModel[], lead: string): Error {
-  const permitted = offered.map((candidate) => candidate.spec).filter((spec) => isAllowedModel(settings, harness, spec));
+  const permitted = offered.filter((candidate) => isAllowedModel(settings, harness, candidate)).map((candidate) => candidate.spec);
   return new Error(`${lead} models.allowed.${harness} (${allowedModelPatterns(settings, harness).join(", ")}); ${correctedSpecHint(harness, permitted)}`);
 }
 
@@ -119,6 +127,6 @@ export function admitModel(settings: OrchSettings, adapter: AgentAdapter, catalo
   }
   const spec = expansion.kind === "unlisted" ? bare : expansion.spec;
   assertModelListed(adapter.id, offered, spec);
-  if (!isAllowedModel(settings, adapter.id, spec)) throw allowlistRefusal(settings, adapter.id, offered, `model ${spec} is not in`);
+  if (!isAllowedModel(settings, adapter.id, offered.find((candidate) => candidate.spec === spec) ?? { spec })) throw allowlistRefusal(settings, adapter.id, offered, `model ${spec} is not in`);
   return modelSpec(spec, thinking);
 }

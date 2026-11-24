@@ -1,5 +1,4 @@
 import type { ProjectSettings } from "../../../settings/project.ts";
-import { requireCouncilModelsAllowed } from "../../../settings/read.ts";
 import type { OrchDir } from "../../../types/core.ts";
 import * as filesystem from "node:fs";
 import * as path from "node:path";
@@ -138,10 +137,5 @@ export async function checkProjectSettings(project: ProjectSettings | null): Pro
   if (project.file === null) return { id, label, status: "ok", detail: "this directory holds the install file, so it has no project file" };
   if (project.state.kind === "none") return { id, label, status: "ok", detail: `no ${project.file}` };
   if (project.state.kind === "invalid") return { id, label, status: "fail", detail: `${project.state.message}\nThe install settings apply until it is fixed.` };
-  try {
-    requireCouncilModelsAllowed(project.file, project.settings);
-  } catch (error: unknown) {
-    return { id, label, status: "fail", detail: errorMessage(error) };
-  }
   return { id, label, status: "ok", detail: project.file };
 }

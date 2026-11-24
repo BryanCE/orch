@@ -166,3 +166,22 @@ describe("admission expands a short name through the same gate", () => {
     expect(admitModel(fileSettingsManager(dir).current(), both, catalogue, "luna:low")).toBe("openrouter/openai/gpt-5.6-luna:low");
   });
 });
+
+// Claude renamed `claude-fable-5-2` to the alias `fable`, and reports the old name as what the
+// alias runs. A setting that holds the concrete name must keep the model, not hide it.
+describe("a model passes the gate under any name its harness gives it", () => {
+  const claude = fakeAdapter({ id: "claude", models: { listModels: (): readonly HarnessModel[] => [{ spec: "fable", resolved: "claude-fable-5-2" }, { spec: "opus", resolved: "claude-opus-5-5" }] } });
+
+  test("an allowlist that holds the concrete name admits the alias", () => {
+    const dir = makeDir({ models: { allowed: { claude: ["claude-fable-5-2"] } } });
+    const catalogue = testDaemonServices({ orchDir: dir }).models;
+    expect(admitModel(fileSettingsManager(dir).current(), claude, catalogue, "fable:medium")).toBe("fable:medium");
+    expect(() => admitModel(fileSettingsManager(dir).current(), claude, catalogue, "opus")).toThrow(/models\.allowed/);
+  });
+
+  test("the concrete name expands to the alias the harness takes", () => {
+    const dir = makeDir();
+    const catalogue = testDaemonServices({ orchDir: dir }).models;
+    expect(admitModel(fileSettingsManager(dir).current(), claude, catalogue, "claude-fable-5-2:high")).toBe("fable:high");
+  });
+});

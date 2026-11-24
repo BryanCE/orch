@@ -5,7 +5,7 @@ describe("council round file", () => {
   test("names and layouts", () => {
     expect(roundFileName(1)).toBe("round-1.md");
     expect(roundFileName(12)).toBe("round-12.md");
-    expect(roundFileLayout(10)).toBe("Score: <a whole number from 0 to 10>/10\n\n## Improvements\n\n1. <the change that would raise the score most>\n2. <the next one>");
+    expect(roundFileLayout(10)).toBe("Score: <a whole number from 0 to 10>/10\n\n## Checks\n\n- <check id> <PASS, FAIL or N/A> <file:line> <what it shows>\n\n## Improvements\n\n1. <the change that would raise the score most>\n2. <the next one>");
     expect(roundFileLayout(5)).toContain("from 0 to 5>/5");
   });
 

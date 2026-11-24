@@ -23,12 +23,11 @@ A council costs one run per member per round, so it starts from a brief. Write t
 lines before you convene:
 
 - **Subject.** The exact files under review, and what in them you may change.
-- **Goal.** What a good one looks like, as criteria a member can score against, in the
-  user's words. "Each step names the files it changes and the check that proves it done" is a
-  criterion. "Is good" is not. Every goal also holds this one: the
-  subject meets its goal with the most maintainable and performant design, sound abstractions
-  on industry-standard practice, and fixes the core problems in the parts it touches instead
-  of building beside them.
+- **Goal.** What the user wants the subject to do, in their words, as outcomes a member can
+  find in the files: "a new harness is one file under `extensions/` and no edit elsewhere" is
+  a goal. "Is good" is not. orch gives every member a fixed set of design checks, OWNER,
+  DIRECTION, ROOT, DEPTH, LOCALITY and the rest, each PASS or FAIL with file and line, and
+  the score comes from the PASS count. The goal adds only what the checks do not name.
 - **Stopping point.** What ends the council before its last round, when the user named
   something: every member at 8 or above, or one round only. With nothing named, the council
   runs its full count of rounds.
@@ -44,7 +43,7 @@ convene in the same turn.
 
 ```bash
 orch council convene plan-review \
-  --prompt "Review the plan in plan.md. Each step names the files it changes and the check that proves it done." --with plan.md
+  --prompt "Review the plan in plan.md. Goal: a new harness is one file under extensions/ and no edit elsewhere." --with plan.md
 orch monitor                          # arm through the Monitor tool, in this same message
 orch council scores plan-review       # once every member is done
 orch council round plan-review "Rewrote section 2 and added the rollback steps." --with plan.md
@@ -61,30 +60,27 @@ orch council close plan-review
    its own directory, `.orch/councils/<council>/<member>/` unless the `council.directory`
    setting moves it. Its improvements are ordered, most important first. Done when the table
    shows no `running` and you have read every member's file.
-4. **Improve.** Go through every improvement every member listed. Make the core fixes
-   first. Then make each other one that serves the goal, in the subject itself: the plan, the
-   code, whatever is under review. Skip one that is wrong or outside the subject, and keep a
-   one-line reason. Done when each improvement is made or has its reason, and the subject
-   passes its own checks: a plan reads whole, code passes the project's gate.
+4. **Improve.** Each member's `## Checks` lists its FAILs with file and line. Fix every FAIL
+   on OWNER, DIRECTION and ROOT first: each is a **core problem**, and the fix goes in the
+   part that owns it, with the established pattern that fits. A plan builds that fix first,
+   as its own change. Then fix each other FAIL in the subject itself. Skip a FAIL only when
+   the cited line does not show it, and keep a one-line reason that cites the file. Done when
+   each FAIL is fixed or has its reason, and the subject passes its own checks: a plan reads
+   whole, code passes the project's gate.
 
-   Then **audit the design** yourself. Read the parts the subject touches and ask what would
-   make this work, and the work after it, easier to build and maintain. A bad abstraction, a
-   missing read or a design that forces detours is a **core problem**: the real change is to
-   fix it where it lives, with the established pattern that fits, and rebuild the subject on
-   top of it. **Workarounds are the alarm**: a subject that gains special cases, adapters or
-   copies of another part's internals on each round is building beside a core problem. Put
-   the core fix in the subject: a plan builds it first, as its own change, and code changes
-   it. When the fix reaches past what the brief lets you change, tell the user in one line,
-   "X builds beside Y in Z; the fix is to change Y.", and wait.
+   **Workarounds are the alarm**: a subject that gains branches, adapters or copies of another
+   part's internals on each round fails ROOT, whether or not a member said so. When the core
+   fix reaches past what the brief lets you change, tell the user in one line, "X builds
+   beside Y in Z; the fix is to change Y.", and wait.
 5. **Summarize.** Tell the user in a few lines: which round this was and how many remain,
-   each member's score and the mean with the change from the round before, which core fixes
-   you made, what else you changed, and what you skipped and why.
+   each member's score and the mean with the change from the round before, the checks that
+   still FAIL and for which members, which core fixes you made, and what you skipped and why.
 6. **Check the stopping point.** When it is reached, go to step 7. Otherwise send the next
    round in the same turn, `orch council round <council> "<what changed, what you left and
    why>"`, and go back to step 2. Each member reads the subject again, rescores it, and reads
    what the others wrote in the round before.
 
-   The round text is facts: each change and where it is, each skipped improvement and the
+   The round text is facts: each FAIL you fixed and where, each skipped improvement and the
    one-line reason. Name the member that asked for a skipped one, and give the reason:
    - The other members outweighed it. Name them and their reason.
    - The subject solves the same problem another way. Say where.

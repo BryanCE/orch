@@ -2,6 +2,7 @@
 // `parseRoundFile` reads, because both come from `round-file.ts`.
 import { roundFilePath } from "./layout.ts";
 import { roundFileLayout } from "./round-file.ts";
+import type { CouncilContext } from "../types/council.ts";
 
 /** One member's round, as its prompt needs it. */
 export interface MemberRound {
@@ -12,24 +13,34 @@ export interface MemberRound {
   readonly others: readonly string[];
   /** The round's number, from 1. */
   readonly round: number;
+  /** `fresh`: the member's session was cleared before this round, so it remembers none before it. */
+  readonly context: CouncilContext;
   /** Scores run from 0 to this. */
   readonly scale: number;
   /** What the convener wrote for this round: the subject, and from round 2 what changed. */
   readonly subject: string;
 }
 
+const STANCE = "You sit on a council that reviews one subject. You are its adversary: find every way the subject is wrong, fragile, or built beside a problem, and score it." +
+  " You never change the subject. The agent that convened the council wrote it and changes it between rounds, so that agent is its author, not a judge of it.";
+
+/** Whether the member starts this round with no memory of the council: round 1, or a round
+ *  after its session was cleared. */
+function startsBlank(round: MemberRound): boolean {
+  return round.round === 1 || round.context === "fresh";
+}
+
 /** What opens a member's round: its stance toward the subject and toward the convener. */
 function opening(round: MemberRound): string {
-  if (round.round === 1) {
-    return "You sit on a council that reviews one subject. You are its adversary: find every way the subject is wrong, fragile, or built beside a problem, and score it." +
-      " You never change the subject. The agent that convened the council wrote it and changes it between rounds, so that agent is its author, not a judge of it.";
-  }
-  return `Round ${round.round} of the council. The subject changed after round ${round.round - 1}. Read it again and score it as it is now, as its adversary.`;
+  if (round.round === 1) return STANCE;
+  const changed = `Round ${round.round} of the council. The subject changed after round ${round.round - 1}.`;
+  if (round.context === "fresh") return `${STANCE}\n\n${changed} You remember no round before this one: score the subject as it is now.`;
+  return `${changed} Read it again and score it as it is now, as its adversary.`;
 }
 
 /** How a member reads the convener's text: as the author's claims, checked in the files. */
 function conveners(round: MemberRound): string {
-  const brief = round.round === 1
+  const brief = startsBlank(round)
     ? "The convener's brief follows. Take from it which files to read and the user's goal."
     : "The convener's account of what changed follows. Take from it where to look.";
   return `${brief} Everything else in it is the author's claim, not evidence. Check each claim in the files.` +

@@ -4,6 +4,7 @@
 import { usageError } from "../cli/usage.ts";
 import { installManagerOf } from "../settings/manager.ts";
 import { projectSettings } from "../settings/project.ts";
+import { roundMean, stopRule } from "../council/stop.ts";
 import { councilLineup } from "../council/lineup.ts";
 import { renderTable } from "../table.ts";
 import { taskWithReferences } from "../worker-prompt.ts";
@@ -40,7 +41,7 @@ async function sendRound(services: Services, params: Pick<ParamsOf<"council-roun
     return;
   }
   for (const delivery of sent.deliveries) writeDelivery({ target: delivery.key, name: delivery.member, action: "dispatch", id: delivery.id, ack: delivery.ack }, { json: false });
-  process.stdout.write(`Round ${sent.round} of ${sent.rounds} of council ${params.name} went to ${sent.deliveries.length} of its members.\n`);
+  process.stdout.write(`Round ${sent.round} of council ${params.name} went to ${sent.deliveries.length} of its members. The council stops ${stopRule(sent.stop)}.\n`);
   for (const refusal of sent.refused) process.stdout.write(`Round ${sent.round} did not reach ${refusal.member}: ${refusal.reason}\n`);
 }
 
@@ -107,8 +108,7 @@ function scoreCell(review: CouncilReview | undefined): string {
 
 /** The mean of a round's scores to one decimal, or a dash when it has none yet. */
 function meanCell(reviews: readonly CouncilReview[]): string {
-  const scored = reviews.flatMap((review) => review.score === null ? [] : [review.score]);
-  return scored.length === 0 ? "-" : (scored.reduce((sum, score) => sum + score, 0) / scored.length).toFixed(1);
+  return roundMean(reviews)?.toFixed(1) ?? "-";
 }
 
 function totalCost(reviews: readonly CouncilReview[]): string {
@@ -121,8 +121,9 @@ function totalCost(reviews: readonly CouncilReview[]): string {
 export function renderScores(scores: CouncilScores): string {
   const rounds = [...new Set(scores.reviews.map((review) => review.round))].sort((a, b) => a - b);
   const state = scores.closedAt === null ? "open" : "closed";
-  const title = `Council ${scores.name}, ${state}. ${rounds.length} of ${scores.rounds} rounds run. Scores are out of ${scores.scale}.`;
+  const title = `Council ${scores.name}, ${state}. ${rounds.length} rounds run. It stops ${stopRule(scores.stop)}. Scores are out of ${scores.scale}.`;
   if (rounds.length === 0) return title;
+  const stopped = scores.stopped === null ? [] : [`Council ${scores.name} ${scores.stopped}.`];
   const rows = scores.members.map((member) => {
     const own = scores.reviews.filter((review) => review.member === member);
     const models = own.flatMap((review) => review.model === null ? [] : [review.model]);
@@ -131,7 +132,7 @@ export function renderScores(scores: CouncilScores): string {
   const mean = ["mean", "", ...rounds.map((number) => meanCell(scores.reviews.filter((review) => review.round === number))), totalCost(scores.reviews)];
   const table = renderTable(["MEMBER", "MODEL", ...rounds.map((number) => `R${number}`), "COST"], [...rows, mean], [30, 40, ...rounds.map(() => 8), 10]);
   const problems = scores.reviews.flatMap((review) => review.problem === null ? [] : [`Round ${review.round}, ${review.member}: ${review.problem}.`]);
-  return [title, table, ...problems].join("\n");
+  return [title, table, ...problems, ...stopped].join("\n");
 }
 
 async function scores(services: Services, invocation: Invocation): Promise<void> {

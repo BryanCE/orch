@@ -3,11 +3,11 @@ import type { CompactionTable, EditingState } from "../../types/settings.ts";
 import type { SettingsManager } from "../../types/services.ts";
 import { readHarnessCatalogue, type HarnessOffers } from "../../setup/composition.ts";
 import { concreteModel } from "../../policy/compaction.ts";
-import { parseIntegerSetting } from "../parse.ts";
+import { parseNumberSetting } from "../parse.ts";
 import { askChoice, askValue } from "./ask.ts";
 import { cancelEdit, commitAndFlush, type Session } from "./state.ts";
 
-const TOKENS = { kind: "integer", min: 1 } as const;
+const TOKENS = { kind: "number", whole: true, min: 1 } as const;
 const HARNESS_DEFAULT = "harness default";
 
 /** The table with one pair set, or dropped when `tokens` is null so the harness default wins. */
@@ -38,7 +38,7 @@ function modelNote(aliases: readonly string[] | undefined, tokens: number | unde
 /** Empty clears the pair; anything else is a positive token count. */
 function tokensRefusal(input: string): string | undefined {
   if (!input.trim()) return undefined;
-  const parsed = parseIntegerSetting(TOKENS, input.trim());
+  const parsed = parseNumberSetting(TOKENS, input.trim());
   return parsed.ok ? undefined : parsed.reason;
 }
 

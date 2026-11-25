@@ -285,6 +285,12 @@ const COUNCIL_REVIEW = z.object({
   cost: z.number().nullable(),
 });
 
+/** When a council stops, as the `council.stop` setting gives it. */
+const COUNCIL_STOP = z.discriminatedUnion("stop", [
+  z.object({ stop: z.literal("rounds"), rounds: z.number().int().positive() }),
+  z.object({ stop: z.literal("score"), targetScore: z.number().positive(), patience: z.number().int().nonnegative() }),
+]);
+
 /** What a rename did to the pane showing the agent, apart from the name orch records: the
  *  border relabelled, no border to relabel, or a relabel that failed and why. */
 const CHROME_OUTCOME = z.object({ chrome: z.enum(["renamed", "none", "failed"]), chromeError: z.string().nullable() });
@@ -942,8 +948,7 @@ export const RPC_RESULTS = {
   ]),
   "council-round": z.object({
     round: z.number().int().positive(),
-    /** How many rounds the council runs: the `council.rounds` setting. */
-    rounds: z.number().int().positive(),
+    stop: COUNCIL_STOP,
     ...COUNCIL_SENT,
   }),
   "council-steer": z.object({
@@ -953,7 +958,7 @@ export const RPC_RESULTS = {
     finished: z.array(z.string()),
   }),
   "council-close": z.object({ closed: z.array(z.string()) }),
-  "council-scores": z.object({ name: z.string(), directory: z.string(), scale: z.number().int().positive(), rounds: z.number().int().positive(), closedAt: z.number().nullable(), members: z.array(z.string()), reviews: z.array(COUNCIL_REVIEW) }),
+  "council-scores": z.object({ name: z.string(), directory: z.string(), scale: z.number().int().positive(), stop: COUNCIL_STOP, stopped: z.string().nullable(), closedAt: z.number().nullable(), members: z.array(z.string()), reviews: z.array(COUNCIL_REVIEW) }),
   /** The tab's tiling after the agent landed: each place, the name it shows, and its size. */
   tile: z.discriminatedUnion("outcome", [
     ENVIRONMENT_ANSWER,

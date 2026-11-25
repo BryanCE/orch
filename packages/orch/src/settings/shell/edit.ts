@@ -178,7 +178,7 @@ export async function editFocused(session: Session, manager: SettingsManager, of
       return editCompaction(session, manager, offers, opened);
     case "lineup":
       return editLineup(session, manager, offers, opened);
-    case "integer":
+    case "number":
     case "text":
     case "list":
       return editText(session, manager, opened);

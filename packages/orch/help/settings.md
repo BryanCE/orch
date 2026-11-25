@@ -36,6 +36,11 @@ each other. `monitor.on` picks the states `orch monitor` shows, and `monitor.sum
 where a line is cut; a cut message line names `orch message read <code>`, and
 `retention.outbox_days` is how long that read works. `orch help message` has the whole route.
 
+A council stops as `council.stop` says: `rounds` (the default) after `council.rounds` rounds,
+or `score` when a round's mean reaches `council.target_score` or fails to rise for
+`council.patience` + 1 rounds in a row. `council.context` is `keep` or `fresh`: `fresh` clears
+each member's session before every round after the first. `orch help council` has the rest.
+
 Reach for a subcommand to re-pick models (`models`), set thinking effort (`thinking`),
 install skills (`skills`), or change where notifications go (`notify`). After `notify add`,
 confirm delivery with `orch notify test`.

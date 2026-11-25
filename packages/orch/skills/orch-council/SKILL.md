@@ -30,7 +30,7 @@ lines before you convene:
   the score comes from the PASS count. The goal adds only what the checks do not name.
 - **Stopping point.** What ends the council before its last round, when the user named
   something: every member at 8 or above, or one round only. With nothing named, the council
-  runs its full count of rounds.
+  runs to the stop its `council.stop` setting gives.
 - **Work.** Who makes the changes between rounds: you, a subagent, or a fleet through the
   `orch` skill. With nothing named, pick what fits the size of the work.
 
@@ -72,7 +72,8 @@ orch council close plan-review
    part's internals on each round fails ROOT, whether or not a member said so. When the core
    fix reaches past what the brief lets you change, tell the user in one line, "X builds
    beside Y in Z; the fix is to change Y.", and wait.
-5. **Summarize.** Tell the user in a few lines: which round this was and how many remain,
+5. **Summarize.** Tell the user in a few lines: which round this was and how many remain
+   (in `score` mode: the target, and how many rounds in a row the mean has not risen),
    each member's score and the mean with the change from the round before, the checks that
    still FAIL and for which members, which core fixes you made, and what you skipped and why.
 6. **Check the stopping point.** When it is reached, go to step 7. Otherwise send the next
@@ -91,7 +92,8 @@ orch council close plan-review
 
 7. **Finish.** Report every round's scores, what moved across the rounds, and what is still
    open. The last round's changes are unscored, so say that. Ask the user one question: close
-   the council, or raise `council.rounds` and go on. On their word, run
+   the council, or raise the setting the refusal named and go on: `council.rounds` in `rounds`
+   mode, `council.target_score` or `council.patience` in `score` mode. On their word, run
    `orch council close <council>`. The review files stay.
 
 ## The stopping point
@@ -99,9 +101,12 @@ orch council close plan-review
 The council reaches its stopping point at the first of these:
 
 - The brief's stopping point is met.
-- The council has run its full count, the user's `council.rounds` setting. The title of
-  `orch council scores` shows the count. orch refuses a round past it, and the user is the
-  one who raises it.
+- The council reached the stop its `council.stop` setting gives. `rounds`, the default, is
+  a hard stop on token use: the council runs `council.rounds` rounds. `score` runs until a
+  round's mean reaches `council.target_score`, or the mean fails to rise for
+  `council.patience` + 1 rounds in a row; the user turns it on on purpose. The title of
+  `orch council scores` names the stop, and the line under the table says when it is reached.
+  orch refuses a round past it, and the user is the one who raises the setting.
 - The user says stop.
 - A round's scores match the round before and the members list nothing new. The council has
   said what it has to say.
@@ -140,6 +145,10 @@ Everything else you decide yourself, and the summary says what you decided.
 - Hand it what a command would show as a file through `--with`: a saved diff, test output, a
   screenshot.
 - It writes in its own directory only, one file per round.
+- With `council.context` set to `fresh`, orch clears its session before round 2 and each round
+  after. It remembers no round before, so the text of each round carries the whole brief again
+  (the subject, the goal, the files to read) and then what changed. It still reads what the
+  other members wrote in the round before.
 
 ## When something is off
 

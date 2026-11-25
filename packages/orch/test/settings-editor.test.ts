@@ -39,7 +39,7 @@ function readOnlySetting(key: string, type: SettingKind, value: unknown): Editor
 describe("settings editor reducer", () => {
   test("moves focus down and up without running off either end", () => {
     const initial = createEditorState([
-      setting("fleet.cap", { kind: "integer", min: 1 }, 2),
+      setting("fleet.cap", { kind: "number", whole: true, min: 1 }, 2),
       setting("notify.enabled", { kind: "boolean" }, true),
     ]);
 
@@ -56,7 +56,7 @@ describe("settings editor reducer", () => {
   });
 
   test("opens the focused setting for editing", () => {
-    const state = createEditorState([setting("fleet.cap", { kind: "integer" }, 2)]);
+    const state = createEditorState([setting("fleet.cap", { kind: "number", whole: true }, 2)]);
     const editing = editorReducer(state, { type: "open" });
     expect(editing.mode).toBe("editing");
     if (editing.mode === "editing") {
@@ -66,7 +66,7 @@ describe("settings editor reducer", () => {
   });
 
   test("cancel leaves value unchanged and returns to browsing", () => {
-    const state = createEditorState([setting("fleet.cap", { kind: "integer" }, 2)]);
+    const state = createEditorState([setting("fleet.cap", { kind: "number", whole: true }, 2)]);
     const editing = editorReducer(state, { type: "open" });
     const cancelled = editorReducer(editing, { type: "cancel" });
     expect(cancelled.mode).toBe("browsing");
@@ -75,7 +75,7 @@ describe("settings editor reducer", () => {
   });
 
   test("commit updates value and produces a pending write", () => {
-    const state = createEditorState([setting("fleet.cap", { kind: "integer" }, 2)]);
+    const state = createEditorState([setting("fleet.cap", { kind: "number", whole: true }, 2)]);
     const editing = editorReducer(state, { type: "open" });
     const committed = editorReducer(editing, { type: "commit", value: 5 });
     expect(committed.mode).toBe("browsing");
@@ -84,7 +84,7 @@ describe("settings editor reducer", () => {
   });
 
   test("refuses invalid values with a reason and stays open", () => {
-    const state = createEditorState([setting("fleet.cap", { kind: "integer", min: 1, max: 5 }, 2)]);
+    const state = createEditorState([setting("fleet.cap", { kind: "number", whole: true, min: 1, max: 5 }, 2)]);
     const editing = editorReducer(state, { type: "open" });
     const refused = editorReducer(editing, { type: "commit", value: 9 });
     expect(refused.mode).toBe("editing");
@@ -104,7 +104,7 @@ describe("settings editor reducer", () => {
   });
 
   test("cancelling without a commit yields zero writes", () => {
-    const state = createEditorState([setting("fleet.cap", { kind: "integer" }, 2)]);
+    const state = createEditorState([setting("fleet.cap", { kind: "number", whole: true }, 2)]);
     const exited = editorReducer(editorReducer(state, { type: "open" }), { type: "cancel" });
     expect(exited.pendingWrites).toEqual([]);
   });

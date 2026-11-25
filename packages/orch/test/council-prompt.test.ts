@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import * as path from "node:path";
 import { COUNCIL_NAME, councilDirectory, memberDirectory, roundFilePath } from "../src/council/layout.ts";
-import { memberPrompt } from "../src/council/prompt.ts";
+import { memberPrompt, type MemberRound } from "../src/council/prompt.ts";
 import { parseRoundFile, roundFileLayout } from "../src/council/round-file.ts";
 
 describe("council layout", () => {
@@ -22,7 +22,7 @@ describe("council layout", () => {
 });
 
 describe("council member prompt", () => {
-  const round = { council: "/c/plan", member: "ada", others: ["bea", "cy"], round: 1, scale: 10, subject: "Review plan.md." };
+  const round: MemberRound = { council: "/c/plan", member: "ada", others: ["bea", "cy"], round: 1, context: "keep", scale: 10, subject: "Review plan.md." };
 
   test("includes the first-round review instructions", () => {
     const prompt = memberPrompt(round);
@@ -72,6 +72,14 @@ describe("council member prompt", () => {
     expect(prompt).toContain(`- ${path.join("/c/plan/bea/round-1.md")}\n- ${path.join("/c/plan/cy/round-1.md")}`);
     expect(prompt).toContain(path.join("/c/plan/ada/round-2.md"));
     expect(prompt).not.toContain(path.join("/c/plan/ada/round-1.md"));
+  });
+
+  test("gives a fresh member in a later round its stance and the brief again", () => {
+    const prompt = memberPrompt({ ...round, round: 2, context: "fresh" });
+    expect(prompt.startsWith("You sit on a council that reviews one subject.")).toBe(true);
+    expect(prompt).toContain("Round 2 of the council. The subject changed after round 1. You remember no round before this one");
+    expect(prompt).toContain("The convener's brief follows.");
+    expect(prompt).toContain(path.join("/c/plan/bea/round-1.md"));
   });
 
   test("omits the other-members clause when there are none", () => {

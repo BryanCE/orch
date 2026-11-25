@@ -267,12 +267,7 @@ const settingsValueExtractors = {
     tail: root.counts?.tail ?? SETTINGS_DEFAULTS.counts.tail,
     peek: root.counts?.peek ?? SETTINGS_DEFAULTS.counts.peek,
   }),
-  council: (root: Partial<SettingsFile>) => ({
-    directory: root.council?.directory ?? SETTINGS_DEFAULTS.council.directory,
-    scale: root.council?.scale ?? SETTINGS_DEFAULTS.council.scale,
-    rounds: root.council?.rounds ?? SETTINGS_DEFAULTS.council.rounds,
-    models: root.council?.models ?? { ...SETTINGS_DEFAULTS.council.models },
-  }),
+  council: (root: Partial<SettingsFile>) => ({ ...SETTINGS_DEFAULTS.council, models: {}, ...root.council }),
   skills: (root: Partial<SettingsFile>) => ({
     install: root.skills?.install ?? SETTINGS_DEFAULTS.skills.install,
     store: root.skills?.store ?? SETTINGS_DEFAULTS.skills.store,

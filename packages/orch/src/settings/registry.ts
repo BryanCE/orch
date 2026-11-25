@@ -38,10 +38,11 @@ function namedKind(key: string): SettingKind | undefined {
   };
 }
 
-function integerKind(node: JsonSchemaNode): SettingKind {
-  const min = node.minimum ?? (node.exclusiveMinimum === undefined ? undefined : node.exclusiveMinimum + 1);
+function numberKind(node: JsonSchemaNode): SettingKind {
+  const whole = node.type === "integer";
+  const min = node.minimum ?? (whole && node.exclusiveMinimum !== undefined ? node.exclusiveMinimum + 1 : undefined);
   const max = node.maximum;
-  return { kind: "integer", ...(min === undefined ? {} : { min }), ...(max === undefined ? {} : { max }), ...(node.nullable ? { none: true } : {}) };
+  return { kind: "number", whole, ...(min === undefined ? {} : { min }), ...(max === undefined ? {} : { max }), ...(node.nullable ? { none: true } : {}) };
 }
 
 function kindFor(key: string): SettingKind {
@@ -50,7 +51,7 @@ function kindFor(key: string): SettingKind {
   const node = schemaNode(key);
   if (node.enum !== undefined) return { kind: "choice", choices: choicesFor(key, node) };
   if (node.type === "boolean") return { kind: "boolean" };
-  if (node.type === "integer") return integerKind(node);
+  if (node.type === "integer" || node.type === "number") return numberKind(node);
   if (node.type === "array") {
     const item = jsonSchemaNode(node.items);
     if (item?.enum !== undefined) return { kind: "multi", choices: choicesFor(key, item) };
@@ -298,7 +299,11 @@ const HELP: Readonly<Record<string, string>> = {
   "counts.peek": "How many screen lines orch peek shows without -n.",
   "council.directory": "Where councils keep their files, under the directory a council is convened from. Each council has a directory there named for it.",
   "council.scale": "What a council member scores out of. A score is a whole number from 0 to this.",
-  "council.rounds": "How many rounds a council runs. A round past this is refused.",
+  "council.stop": "When a council stops. rounds, the default, runs council.rounds rounds: a hard stop on token use. score runs until a round's mean reaches council.target_score, or fails to rise for council.patience + 1 rounds in a row. A round past the stop is refused.",
+  "council.rounds": "How many rounds a council runs when council.stop is rounds.",
+  "council.target_score": "The mean a round reaches to stop the council when council.stop is score. A number from 1 to council.scale.",
+  "council.patience": "How many rounds in a row a council's mean may fail to rise before it stops, when council.stop is score. 0 stops it at the first round without a rise.",
+  "council.context": "Whether a council member keeps its conversation between rounds. keep: it remembers every round. fresh: orch clears its session before round 2 and each round after; a member whose harness cannot clear is refused that round.",
   "council.models": "Who sits on a council, by harness: one member per model, each with its thinking level, {\"<harness>\": [\"<model>:<level>\"]}. orch council convene launches this lineup when it names no member. A model with no level runs at the thinking default. Convene refuses a model that harness's models.allowed leaves out.",
   "skills.install": "Whether orch installs packaged skills.",
   "skills.store": "Directory holding the real skill files. The cross-harness standard is ~/.agents/skills.",

@@ -1,7 +1,22 @@
 A council is several agents on different models that review one subject and score it. You
 convene it, read what the members wrote, improve the subject yourself or with workers, and
-send the next round. A council runs the number of rounds the `council.rounds` setting gives.
-The user sees the scores after each one and may stop it early.
+send the next round. The user sees the scores after each round and may stop it early.
+
+The `council.stop` setting says when a council stops:
+- `rounds`, the default: after `council.rounds` rounds. This is a hard stop on token use.
+- `score`: when a round's mean reaches `council.target_score`, or when the mean fails to rise
+  for `council.patience` + 1 rounds in a row. A mean counts only the members that scored the
+  round. Turn it on on purpose:
+
+    orch settings council.stop score
+    orch settings council.target_score 9
+    orch settings council.patience 1
+
+`council.context` says whether a member keeps its conversation between rounds. `keep`, the
+default, lets it remember every round. `fresh` clears its session before round 2 and each round
+after, so it scores each round with no memory of the last. A member whose harness cannot clear
+a session is refused that round. Each council setting is read at every `round`, so a change
+applies to the next round of a running council.
 
     orch council convene plan-review \
       --prompt "Review the plan in plan.md. A good plan can be built without one question." --with plan.md
@@ -11,8 +26,8 @@ The user sees the scores after each one and may stop it early.
     orch council close plan-review
 
 Who sits on a council is the `council.models` setting: models by harness, one member per
-model, each with its thinking level, each one in that harness's `models.allowed`. Both
-`council.models` and `council.rounds` can be a project's own, set from its directory. The user
+model, each with its thinking level, each one in that harness's `models.allowed`. The council
+settings can be a project's own, set from its directory. The user
 picks it: the `council.models` row of `orch settings` walks each enabled harness, checks
 members off the models it lists and may launch, then asks each member's thinking level. With
 no terminal it is JSON, the level after the model's name:
@@ -42,7 +57,9 @@ Traps:
 - A member has to stay up between rounds. A launch into a form that takes one prompt and
   exits is refused.
 - A harness that cannot refuse a tool call cannot run a member, and the launch says which can.
-- A round past `council.rounds` is refused. To go on, the user raises the setting.
+- A round past the stop is refused. The refusal and the line under `scores` name the setting
+  to change: `council.rounds`, `council.target_score` or `council.patience`.
+- A round whose members wrote no score has no mean, so it does not stop a `score` council.
 - `round` waits for every member of the round before it. `orch monitor` reports each finish.
 - A round one member refuses still goes to the others. The command names that member and
   the reason; its cell in the scores shows `-` for the round.

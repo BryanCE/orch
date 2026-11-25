@@ -4,6 +4,7 @@
 // directory under the council's.
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { councilStop, roundMeans, stopReason } from "../../council/stop.ts";
 import { councilDirectory, memberDirectory, roundFilePath } from "../../council/layout.ts";
 import { memberTabs } from "../../council/lineup.ts";
 import { memberPrompt } from "../../council/prompt.ts";
@@ -18,13 +19,14 @@ import { askReview, closeCouncil, councilAt, councilMembersOf, councilReviewsOf,
 import { selectRun } from "../../store/run-rows.ts";
 import { errorMessage } from "../../util.ts";
 import { closeAnywhere } from "./handlers/drive.ts";
+import { clearSession } from "./handlers/lifecycle.ts";
 import { callerSelf } from "./handlers/self.ts";
 import { dispatch, steer } from "./handlers/write.ts";
 import { joinSpawned, spawnAgents, type SpawnedFleet } from "./spawn/index.ts";
 import type { ParamsOf, ResultOf } from "../client/protocol.ts";
 import type { DaemonState } from "./state.ts";
 import type { OrchDir } from "../../types/core.ts";
-import type { CouncilMember, CouncilRecord, ReviewOutcome, ReviewRecord } from "../../types/council.ts";
+import type { CouncilMember, CouncilRecord, CouncilStop, ReviewOutcome, ReviewRecord } from "../../types/council.ts";
 import type { AgentView, RunRecord } from "../../types/store.ts";
 
 /** The governed fields of a council request: who asks, as orchd stamped it. */
@@ -92,6 +94,25 @@ function sittingMembers(directory: OrchDir, council: CouncilRecord): SittingMemb
   });
 }
 
+/** The members of a council's last round still writing it. */
+function stillWriting(reviews: readonly ReviewRecord[], last: number): string[] {
+  return reviews.filter((review) => review.round === last && review.scoredAt === null).map((review) => review.member);
+}
+
+/** An open council a request names, with its last round and every review. A closed one is refused. */
+function openCouncil(state: DaemonState, ref: CouncilRef): { council: CouncilRecord; last: number; reviews: ReviewRecord[] } {
+  const council = councilNamed(state, ref);
+  if (council.closedAt !== null) throw new CommandRefusal(`council ${council.name} is closed`);
+  return { council, last: lastRound(state.directory, council.id), reviews: councilReviewsOf(state.directory, council.id) };
+}
+
+/** Why a council takes no next round, or null while it goes on. A round still running has
+ *  stopped nothing yet. */
+function stoppedBecause(reviews: readonly ReviewRecord[], last: number, stop: CouncilStop): string | null {
+  if (stillWriting(reviews, last).length > 0) return null;
+  return stopReason(stop, last, roundMeans(reviews));
+}
+
 /** Close the members a convene launched before it failed, so a council that was never
  *  recorded leaves no agent behind. */
 async function unseat(state: DaemonState, params: ParamsOf<"council-convene">, seated: readonly SpawnedFleet[]): Promise<void> {
@@ -149,25 +170,28 @@ export async function conveneCouncil(state: DaemonState, params: ParamsOf<"counc
 
 /** `council-round`: send the next round onto each sitting member's conversation, and record
  *  the review each dispatch asks for. A round waits for the one before it to finish, and a
- *  council runs no more rounds than the `council.rounds` setting. Who may
+ *  council takes no round past the stop its `council.stop` setting gives. With
+ *  `council.context` fresh, each member's session is cleared before round 2 and later. Who may
  *  send one is the dispatch gate's ruling: whoever may drive the members. */
 export async function councilRound(state: DaemonState, params: ParamsOf<"council-round">): Promise<ResultOf<"council-round">> {
   const directory = state.directory;
-  const council = councilNamed(state, params);
-  if (council.closedAt !== null) throw new CommandRefusal(`council ${council.name} is closed`);
-  const last = lastRound(directory, council.id);
-  const running = councilReviewsOf(directory, council.id).filter((review) => review.round === last && review.scoredAt === null).map((review) => review.member);
+  const { council, last, reviews } = openCouncil(state, params);
+  const running = stillWriting(reviews, last);
   if (running.length > 0) throw new CommandRefusal(`round ${last} of council ${council.name} is still running. Not finished: ${running.join(", ")}`);
   const settings = state.services.settingsFor(params.cwd).settings;
-  const { rounds } = settings.council;
-  if (last >= rounds) throw new CommandRefusal(`council ${council.name} has run its ${rounds} rounds. Close it, or raise the council.rounds setting to go on`);
+  const stop = councilStop(settings.council);
+  const stopped = stoppedBecause(reviews, last, stop);
+  if (stopped !== null) throw new CommandRefusal(`council ${council.name} ${stopped}`);
+  const { context } = settings.council;
   const sitting = sittingMembers(directory, council);
   if (sitting.length === 0) throw new CommandRefusal(`council ${council.name} has no member still running`);
   const round = last + 1;
   if (params.caller === undefined) throw new CommandRefusal("a council's round names its convener, and this request carried no caller");
   const self = callerSelf(directory, { caller: params.caller });
   const { deliveries, refused } = await sendToEach(sitting, async ({ member, view }) => {
+    if (context === "fresh" && round > 1) await clearSession(state, { ...asker(params), target: member.agentId });
     const text = memberPrompt({
+      context,
       council: council.directory,
       member: member.name,
       others: sitting.map((other) => other.member.name).filter((name) => name !== member.name),
@@ -181,19 +205,16 @@ export async function councilRound(state: DaemonState, params: ParamsOf<"council
     return accepted;
   });
   if (deliveries.length === 0) throw new CommandRefusal(`round ${round} of council ${council.name} reached no member. ${refused.map((refusal) => `${refusal.member}: ${refusal.reason}`).join(". ")}`);
-  return { round, rounds, deliveries, refused };
+  return { round, stop, deliveries, refused };
 }
 
 /** `council-steer`: one instruction to every member still writing the current round. A member
  *  that finished the round is named and not steered: the next round's text is where it hears
  *  it. Who may steer is the steer verb's ruling. */
 export async function councilSteer(state: DaemonState, params: ParamsOf<"council-steer">): Promise<ResultOf<"council-steer">> {
-  const directory = state.directory;
-  const council = councilNamed(state, params);
-  if (council.closedAt !== null) throw new CommandRefusal(`council ${council.name} is closed`);
-  const round = lastRound(directory, council.id);
-  const writing = new Set(councilReviewsOf(directory, council.id).filter((review) => review.round === round && review.scoredAt === null).map((review) => review.member));
-  const sitting = sittingMembers(directory, council);
+  const { council, last: round, reviews } = openCouncil(state, params);
+  const writing = new Set(stillWriting(reviews, round));
+  const sitting = sittingMembers(state.directory, council);
   const finished = sitting.filter(({ member }) => !writing.has(member.name)).map(({ member }) => member.name);
   const targets = sitting.filter(({ member }) => writing.has(member.name));
   if (targets.length === 0) throw new CommandRefusal(`no member of council ${council.name} is still writing round ${round}. Say it in the text of the next round`);
@@ -205,11 +226,14 @@ export async function councilSteer(state: DaemonState, params: ParamsOf<"council
 export function councilScores(state: DaemonState, params: ParamsOf<"council-scores">): ResultOf<"council-scores"> {
   const directory = state.directory;
   const council = councilNamed(state, params);
-  const reviews = councilReviewsOf(directory, council.id).map((review) => {
+  const records = councilReviewsOf(directory, council.id);
+  const reviews = records.map((review) => {
     const run = selectRun(directory, review.dispatchId);
     return { round: review.round, member: review.member, score: review.score, problem: review.problem, scoredAt: review.scoredAt, model: run?.model ?? null, cost: run?.cost ?? null };
   });
-  return { name: council.name, directory: council.directory, scale: council.scale, rounds: state.services.settingsFor(params.cwd).settings.council.rounds, closedAt: council.closedAt, members: councilMembersOf(directory, council.id).map((member) => member.name), reviews };
+  const stop = councilStop(state.services.settingsFor(params.cwd).settings.council);
+  const stopped = stoppedBecause(records, lastRound(directory, council.id), stop);
+  return { name: council.name, directory: council.directory, scale: council.scale, stop, stopped, closedAt: council.closedAt, members: councilMembersOf(directory, council.id).map((member) => member.name), reviews };
 }
 
 /** `council-close`: close every member still running, then the council. Who may close a member

@@ -10,14 +10,31 @@ function parseBooleanSetting(input: string): SettingValueResult {
   return { ok: false, reason: "expected true or false" };
 }
 
-export function parseIntegerSetting(kind: Extract<SettingKind, { readonly kind: "integer" }>, input: string): SettingValueResult {
+type NumberKind = Extract<SettingKind, { readonly kind: "number" }>;
+
+/** What a number setting takes, as words: "an integer" or "a number". */
+export function numberNoun(kind: NumberKind): string {
+  return kind.whole ? "an integer" : "a number";
+}
+
+export function parseNumberSetting(kind: NumberKind, input: string): SettingValueResult {
+  const noun = numberNoun(kind);
   if (kind.none && input === "none") return { ok: true, value: null };
-  if (!/^-?\d+$/.test(input)) return { ok: false, reason: kind.none ? "expected an integer or none" : "expected an integer" };
+  const pattern = kind.whole ? /^-?\d+$/ : /^-?\d+(\.\d+)?$/;
+  if (!pattern.test(input)) return { ok: false, reason: kind.none ? `expected ${noun} or none` : `expected ${noun}` };
   const value = Number(input);
-  if (!Number.isSafeInteger(value)) return { ok: false, reason: "expected a safe integer" };
-  if (kind.min !== undefined && value < kind.min) return { ok: false, reason: `expected an integer >= ${kind.min}` };
-  if (kind.max !== undefined && value > kind.max) return { ok: false, reason: `expected an integer <= ${kind.max}` };
+  if (kind.whole && !Number.isSafeInteger(value)) return { ok: false, reason: "expected a safe integer" };
+  if (kind.min !== undefined && value < kind.min) return { ok: false, reason: `expected ${noun} >= ${kind.min}` };
+  if (kind.max !== undefined && value > kind.max) return { ok: false, reason: `expected ${noun} <= ${kind.max}` };
   return { ok: true, value };
+}
+
+function parseChoiceSetting(kind: Extract<SettingKind, { readonly kind: "choice" }>, input: string): SettingValueResult {
+  return kind.choices.includes(input) ? { ok: true, value: input } : { ok: false, reason: `expected one of: ${kind.choices.join(", ")}` };
+}
+
+function parseTextSetting(input: string): SettingValueResult {
+  return input.length > 0 ? { ok: true, value: input } : { ok: false, reason: "expected non-empty text" };
 }
 
 function parseMultiSetting(kind: Extract<SettingKind, { readonly kind: "multi" }>, input: string): SettingValueResult {
@@ -52,18 +69,16 @@ export function parseSettingValue(spec: SettingSpec, input: string): SettingValu
   switch (kind.kind) {
     case "boolean":
       return parseBooleanSetting(input);
-    case "integer":
-      return parseIntegerSetting(kind, input);
+    case "number":
+      return parseNumberSetting(kind, input);
     case "choice":
-      return kind.choices.includes(input)
-        ? { ok: true, value: input }
-        : { ok: false, reason: `expected one of: ${kind.choices.join(", ")}` };
+      return parseChoiceSetting(kind, input);
     case "multi":
       return parseMultiSetting(kind, input);
     case "sinks":
       return parseSinksSetting(kind, input);
     case "text":
-      return input.length > 0 ? { ok: true, value: input } : { ok: false, reason: "expected non-empty text" };
+      return parseTextSetting(input);
     case "models":
     case "compaction":
     case "lineup":

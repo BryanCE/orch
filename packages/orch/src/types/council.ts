@@ -37,3 +37,17 @@ export interface ReviewRecord {
 
 /** What a finished review came to: the score its round file carries, or what is wrong with the file. */
 export type ReviewOutcome = { readonly score: number } | { readonly problem: string };
+
+/** How a council stops: the `council.stop` setting. */
+export const COUNCIL_STOPS = ["rounds", "score"] as const;
+export type CouncilStopMode = (typeof COUNCIL_STOPS)[number];
+
+/** Whether a member keeps its conversation between rounds: the `council.context` setting. */
+export const COUNCIL_CONTEXTS = ["keep", "fresh"] as const;
+export type CouncilContext = (typeof COUNCIL_CONTEXTS)[number];
+
+/** When a council stops taking rounds: after a count of rounds, or once a round's mean reaches
+ *  a target score or stops rising for more rounds in a row than `patience`. */
+export type CouncilStop =
+  | { readonly stop: "rounds"; readonly rounds: number }
+  | { readonly stop: "score"; readonly targetScore: number; readonly patience: number };

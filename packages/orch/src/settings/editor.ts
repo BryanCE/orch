@@ -1,4 +1,5 @@
 import { isRecord } from "../util.ts";
+import { numberNoun } from "./parse.ts";
 import type { BrowsingState, EditorAction, EditorSetting, EditorState, PendingWrite, SettingKind } from "../types/settings.ts";
 
 /** Create a browsing editor over a grouped, ordered copy of the declarations. */
@@ -94,9 +95,10 @@ function validateBooleanValue(value: unknown): string | null {
   return typeof value === "boolean" ? null : "Value must be a boolean";
 }
 
-function validateIntegerValue(kind: Extract<SettingKind, { readonly kind: "integer" }>, value: unknown): string | null {
+function validateNumberValue(kind: Extract<SettingKind, { readonly kind: "number" }>, value: unknown): string | null {
   if (kind.none && value === null) return null;
-  if (typeof value !== "number" || !Number.isInteger(value)) return kind.none ? "Value must be an integer or none" : "Value must be an integer";
+  const noun = numberNoun(kind);
+  if (typeof value !== "number" || !Number.isFinite(value) || (kind.whole && !Number.isInteger(value))) return kind.none ? `Value must be ${noun} or none` : `Value must be ${noun}`;
   if (kind.min !== undefined && value < kind.min) return `Value must be at least ${kind.min}`;
   if (kind.max !== undefined && value > kind.max) return `Value must be at most ${kind.max}`;
   return null;
@@ -129,8 +131,8 @@ function validateValue(kind: SettingKind, value: unknown): string | null {
   switch (kind.kind) {
     case "boolean":
       return validateBooleanValue(value);
-    case "integer":
-      return validateIntegerValue(kind, value);
+    case "number":
+      return validateNumberValue(kind, value);
     case "choice":
       return validateChoiceValue(kind, value);
     case "text":

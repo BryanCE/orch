@@ -3,6 +3,7 @@ import { z } from "zod";
 import { FORM_IDS } from "../types/form.ts";
 import { ADAPTER_IDS } from "../types/adapter.ts";
 import { BACKEND_IDS, PLEXER_IDS, TILE_FIRST_SPLITS } from "../types/backend.ts";
+import { COUNCIL_CONTEXTS, COUNCIL_STOPS } from "../types/council.ts";
 import { THINKING_LEVELS } from "../types/policy.ts";
 import { WORKTREE_PROVIDER_IDS } from "../types/worktree.ts";
 import { ORCH_RUNTIMES } from "../runtimes.ts";
@@ -122,7 +123,7 @@ export const SETTINGS_DEFAULTS = {
   tiling: { first_split: "rows" },
   worktrees: { provider: "git", branch_prefix: "orch/", directory: ".orch-worktrees", worktrunk_commands: ["wkt", "wt"], copy_ignored: true, timeout_ms: 300_000 },
   counts: { tail: 20, peek: 25 },
-  council: { directory: ".orch/councils", scale: 10, rounds: 3, models: {} },
+  council: { directory: ".orch/councils", scale: 10, stop: "rounds", rounds: 3, target_score: 9, patience: 1, context: "keep", models: {} },
   // `.agents/skills` is the cross-harness standard, so the real files live there once; setup links it into each enabled harness's own skills directory.
   skills: { install: true, store: "~/.agents/skills", link: [] },
 } as const;
@@ -388,12 +389,18 @@ export const SETTINGS_FILE_SCHEMA = z.strictObject({
     tail: PositiveInt.optional(),
     peek: PositiveInt.optional(),
   }).optional(),
-  /** Where a council keeps its files, what its members score out of, how many rounds it
-   *  runs, and who sits on one. */
+  /** Where a council keeps its files, what its members score out of, when it stops, whether
+   *  a member keeps its conversation between rounds, and who sits on one. `stop` picks the
+   *  rule: `rounds` runs that count; `score` runs until a round's mean reaches `target_score`,
+   *  or fails to rise for `patience` + 1 rounds in a row. */
   council: z.strictObject({
     directory: z.string().min(1).optional(),
     scale: PositiveInt.optional(),
+    stop: z.enum(COUNCIL_STOPS).optional(),
     rounds: PositiveInt.optional(),
+    target_score: z.number().min(1).optional(),
+    patience: z.number().int().nonnegative().optional(),
+    context: z.enum(COUNCIL_CONTEXTS).optional(),
     /** The standing lineup PER HARNESS: one member per model, in that harness's own
      *  vocabulary. Every model must pass that harness's `models.allowed`. */
     models: z.partialRecord(z.enum(ADAPTER_IDS), z.array(z.string().min(1))).optional(),

@@ -6,6 +6,7 @@ import type { FormId } from "./form.ts";
 import type { AdapterId } from "./adapter.ts";
 import { AGENT_STATES } from "../agent-state.ts";
 import type { BackendId } from "./backend.ts";
+import type { CouncilContext, CouncilStopMode } from "./council.ts";
 import type { LogLevel } from "./core.ts";
 import type { SettingsManager } from "./services.ts";
 import type { OrchRuntime } from "../runtimes.ts";
@@ -78,7 +79,7 @@ export interface OrchSettings {
   tiling: { first_split: TileFirstSplit };
   worktrees: WorktreeConfig;
   counts: { tail: number; peek: number };
-  council: { directory: string; scale: number; rounds: number; models: Partial<Record<AdapterId, string[]>> };
+  council: { directory: string; scale: number; stop: CouncilStopMode; rounds: number; target_score: number; patience: number; context: CouncilContext; models: Partial<Record<AdapterId, string[]>> };
   skills: { install: boolean; store: string; link: string[] };
 }
 
@@ -121,8 +122,9 @@ export type SettingSource = "flag" | "project" | "install" | "default";
 
 export type SettingKind =
   | { readonly kind: "boolean" }
-  /** `none` is accepted when the setting may be switched off; it is stored as null. */
-  | { readonly kind: "integer"; readonly min?: number; readonly max?: number; readonly none?: true }
+  /** `whole` takes integers only. `none` is accepted when the setting may be switched off; it
+   *  is stored as null. */
+  | { readonly kind: "number"; readonly whole: boolean; readonly min?: number; readonly max?: number; readonly none?: true }
   | { readonly kind: "choice"; readonly choices: readonly string[] }
   | { readonly kind: "multi"; readonly choices: readonly string[] }
   /** A pick-list of delivery sinks. Each picked sink is an object: its id, the one value

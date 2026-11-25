@@ -118,7 +118,7 @@ function completeSettings(): Record<string, unknown> {
     tiling: { first_split: "rows" },
     worktrees: { provider: "git", branch_prefix: "orch/", directory: ".orch-worktrees", worktrunk_commands: ["wkt", "wt"], copy_ignored: true, timeout_ms: 300000 },
     counts: { tail: 20, peek: 25 },
-    council: { directory: ".orch/councils", scale: 10, rounds: 3, models: {} },
+    council: { directory: ".orch/councils", scale: 10, stop: "rounds", rounds: 3, target_score: 9, patience: 1, context: "keep", models: {} },
     skills: { install: false, store: "/tmp/skills", link: ["/tmp/claude-skills"] },
   };
 }
@@ -171,7 +171,7 @@ describe("settings registry", () => {
 
   test("retention.ended_agents_days is an integer that accepts none", () => {
     const setting = registered("retention.ended_agents_days");
-    expect(setting.type).toMatchObject({ kind: "integer", min: 1, none: true });
+    expect(setting.type).toMatchObject({ kind: "number", whole: true, min: 1, none: true });
     expect(parseSettingValue(setting, "none")).toEqual({ ok: true, value: null });
     expect(parseSettingValue(setting, "30")).toEqual({ ok: true, value: 30 });
     expect(parseSettingValue(setting, "forever").ok).toBe(false);
@@ -188,7 +188,7 @@ describe("settings registry", () => {
 
   test("an integer without none refuses none", () => {
     const setting = registered("retention.queue_days");
-    expect(setting.type).toMatchObject({ kind: "integer", min: 1 });
+    expect(setting.type).toMatchObject({ kind: "number", whole: true, min: 1 });
     expect(setting.type).not.toHaveProperty("none");
     expect(parseSettingValue(setting, "none").ok).toBe(false);
   });
@@ -235,6 +235,15 @@ describe("settings registry", () => {
     const spec = registered("council.models");
     expect(spec.type).toEqual({ kind: "lineup" });
     expect(parseSettingValue(spec, "{\"pi\":[\"openai-codex/gpt-6-luna\"]}").ok).toBe(true);
+  });
+
+  test("a council's stop, target score, patience and context are settings the editor offers", () => {
+    expect(registered("council.stop").type).toEqual({ kind: "choice", choices: ["rounds", "score"] });
+    expect(registered("council.target_score").type).toEqual({ kind: "number", whole: false, min: 1 });
+    expect(registered("council.patience").type).toMatchObject({ kind: "number", whole: true, min: 0 });
+    expect(registered("council.context").type).toEqual({ kind: "choice", choices: ["keep", "fresh"] });
+    expect(parseSettingValue(registered("council.target_score"), "8.5")).toEqual({ ok: true, value: 8.5 });
+    expect(parseSettingValue(registered("council.patience"), "1.5").ok).toBe(false);
   });
 });
 

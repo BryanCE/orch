@@ -1,13 +1,12 @@
 import { getColumns, getRows, isCancel, MultiSelectPrompt, SelectPrompt, TextPrompt } from "@clack/core";
-import type { SettingsManager } from "../../types/services.ts";
 import { CLEAR_SCREEN } from "../../tui/screen.ts";
 import { inputCursor, INPUT_KEYBAR, inputOverlay, MULTI_KEYBAR, multiOverlay, SELECT_KEYBAR, selectOverlay, settingsFrame } from "../view.ts";
 import type { Session } from "./state.ts";
 import { screenOf } from "./state.ts";
 
 /** The settings screen at the terminal's size, with a prompt's overlay and key bar on it. */
-export function promptFrame(session: Session, manager: SettingsManager, overlay: readonly string[] | undefined, keybar: string): string {
-  return settingsFrame(screenOf(session, manager), getColumns(process.stdout), getRows(process.stdout), overlay, keybar);
+export function promptFrame(session: Session, overlay: readonly string[] | undefined, keybar: string): string {
+  return settingsFrame(screenOf(session), getColumns(process.stdout), getRows(process.stdout), overlay, keybar);
 }
 
 /** A cleared screen and the prompt options for a list of choices. */
@@ -19,7 +18,6 @@ function choiceOptions(choices: readonly string[]): { value: string }[] {
 /** Pick one choice off a list; `notes` is what each choice carries now. Null on cancel. */
 export async function askChoice(
   session: Session,
-  manager: SettingsManager,
   choices: readonly string[],
   initial: string | undefined,
   notes?: Readonly<Record<string, string>>,
@@ -28,7 +26,7 @@ export async function askChoice(
     options: choiceOptions(choices),
     ...(initial !== undefined && choices.includes(initial) ? { initialValue: initial } : {}),
     render() {
-      return promptFrame(session, manager, selectOverlay(choices, this.cursor, notes), SELECT_KEYBAR);
+      return promptFrame(session, selectOverlay(choices, this.cursor, notes), SELECT_KEYBAR);
     },
   });
   const answer = await prompt.prompt();
@@ -38,7 +36,6 @@ export async function askChoice(
 /** Check any number of choices off a list. Null on cancel. */
 export async function askMulti(
   session: Session,
-  manager: SettingsManager,
   choices: readonly string[],
   initial: readonly string[],
 ): Promise<string[] | null> {
@@ -50,7 +47,7 @@ export async function askMulti(
       const selected = Array.isArray(this.value)
         ? this.value.filter((value): value is string => typeof value === "string")
         : [];
-      return promptFrame(session, manager, multiOverlay(choices, this.cursor, selected), MULTI_KEYBAR);
+      return promptFrame(session, multiOverlay(choices, this.cursor, selected), MULTI_KEYBAR);
     },
   });
   const answer = await prompt.prompt();
@@ -69,7 +66,6 @@ function submittedText(prompt: TextPrompt, answer: unknown): string {
  *  already recorded: a seeded line commits a value nobody typed. */
 export async function askValue(
   session: Session,
-  manager: SettingsManager,
   label: string,
   initial: string,
   example: string | undefined,
@@ -80,7 +76,7 @@ export async function askValue(
     initialUserInput: initial,
     validate: (value) => refusal(value ?? ""),
     render() {
-      return promptFrame(session, manager, inputOverlay(label, inputCursor(this.userInput, this.cursor), this.state === "error" ? this.error : undefined, example), INPUT_KEYBAR);
+      return promptFrame(session, inputOverlay(label, inputCursor(this.userInput, this.cursor), this.state === "error" ? this.error : undefined, example), INPUT_KEYBAR);
     },
   });
   const answer = await prompt.prompt();

@@ -1,6 +1,5 @@
 import type { Key } from "node:readline";
 import { isCancel, Prompt, TextPrompt } from "@clack/core";
-import type { SettingsManager } from "../../types/services.ts";
 import { CLEAR_SCREEN, CTRL_C } from "../../tui/screen.ts";
 import { parseSettingValue } from "../parse.ts";
 import { displayValue } from "../display.ts";
@@ -20,7 +19,8 @@ import { editModels } from "./models.ts";
 import { editCompaction } from "./compaction.ts";
 import { editLineup } from "./lineup.ts";
 import type { HarnessOffers } from "../../setup/composition.ts";
-import { asBrowsing, cancelEdit, commitAndFlush, commitPick, refocusVisible, resetFocused, stepFocus, switchView, toggleAgentGrant, type Session } from "./state.ts";
+import { asBrowsing, cancelEdit, editTarget, localRefusal, refocusVisible, resetFocused, stepFocus, toggleAgentGrant, type Session } from "./state.ts";
+import { commitAndFlush, commitPick } from "./save.ts";
 
 type BrowseOutcome = "open" | "again" | "quit";
 
@@ -69,15 +69,11 @@ function searchKey(session: Session, char: string | undefined, info: Key): void 
 }
 
 /** A key while browsing: move, open search, reset, or leave. Enter falls through to the prompt submit. */
-function browseKey(session: Session, manager: SettingsManager, char: string | undefined, info: Key): void {
+function browseKey(session: Session, char: string | undefined, info: Key): void {
   if (info.name === "return") return;
   if (info.name === "escape") {
     if (session.filter === "") session.quit = true;
     else clearFilter(session);
-    return;
-  }
-  if (info.name === "tab") {
-    switchView(session);
     return;
   }
   if (info.name === "up" || info.name === "down") {
@@ -85,21 +81,21 @@ function browseKey(session: Session, manager: SettingsManager, char: string | un
     return;
   }
   if (info.ctrl === true && info.name === "d") {
-    resetFocused(session, manager);
+    resetFocused(session);
     return;
   }
   if (char === AGENT_KEY) {
-    toggleAgentGrant(session, manager);
+    toggleAgentGrant(session);
     return;
   }
   if (char === SEARCH_KEY) session.searching = true;
 }
 
 /** One browsing prompt: navigate, search, reset — until Enter opens or Escape/ctrl+c leaves. */
-export async function browseOnce(session: Session, manager: SettingsManager): Promise<BrowseOutcome> {
+export async function browseOnce(session: Session): Promise<BrowseOutcome> {
   process.stdout.write(CLEAR_SCREEN);
   const prompt = new Prompt<undefined>({
-    render: () => promptFrame(session, manager, undefined, session.searching ? SEARCH_KEYBAR : BROWSE_KEYBAR),
+    render: () => promptFrame(session, undefined, session.searching ? SEARCH_KEYBAR : BROWSE_KEYBAR),
   }, false);
   prompt.on("key", (char, info) => {
     if (info.name !== "return") session.status = undefined;
@@ -108,7 +104,7 @@ export async function browseOnce(session: Session, manager: SettingsManager): Pr
       return;
     }
     if (session.searching) searchKey(session, char, info);
-    else browseKey(session, manager, char, info);
+    else browseKey(session, char, info);
   });
   const answer = await prompt.prompt();
   if (session.quit) return "quit";
@@ -122,18 +118,18 @@ export async function browseOnce(session: Session, manager: SettingsManager): Pr
   return "again";
 }
 
-async function editChoice(session: Session, manager: SettingsManager, editing: EditingState, choices: readonly string[]): Promise<void> {
-  commitPick(session, manager, editing, await askChoice(session, manager, choices, typeof editing.draft === "string" ? editing.draft : undefined));
+async function editChoice(session: Session, editing: EditingState, choices: readonly string[]): Promise<void> {
+  return commitPick(session, editing, await askChoice(session, choices, typeof editing.draft === "string" ? editing.draft : undefined));
 }
 
-async function editMulti(session: Session, manager: SettingsManager, editing: EditingState, choices: readonly string[]): Promise<void> {
+async function editMulti(session: Session, editing: EditingState, choices: readonly string[]): Promise<void> {
   const current = Array.isArray(editing.draft)
     ? editing.draft.filter((value): value is string => typeof value === "string")
     : [];
-  commitPick(session, manager, editing, await askMulti(session, manager, choices, current));
+  return commitPick(session, editing, await askMulti(session, choices, current));
 }
 
-async function editText(session: Session, manager: SettingsManager, editing: EditingState): Promise<void> {
+async function editText(session: Session, editing: EditingState): Promise<void> {
   process.stdout.write(CLEAR_SCREEN);
   const spec = editing.focused.spec;
   const prompt = new TextPrompt({
@@ -143,45 +139,54 @@ async function editText(session: Session, manager: SettingsManager, editing: Edi
       return parsed.ok ? undefined : parsed.reason;
     },
     render() {
-      return promptFrame(session, manager, inputOverlay(spec.key, inputCursor(this.userInput, this.cursor), this.state === "error" ? this.error : undefined), INPUT_KEYBAR);
+      return promptFrame(session, inputOverlay(spec.key, inputCursor(this.userInput, this.cursor), this.state === "error" ? this.error : undefined), INPUT_KEYBAR);
     },
   });
   const answer = await prompt.prompt();
   if (isCancel(answer)) return cancelEdit(session, editing);
   const parsed = parseSettingValue(spec, submittedText(prompt, answer));
   if (!parsed.ok) return cancelEdit(session, editing, `${spec.key}: ${parsed.reason}`);
-  commitAndFlush(session, manager, editing, parsed.value);
+  return commitAndFlush(session, editing, parsed.value);
+}
+
+/** Open the focused row on the value this editor's file gives it, or say why it does not open. */
+function openFocused(session: Session): EditingState | undefined {
+  const reduced = editorReducer(session.state, { type: "open" });
+  if (reduced.mode === "browsing") {
+    session.status = reduced.reason;
+    session.state = asBrowsing(reduced);
+    return undefined;
+  }
+  const refusal = localRefusal(session, reduced.focused.spec);
+  if (refusal === undefined) return { ...reduced, draft: reduced.focused.spec.read(editTarget(session).current()) };
+  cancelEdit(session, reduced, refusal);
+  return undefined;
 }
 
 /** Open the focused setting and run the edit interaction its declared kind calls for. */
-export async function editFocused(session: Session, manager: SettingsManager, offers: HarnessOffers): Promise<void> {
-  const opened = editorReducer(session.state, { type: "open" });
-  if (opened.mode === "browsing") {
-    session.status = opened.reason;
-    session.state = asBrowsing(opened);
-    return;
-  }
+export async function editFocused(session: Session, offers: HarnessOffers): Promise<void> {
+  const opened = openFocused(session);
+  if (opened === undefined) return;
   const kind = opened.focused.spec.type;
   switch (kind.kind) {
     case "boolean":
-      commitAndFlush(session, manager, opened, opened.focused.value !== true);
-      return;
+      return commitAndFlush(session, opened, opened.draft !== true);
     case "choice":
-      return editChoice(session, manager, opened, kind.choices);
+      return editChoice(session, opened, kind.choices);
     case "multi":
-      return editMulti(session, manager, opened, kind.choices);
+      return editMulti(session, opened, kind.choices);
     case "sinks":
-      return editSinks(session, manager, opened, kind);
+      return editSinks(session, opened, kind);
     case "models":
-      return editModels(session, manager, offers, opened);
+      return editModels(session, offers, opened);
     case "compaction":
-      return editCompaction(session, manager, offers, opened);
+      return editCompaction(session, offers, opened);
     case "lineup":
-      return editLineup(session, manager, offers, opened);
+      return editLineup(session, offers, opened);
     case "number":
     case "text":
     case "list":
-      return editText(session, manager, opened);
+      return editText(session, opened);
     default: {
       const exhaustive: never = kind;
       return exhaustive;

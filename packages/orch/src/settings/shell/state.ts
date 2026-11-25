@@ -1,23 +1,15 @@
 import * as files from "node:fs";
 import type { SettingsManager } from "../../types/services.ts";
-import { errorMessage, isRecord } from "../../util.ts";
+import { errorMessage, isRecord, valueAtPath } from "../../util.ts";
 import { createEditorState, editorReducer } from "../editor.ts";
 import { clearRegisteredSetting, SETTINGS_REGISTRY, writeRegisteredSetting } from "../registry.ts";
 import { AGENT_SETTINGS_GRANT, agentMayWriteSetting, grantAgentSetting, revokeAgentSetting } from "../../policy/agent-settings.ts";
 import { visibleEntryIndices } from "../view.ts";
 import { projectSettings } from "../project.ts";
 import { oneLine } from "../../notify/format.ts";
+import { layerLabel } from "../display.ts";
 import type { SettingsScreen } from "../view.ts";
-import type { BrowsingState, EditingState, EditorSetting, EditorState, SettingSource, SettingSpec } from "../../types/settings.ts";
-
-function rawValue(root: unknown, key: string): unknown {
-  let current = root;
-  for (const segment of key.split(".")) {
-    if (!isRecord(current) || !(segment in current)) return undefined;
-    current = current[segment];
-  }
-  return current;
-}
+import type { BrowsingState, EditingState, EditorSetting, EditorState, RowSource, SettingSpec } from "../../types/settings.ts";
 
 /** A settings file's raw root. A project file that is absent or unreadable is empty: `fileProblem`
  *  shows its error, and a write to it is refused. An unreadable install file is an error. */
@@ -31,32 +23,44 @@ function rawRoot(file: string, absentIsEmpty: boolean): Record<string, unknown> 
   }
 }
 
-/** Where a row's value comes from: the project file, the install file, or the default. */
-function sourceFor(spec: SettingSpec, project: Record<string, unknown>, install: Record<string, unknown>): SettingSource {
-  if (rawValue(project, spec.key) !== undefined) return "project";
-  return rawValue(install, spec.key) === undefined ? "default" : "install";
+/** Whether a settings file's raw root holds `key`. */
+function holds(root: Record<string, unknown>, key: string): boolean {
+  return valueAtPath(root, key.split(".")) !== undefined;
 }
 
-/** Rebuild every row from disk so value and provenance show what the files hold. A project
- *  manager's rows are the keys a project may set, each with the value it has or inherits. */
-export function loadEntries(manager: SettingsManager): EditorSetting[] {
-  const scope = manager.scope;
-  const project = scope.kind === "project" ? rawRoot(manager.file, true) : {};
-  const install = rawRoot(scope.kind === "install" ? manager.file : scope.install.file, false);
-  const settings = manager.current();
-  const specs = scope.kind === "project" ? SETTINGS_REGISTRY.filter((spec) => spec.scope === "project") : SETTINGS_REGISTRY;
-  return specs.map((spec) => ({
-    spec, value: spec.read(settings), source: sourceFor(spec, project, install), agentWritable: agentMayWriteSetting(settings, spec.key),
-  }));
+/** The two files the editor reads and writes: the install file every project inherits, and
+ *  this directory's project file over it. `project` is null in the install's own directory. */
+export interface SettingsLayers { readonly install: SettingsManager; readonly project: SettingsManager | null }
+
+/** The manager whose reads give the settings in force here: the project's merge, or the install's. */
+function shownManager(layers: SettingsLayers): SettingsManager {
+  return layers.project ?? layers.install;
 }
 
-/** The shown file's error: a project file that is there but invalid. Its rows show the install's
- *  values, and a save to it is refused until it is fixed. */
-export function fileProblem(manager: SettingsManager): string | undefined {
-  const scope = manager.scope;
-  if (scope.kind !== "project") return undefined;
+/** Which file every edit writes: the global file (`orch settings`), or the local file (`orch settings --local`). */
+export type SaveMode = { readonly kind: "global" } | { readonly kind: "local"; readonly local: SettingsManager };
+
+/** Rebuild every row from disk: the value in force, the file it comes from, and the install
+ *  value a project value replaces. Both editors show the same rows. */
+export function loadEntries(layers: SettingsLayers): EditorSetting[] {
+  const project = layers.project === null ? {} : rawRoot(layers.project.file, true);
+  const install = rawRoot(layers.install.file, false);
+  const settings = shownManager(layers).current();
+  const installSettings = layers.install.current();
+  const sourceOf = (spec: SettingSpec): RowSource => {
+    if (holds(project, spec.key)) return { kind: "project", overrides: spec.read(installSettings) };
+    return holds(install, spec.key) ? { kind: "install" } : { kind: "default" };
+  };
+  return SETTINGS_REGISTRY.map((spec) => ({ spec, value: spec.read(settings), source: sourceOf(spec), agentWritable: agentMayWriteSetting(settings, spec.key) }));
+}
+
+/** The project file's error when it is there but invalid. Its rows show the install's values,
+ *  and a save to it is refused until it is fixed. */
+function fileProblem(layers: SettingsLayers): string | undefined {
+  const scope = layers.project?.scope;
+  if (scope?.kind !== "project") return undefined;
   const state = projectSettings(scope.directory, scope.install).state;
-  return state.kind === "invalid" ? `${oneLine(state.message)} - fix the file to save here` : undefined;
+  return state.kind === "invalid" ? `${oneLine(state.message)} - fix the file to save to it` : undefined;
 }
 
 /** Everything one editor run carries between prompts. Mutated by key handlers mid-render. */
@@ -69,27 +73,18 @@ export interface Session {
   quit: boolean;
   /** Enter or Escape was spent on the filter, so the submit or cancel it triggered opens nothing and quits nothing. */
   filterKeySpent: boolean;
-  /** The files the editor can show. `project` is null in the install's own directory. */
-  readonly views: { readonly install: SettingsManager; readonly project: SettingsManager | null };
-  /** Which file the rows show and a save writes. */
-  view: "project" | "install";
+  readonly layers: SettingsLayers;
+  readonly save: SaveMode;
 }
 
-/** The manager the shown view reads and writes. */
-export function activeManager(session: Session): SettingsManager {
-  return session.view === "project" && session.views.project !== null ? session.views.project : session.views.install;
+/** The file every edit, clear and grant writes, and whose values an edit starts from. */
+export function editTarget(session: Session): SettingsManager {
+  return session.save.kind === "local" ? session.save.local : session.layers.install;
 }
 
-/** `Tab`: show the other file's settings, keeping the focused key when it is in both. */
-export function switchView(session: Session): void {
-  if (session.views.project === null) {
-    session.status = "this directory holds the install file, so it has only the Install view";
-    return;
-  }
-  const focusKey = session.state.settings[session.state.focusedIndex]?.spec.key ?? "";
-  session.view = session.view === "project" ? "install" : "project";
-  reloadRows(session, activeManager(session), focusKey);
-  session.status = session.view === "project" ? `Project: ${session.views.project.file}` : `Install: ${session.views.install.file}`;
+/** Why the local editor refuses to write `spec`: a global-only key has no place in a local file. */
+export function localRefusal(session: Session, spec: SettingSpec): string | undefined {
+  return session.save.kind === "local" && spec.scope === "install" ? `${spec.key} is global only. Edit it with orch settings, without --local` : undefined;
 }
 
 export function asBrowsing(state: EditorState): BrowsingState {
@@ -133,67 +128,77 @@ export function refocusVisible(session: Session): void {
   session.state = moveTo(session.state, first);
 }
 
-export function screenOf(session: Session, manager: SettingsManager): SettingsScreen {
+export function screenOf(session: Session): SettingsScreen {
+  const { install, project } = session.layers;
   return {
-    file: manager.file,
+    files: { local: project?.file ?? null, global: install.file },
+    editing: session.save.kind,
     entries: session.state.settings,
     focusedIndex: session.state.focusedIndex,
     filter: session.filter,
     searching: session.searching,
-    status: session.status ?? fileProblem(manager),
+    status: session.status ?? fileProblem(session.layers),
   };
 }
 
 /** Rebuild rows from disk and restore focus to `focusKey`. */
-export function reloadRows(session: Session, manager: SettingsManager, focusKey: string): void {
-  const state = createEditorState(loadEntries(manager));
+export function reloadRows(session: Session, focusKey: string): void {
+  const state = createEditorState(loadEntries(session.layers));
   const index = state.settings.findIndex((entry) => entry.spec.key === focusKey);
   session.state = index < 0 ? state : moveTo(state, index);
 }
 
-function focusedEntry(session: Session): EditorSetting | undefined {
-  return session.state.settings[session.state.focusedIndex];
+/** The focused row when this editor may write it. Otherwise the status says why, and it gives undefined. */
+function writableFocus(session: Session, readOnly: string): EditorSetting | undefined {
+  const entry = session.state.settings[session.state.focusedIndex];
+  if (entry === undefined) return undefined;
+  const refusal = entry.spec.write === undefined ? `${entry.spec.key} ${readOnly}` : localRefusal(session, entry.spec);
+  if (refusal === undefined) return entry;
+  session.status = refusal;
+  return undefined;
 }
 
-/** Clear the focused setting back to its default, or say why that is refused. */
-export function resetFocused(session: Session, manager: SettingsManager): void {
-  const entry = focusedEntry(session);
+/** Clear the focused setting from this editor's file: a local value gives way to the global one,
+ *  a global value to the default. */
+export function resetFocused(session: Session): void {
+  const entry = writableFocus(session, "is read-only");
   if (entry === undefined) return;
-  const key = entry.spec.key;
-  if (entry.spec.write === undefined) {
-    session.status = `${key} is read-only`;
-    return;
-  }
+  const target = editTarget(session);
+  const cleared = target.scope.kind === "project" ? "local value cleared, the global value applies" : "global value cleared, the default applies";
+  applyWrite(session, entry.spec.key, () => clearRegisteredSetting(target, entry.spec.key), `${entry.spec.key}: ${cleared}${shadowNote(session)}`);
+}
+
+/** What a global write to the focused row leaves in force: a local value still wins in this project. */
+function shadowNote(session: Session): string {
+  const row = session.state.settings[session.state.focusedIndex];
+  return session.save.kind === "global" && row?.source.kind === "project" ? ". The local value still applies here: orch settings --local, then ctrl+d, clears it" : "";
+}
+
+/** Run one write, show `status` or the write's error, and re-read the files with focus on `key`. */
+function applyWrite(session: Session, key: string, write: () => void, status: string): void {
   try {
-    clearRegisteredSetting(manager, key);
-    reloadRows(session, manager, key);
-    session.status = `${key} reset to default`;
+    write();
+    session.status = status;
   } catch (error: unknown) {
     session.status = errorMessage(error);
   }
+  reloadRows(session, key);
 }
 
-/** Flip whether an agent may write the focused setting, or say why that is refused. */
-export function toggleAgentGrant(session: Session, manager: SettingsManager): void {
-  const entry = focusedEntry(session);
+/** Flip whether an agent may write the focused setting, in the file the grant list comes from,
+ *  or say why that is refused. */
+export function toggleAgentGrant(session: Session): void {
+  const entry = writableFocus(session, "is read-only; nobody writes it");
   if (entry === undefined) return;
   const key = entry.spec.key;
-  if (entry.spec.write === undefined) {
-    session.status = `${key} is read-only; nobody writes it`;
-    return;
-  }
   if (key === AGENT_SETTINGS_GRANT) {
     session.status = `${key} never grants itself`;
     return;
   }
-  const keys = entry.agentWritable ? revokeAgentSetting(manager.current(), key) : grantAgentSetting(manager.current(), key);
-  try {
-    writeRegisteredSetting(manager, AGENT_SETTINGS_GRANT, keys);
-    reloadRows(session, manager, key);
-    session.status = entry.agentWritable ? `${key}: the human alone writes it` : `${key}: an agent may write it`;
-  } catch (error: unknown) {
-    session.status = errorMessage(error);
-  }
+  const holder = editTarget(session);
+  const keys = entry.agentWritable ? revokeAgentSetting(holder.current(), key) : grantAgentSetting(holder.current(), key);
+  const where = `(${layerLabel(holder)} ${holder.file})`;
+  applyWrite(session, key, () => writeRegisteredSetting(holder, AGENT_SETTINGS_GRANT, keys), entry.agentWritable ? `${key}: the human alone writes it ${where}` : `${key}: an agent may write it ${where}`);
 }
 
 /** Close the edit with the value unchanged; `status` says why, when there is a reason to show. */
@@ -202,22 +207,9 @@ export function cancelEdit(session: Session, editing: EditingState, status?: str
   session.state = asBrowsing(editorReducer(editing, { type: "cancel" }));
 }
 
-/** Commit a picked value, or close the edit when the pick was cancelled. */
-export function commitPick(session: Session, manager: SettingsManager, editing: EditingState, picked: unknown): void {
-  if (picked === null) cancelEdit(session, editing);
-  else commitAndFlush(session, manager, editing, picked);
-}
-
-/** Commit an edited value through the reducer, persist it, and re-read the file. */
-export function commitAndFlush(session: Session, manager: SettingsManager, editing: EditingState, value: unknown): void {
-  const key = editing.focused.spec.key;
-  const committed = editorReducer(editing, { type: "commit", value });
-  if (committed.mode === "editing") return cancelEdit(session, committed, committed.reason ?? `${key}: invalid value`);
-  try {
-    for (const pending of committed.pendingWrites) writeRegisteredSetting(manager, pending.key, pending.value);
-    session.status = `${key} saved`;
-  } catch (error: unknown) {
-    session.status = errorMessage(error);
-  }
-  reloadRows(session, manager, key);
+/** Write a committed edit's values to this editor's file, say which file took them, and re-read the files. */
+export function writeCommitted(session: Session, committed: BrowsingState, key: string): void {
+  const target = editTarget(session);
+  const write = (): void => { for (const pending of committed.pendingWrites) writeRegisteredSetting(target, pending.key, pending.value); };
+  applyWrite(session, key, write, `${key} saved to ${layerLabel(target)} ${target.file}${shadowNote(session)}`);
 }

@@ -1,12 +1,12 @@
 import { isCancel, Prompt } from "@clack/core";
-import type { SettingsManager } from "../../types/services.ts";
 import { isRecord } from "../../util.ts";
 import type { EditingState, SettingKind } from "../../types/settings.ts";
 import { CLEAR_SCREEN } from "../../tui/screen.ts";
 import { displayValue } from "../display.ts";
 import { multiOverlay, SINKS_KEYBAR } from "../view.ts";
 import { askMulti, askValue, promptFrame } from "./ask.ts";
-import { cancelEdit, commitAndFlush, type Session } from "./state.ts";
+import { cancelEdit, type Session } from "./state.ts";
+import { commitAndFlush } from "./save.ts";
 
 type SinksKind = Extract<SettingKind, { kind: "sinks" }>;
 
@@ -87,11 +87,11 @@ type PickOutcome =
 
 /** One pass of the sink picker: move, toggle, or hand back the sink whose value to edit.
  *  A value edit ends the prompt because a nested prompt cannot share raw-mode input. */
-async function pickSinks(session: Session, manager: SettingsManager, kind: SinksKind, pick: SinkPick): Promise<PickOutcome> {
+async function pickSinks(session: Session, kind: SinksKind, pick: SinkPick): Promise<PickOutcome> {
   process.stdout.write(CLEAR_SCREEN);
   let outcome: PickOutcome = { done: "save" };
   const prompt = new Prompt<undefined>({
-    render: () => promptFrame(session, manager, multiOverlay(kind.choices, pick.cursor, pick.checked, sinkNotes(kind, pick)), SINKS_KEYBAR),
+    render: () => promptFrame(session, multiOverlay(kind.choices, pick.cursor, pick.checked, sinkNotes(kind, pick)), SINKS_KEYBAR),
   }, false);
   prompt.on("key", (char, info) => {
     if (info.name === "return") return;
@@ -118,14 +118,14 @@ async function pickSinks(session: Session, manager: SettingsManager, kind: Sinks
 }
 
 /** Ask for one sink's value and record it, checking the sink. False when the ask was cancelled. */
-async function editSinkValue(session: Session, manager: SettingsManager, kind: SinksKind, pick: SinkPick, id: string): Promise<boolean> {
+async function editSinkValue(session: Session, kind: SinksKind, pick: SinkPick, id: string): Promise<boolean> {
   const field = kind.fields[id];
   if (field === undefined) {
     session.status = `${id} carries no value - space turns it on`;
     return true;
   }
   const label = field.name === id ? id : `${id} ${field.name}`;
-  const value = await askValue(session, manager, label, pick.values.get(id) ?? "", field.suggestion);
+  const value = await askValue(session, label, pick.values.get(id) ?? "", field.suggestion);
   if (value === null) return false;
   pick.values.set(id, value);
   checkSink(pick, id);
@@ -134,8 +134,8 @@ async function editSinkValue(session: Session, manager: SettingsManager, kind: S
 
 /** Choose which states one sink fires on, checking the sink. A sink that fires on nothing
  *  delivers nothing, so an empty answer is refused rather than recorded. */
-async function editSinkStates(session: Session, manager: SettingsManager, kind: SinksKind, pick: SinkPick, id: string): Promise<void> {
-  const chosen = await askMulti(session, manager, kind.states, firesOn(kind, pick, id));
+async function editSinkStates(session: Session, kind: SinksKind, pick: SinkPick, id: string): Promise<void> {
+  const chosen = await askMulti(session, kind.states, firesOn(kind, pick, id));
   if (chosen === null) return;
   if (chosen.length === 0) {
     session.status = `${id} must fire on at least one state`;
@@ -147,11 +147,11 @@ async function editSinkStates(session: Session, manager: SettingsManager, kind: 
 
 /** Ask for every checked sink still missing its value. One left unanswered is unchecked:
  *  a sink with nothing to deliver through is not a sink. False when any was skipped. */
-async function fillCheckedSinks(session: Session, manager: SettingsManager, kind: SinksKind, pick: SinkPick): Promise<boolean> {
+async function fillCheckedSinks(session: Session, kind: SinksKind, pick: SinkPick): Promise<boolean> {
   const missing = pick.checked.filter((id) => kind.fields[id] !== undefined && carriedValue(pick, id) === "");
   let complete = true;
   for (const id of missing) {
-    if (await editSinkValue(session, manager, kind, pick, id)) continue;
+    if (await editSinkValue(session, kind, pick, id)) continue;
     uncheckSink(pick, id);
     session.status = `${id} left off - it needs a ${kind.fields[id]?.name ?? "value"}`;
     complete = false;
@@ -161,21 +161,20 @@ async function fillCheckedSinks(session: Session, manager: SettingsManager, kind
 
 /** Check the sinks to deliver through, set what each one carries, and choose when each
  *  fires. `e` edits the focused sink's value, `w` its states; nothing is written until enter. */
-export async function editSinks(session: Session, manager: SettingsManager, editing: EditingState, kind: SinksKind): Promise<void> {
+export async function editSinks(session: Session, editing: EditingState, kind: SinksKind): Promise<void> {
   const pick = initialPick(kind, editing.draft);
   for (;;) {
-    const outcome = await pickSinks(session, manager, kind, pick);
+    const outcome = await pickSinks(session, kind, pick);
     if (outcome.done === "cancel") return cancelEdit(session, editing);
     if (outcome.done === "edit") {
-      await editSinkValue(session, manager, kind, pick, outcome.id);
+      await editSinkValue(session, kind, pick, outcome.id);
       continue;
     }
     if (outcome.done === "when") {
-      await editSinkStates(session, manager, kind, pick, outcome.id);
+      await editSinkStates(session, kind, pick, outcome.id);
       continue;
     }
-    if (!await fillCheckedSinks(session, manager, kind, pick)) continue;
-    commitAndFlush(session, manager, editing, pickedSinks(kind, pick));
-    return;
+    if (!await fillCheckedSinks(session, kind, pick)) continue;
+    return commitAndFlush(session, editing, pickedSinks(kind, pick));
   }
 }

@@ -3,7 +3,7 @@ import { installOnlySettings, projectFilePath, projectSettings, type ProjectSett
 import * as files from "node:fs";
 import { allowedModelPatterns, allowlistWithDefault, resolveWithSource } from "../settings/read.ts";
 import { NOTIFY_DEFAULT_ON, settingsPath, SETTINGS_DEFAULTS } from "../settings/schema.ts";
-import { displaySetting, displayValue } from "../settings/display.ts";
+import { displaySetting, displayValue, layerLabel, SOURCE_LABELS } from "../settings/display.ts";
 import { NOTIFY_STATES } from "../types/settings.ts";
 import { buildSelectedNotifyEntries } from "../setup/notifiers.ts";
 import { describeSkillPlacement, installSkills } from "../setup/skills.ts";
@@ -28,8 +28,9 @@ import { nearestKeys } from "../settings/nearest.ts";
 import { SETTINGS_REGISTRY, clearRegisteredSetting, writeNotifyEntries, writeRegisteredSetting } from "../settings/registry.ts";
 import { parseSettingValue } from "../settings/parse.ts";
 import { runSettingsEditor } from "../settings/shell/index.ts";
+import type { SaveMode } from "../settings/shell/state.ts";
 import type { NotifierChoice } from "../types/notify.ts";
-import type { NotifyEntry, NotifyState, OrchSettings, SettingSpec } from "../types/settings.ts";
+import type { NotifyEntry, NotifyState, OrchSettings, SettingSource, SettingSpec } from "../types/settings.ts";
 import type { DaemonClient, Services, SettingsManager } from "../types/services.ts";
 import type { OrchDir } from "../types/core.ts";
 
@@ -74,18 +75,22 @@ function nearestSettingKeys(key: string): string {
   return nearestKeys(key, SETTINGS_REGISTRY.map((setting) => setting.key), 3).join(", ");
 }
 
-/** Bare settings opens the editor only when attached to a TTY; flags and JSON stay non-interactive. */
-export function shouldLaunchSettingsEditor(args: readonly string[], isTTY = process.stdin.isTTY === true): boolean {
-  return isTTY && args.length === 0;
+/** The editor a call opens on a TTY: editing the global file for a bare call, the local file for a
+ *  bare `--local`. Null takes the print path, as every other flag and a pipe do. */
+export function settingsEditorMode(args: readonly string[], isTTY = process.stdin.isTTY === true): SaveMode["kind"] | null {
+  if (!isTTY) return null;
+  if (args.length === 0) return "global";
+  return args.length === 1 && args[0] === "--local" ? "local" : null;
 }
 
-/** A spawned agent or a harness session writes only what `agents.writable_settings` grants.
+/** A spawned agent or a harness session writes only what `agents.writable_settings` grants,
+ *  and in a project only its local file: the global file every project inherits is the user's.
  *  The operator, a raw terminal, is the human. */
-async function refuseUngrantedAgentWrite(services: DaemonClient, key: string, install = false): Promise<void> {
+async function refuseUngrantedAgentWrite(services: DaemonClient, key: string, local: boolean): Promise<void> {
   if ((await whoAmI(services)).kind === "operator") return;
-  if (install) die(`--install writes the install file every project inherits, and that is the user's. An agent's write lands in its own project's file. Ask the user to run: orch settings ${key} <value> --install`);
   const settings = currentSettings(services);
   if (!agentMayWriteSetting(settings, key)) die(agentSettingRefusal(settings, key));
+  if (!local && localManagerOf(services) !== null) die(`Without --local, orch settings writes the global file every project inherits, and that file is the user's. An agent writes its own project's file: orch settings ${key} <value> --local. Or ask the user to run: orch settings ${key} <value>`);
 }
 
 /** The registry entry for `key`, or an exit that names the nearest real keys. */
@@ -110,15 +115,26 @@ function projectFileOf(services: Pick<Services, "settings">): ProjectSettings {
   return directory === null ? installOnlySettings(install) : projectSettings(directory, install);
 }
 
-/** The file a write of `spec` lands in: the install file for an install-only key, for
- *  `--install`, and in the install's own directory; the project file of this directory otherwise. */
-function settingsTarget(services: Pick<Services, "settings">, spec: SettingSpec, install: boolean): SettingsManager {
-  const installManager = installManagerOf(services.settings);
-  try {
-    const directory = projectDirectoryOf(services);
-    if (install || spec.scope === "install" || directory === null || projectFilePath(directory, installManager) === null) return installManager;
-    return projectSettingsManager(directory, installManager);
-  } catch (error: unknown) { die(errorMessage(error)); }
+/** This directory's project file, or null in the install's own directory, where there is none. */
+function localManagerOf(services: Pick<Services, "settings">): SettingsManager | null {
+  const install = installManagerOf(services.settings);
+  const directory = projectDirectoryOf(services);
+  return directory === null || projectFilePath(directory, install) === null ? null : projectSettingsManager(directory, install);
+}
+
+/** This directory's project file for `--local`, or an exit in the install's own directory, where there is none. */
+function requiredLocalManager(services: Pick<Services, "settings">): SettingsManager {
+  let manager: SettingsManager | null;
+  try { manager = localManagerOf(services); } catch (error: unknown) { die(errorMessage(error)); }
+  if (manager === null) die(`This directory holds the global file, so it has no local file. Drop --local.`);
+  return manager;
+}
+
+/** The file a write of `spec` lands in: the global file, or with `--local` this project's file. */
+function settingsTarget(services: Pick<Services, "settings">, spec: SettingSpec, local: boolean): SettingsManager {
+  if (!local) return installManagerOf(services.settings);
+  if (spec.scope === "install") die(`${spec.key} is global only: it spans every project, so a project file cannot hold it. Drop --local.`);
+  return requiredLocalManager(services);
 }
 
 /** The one key a grant verb names: registered, writable, not the grant itself, and the caller is the human. */
@@ -127,7 +143,7 @@ async function grantTarget(services: DaemonClient, invocation: Invocation): Prom
   if (key === undefined || invocation.positional.length !== 1) throw usageError(invocation);
   writableSpec(key);
   if (key === AGENT_SETTINGS_GRANT) die(`${key} never grants itself.`);
-  await refuseUngrantedAgentWrite(services, AGENT_SETTINGS_GRANT);
+  await refuseUngrantedAgentWrite(services, AGENT_SETTINGS_GRANT, false);
   return key;
 }
 
@@ -148,23 +164,27 @@ async function settingsRevoke(services: DaemonClient, invocation: Invocation): P
   writeAgentGrant(services, revokeAgentSetting(currentSettings(services), key));
 }
 
-async function setSingleSetting(services: DaemonClient, key: string, input: string, install: boolean): Promise<void> {
+/** The writable key a set or a clear names, the caller cleared to write it, and the file it lands in, labelled. */
+async function writeScope(services: DaemonClient, key: string, local: boolean): Promise<{ readonly spec: SettingSpec; readonly target: SettingsManager; readonly where: string }> {
   const spec = writableSpec(key);
-  await refuseUngrantedAgentWrite(services, key, install);
+  await refuseUngrantedAgentWrite(services, key, local);
+  const target = settingsTarget(services, spec, local);
+  return { spec, target, where: `${layerLabel(target)} ${target.file}` };
+}
+
+async function setSingleSetting(services: DaemonClient, key: string, input: string, local: boolean): Promise<void> {
+  const { spec, target, where } = await writeScope(services, key, local);
   const parsed = parseSettingValue(spec, input);
   if (!parsed.ok) die(`${key}: ${parsed.reason}.`);
-  const target = settingsTarget(services, spec, install);
   try { writeRegisteredSetting(target, key, parsed.value); } catch (error: unknown) { die(errorMessage(error)); }
-  process.stdout.write(`${key} = ${formatValue(parsed.value)} in ${target.file}\n`);
+  process.stdout.write(`${key} = ${formatValue(parsed.value)} in ${where}\n`);
 }
 
 /** `orch settings <key> --clear`: remove the key so it falls back to the next file, then the default. */
-async function clearSingleSetting(services: DaemonClient, key: string, install: boolean): Promise<void> {
-  const spec = writableSpec(key);
-  await refuseUngrantedAgentWrite(services, key, install);
-  const target = settingsTarget(services, spec, install);
+async function clearSingleSetting(services: DaemonClient, key: string, local: boolean): Promise<void> {
+  const { target, where } = await writeScope(services, key, local);
   try { clearRegisteredSetting(target, key); } catch (error: unknown) { die(errorMessage(error)); }
-  process.stdout.write(`${key} cleared in ${target.file}\n`);
+  process.stdout.write(`${key} cleared in ${where}\n`);
 }
 
 function switchDefault(services: Pick<Services, "settings">, key: "adapter" | "backend", value: string): void {
@@ -383,12 +403,10 @@ async function settingsNotify(services: Services, invocation: Invocation): Promi
   }
 }
 
-async function launchSettingsEditor(services: Services): Promise<void> {
+async function launchSettingsEditor(services: Services, mode: SaveMode["kind"]): Promise<void> {
+  const save: SaveMode = mode === "local" ? { kind: "local", local: requiredLocalManager(services) } : { kind: "global" };
   try {
-    const install = installManagerOf(services.settings);
-    const directory = projectDirectoryOf(services);
-    const project = directory === null || projectFilePath(directory, install) === null ? null : projectSettingsManager(directory, install);
-    await runSettingsEditor({ install, project }, setupProbes(services).offers);
+    await runSettingsEditor({ install: installManagerOf(services.settings), project: localManagerOf(services) }, save, setupProbes(services).offers);
   } catch (error: unknown) {
     die(errorMessage(error));
   }
@@ -404,7 +422,7 @@ function switchSettingsDefaults(services: Pick<Services, "settings">, harness: s
 interface ProvenanceRow {
   readonly key: string;
   readonly value: unknown;
-  readonly source: string;
+  readonly source: SettingSource;
   readonly display: string;
   /** Whether `agents.writable_settings` lets an agent write this key. */
   readonly agentWritable: boolean;
@@ -445,29 +463,38 @@ function collectSettingsProvenance(services: Pick<Services, "orchDir">, settings
 /** The last table column: who may write the row. Blank is the human alone. */
 const AGENT_COLUMN = "agent";
 
-function printSettingsOutput(services: Pick<Services, "settings">, settings: OrchSettings, provenance: readonly ProvenanceRow[], json: boolean, project: ProjectSettings): void {
+function printSettingsJson(settings: OrchSettings, provenance: readonly ProvenanceRow[], project: ProjectSettings): void {
   const enabledSet = settings.enabled.adapters.length > 0 || settings.enabled.backends.length > 0;
-  if (json) {
-    const out: Record<string, unknown> = {};
-    for (const { key, value, source, agentWritable } of provenance) out[key] = { value, source, agentWritable };
-    out.enabled = { value: settings.enabled, source: enabledSet ? "install" : "default", agentWritable: false };
-    out.project_file = { value: project.file, source: project.state.kind, agentWritable: false };
-    if (project.state.kind === "invalid") out.project_error = { value: project.state.message, source: "invalid", agentWritable: false };
-    process.stdout.write(JSON.stringify(out, null, 2) + "\n");
-    return;
-  }
+  const out: Record<string, unknown> = {};
+  for (const { key, value, source, agentWritable } of provenance) out[key] = { value, source, agentWritable };
+  out.enabled = { value: settings.enabled, source: enabledSet ? "install" : "default", agentWritable: false };
+  out.project_file = { value: project.file, source: project.state.kind, agentWritable: false };
+  if (project.state.kind === "invalid") out.project_error = { value: project.state.message, source: "invalid", agentWritable: false };
+  process.stdout.write(JSON.stringify(out, null, 2) + "\n");
+}
 
+/** The files the table reads: the global one, then the local one over it, and the local one's error. */
+function printSettingsFiles(services: Pick<Services, "settings">, project: ProjectSettings): void {
+  process.stdout.write(`${SOURCE_LABELS.install}  ${installManagerOf(services.settings).file}\n`);
+  if (project.file !== null) process.stdout.write(`${SOURCE_LABELS.project}   ${project.file}${project.state.kind === "none" ? " (none yet)" : ""}\n`);
+  if (project.state.kind === "invalid") process.stdout.write(`\n  ${project.state.message}\n  The global settings apply until it is fixed, and a write to it is refused.\n`);
+}
+
+/** The settings table: the files, then each row with its value and source. */
+function printSettingsRows(services: Pick<Services, "settings">, provenance: readonly ProvenanceRow[], project: ProjectSettings): void {
   const width = Math.max(...provenance.map((row) => row.key.length));
   const valueWidth = Math.max(...provenance.map((row) => row.display.length));
-  const sourceWidth = Math.max(...provenance.map((row) => row.source.length));
-  process.stdout.write(`settings  ${installManagerOf(services.settings).file}\n`);
-  if (project.file !== null) process.stdout.write(`project   ${project.file}${project.state.kind === "none" ? " (none yet)" : ""}\n`);
-  if (project.state.kind === "invalid") process.stdout.write(`\n  ${project.state.message}\n  The install settings apply until it is fixed, and a write to it is refused.\n`);
+  const sourceWidth = Math.max(...provenance.map((row) => SOURCE_LABELS[row.source].length));
+  printSettingsFiles(services, project);
   process.stdout.write("\n");
   for (const { key, display, source, agentWritable } of provenance) {
-    process.stdout.write(`  ${key.padEnd(width)}  ${display.padEnd(valueWidth)}  ${source.padEnd(sourceWidth)}  ${agentWritable ? AGENT_COLUMN : ""}\n`);
+    process.stdout.write(`  ${key.padEnd(width)}  ${display.padEnd(valueWidth)}  ${SOURCE_LABELS[source].padEnd(sourceWidth)}  ${agentWritable ? AGENT_COLUMN : ""}\n`);
   }
   process.stdout.write(`\n  ${AGENT_COLUMN}: an agent may write that row. Change it: orch settings grant|revoke <key>\n`);
+}
+
+/** The install-wide summary under the table: what is enabled, each harness's model lists, and the counts. */
+function printInstallSummary(settings: OrchSettings): void {
   process.stdout.write("\n");
   process.stdout.write(`  enabled.adapters  ${settings.enabled.adapters.join(", ") || "(none)"}\n`);
   process.stdout.write(`  enabled.backends  ${settings.enabled.backends.join(", ") || "(none)"}\n`);
@@ -486,19 +513,21 @@ function printSettingsOutput(services: Pick<Services, "settings">, settings: Orc
 async function settingsRoot(services: Services, invocation: Invocation): Promise<void> {
   const { flags, positional } = invocation;
   const [key, input] = positional;
-  const install = flags.has("--install");
+  const local = flags.has("--local");
   if (flags.has("--clear")) {
     if (key === undefined || positional.length !== 1) throw usageError(invocation);
-    return clearSingleSetting(services, key, install);
+    return clearSingleSetting(services, key, local);
   }
-  if (key !== undefined && input !== undefined && positional.length === 2) return setSingleSetting(services, key, input, install);
-  if (install || positional.length) throw usageError(invocation);
+  if (key !== undefined && input !== undefined && positional.length === 2) return setSingleSetting(services, key, input, local);
+  if (positional.length) throw usageError(invocation);
   let project: ProjectSettings;
   try { project = projectFileOf(services); } catch (error: unknown) { die(errorMessage(error)); }
   const settings = project.settings;
   if (switchSettingsDefaults(services, flags.value("--harness"), flags.value("--plexer"))) return;
-  const provenance = collectSettingsProvenance(services, settings, project);
-  printSettingsOutput(services, settings, provenance, flags.has("--json"), project);
+  const provenance = collectSettingsProvenance(services, settings, project).filter((row) => !local || row.source === "project");
+  if (flags.has("--json")) return printSettingsJson(settings, provenance, project);
+  printSettingsRows(services, provenance, project);
+  if (!local) printInstallSummary(settings);
 }
 
 /** `orch settings` and every subcommand under it, then each harness file the settings build is brought in step. */
@@ -520,7 +549,8 @@ async function syncHarnessFiles(services: Pick<Services, "settings" | "orchDir" 
 
 /** A bare call on a TTY opens the editor. */
 async function runSettingsVerb(services: Services, args: string[]): Promise<void> {
-  if (shouldLaunchSettingsEditor(args)) return launchSettingsEditor(services);
+  const mode = settingsEditorMode(args);
+  if (mode !== null) return launchSettingsEditor(services, mode);
   const invocation = parseCommand("settings", args);
   switch (invocation.path[1]) {
     case "models": return settingsModels(services, invocation);

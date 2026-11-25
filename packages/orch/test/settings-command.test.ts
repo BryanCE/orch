@@ -393,46 +393,51 @@ describe("orch settings in a project", () => {
     writeSettingsFixture(dir, { defaults: { adapter: "pi", backend: "headless" } });
   });
 
-  test("a write lands in the project file, created on first write", async () => {
-    expect(await runProjectSettings(dir, project, {}, "workers.verify_commands", '["bunx oxlint"]')).toContain(path.join(project, ".orch", "settings.json"));
+  test("a write lands in the global file, which every project inherits", async () => {
+    expect(await runProjectSettings(dir, project, {}, "workers.verify_commands", '["go vet"]')).toContain(`global ${path.join(dir, "settings.json")}`);
+    expect(fs.readFileSync(path.join(dir, "settings.json"), "utf8")).toContain("go vet");
+    expect(fs.existsSync(path.join(project, ".orch", "settings.json"))).toBe(false);
+  });
+
+  test("--local writes the project file, created on first write", async () => {
+    expect(await runProjectSettings(dir, project, {}, "workers.verify_commands", '["bunx oxlint"]', "--local")).toContain(`local ${path.join(project, ".orch", "settings.json")}`);
     const parsed: unknown = JSON.parse(fs.readFileSync(path.join(project, ".orch", "settings.json"), "utf8"));
     expect(parsed).toMatchObject({ workers: { verify_commands: ["bunx oxlint"] } });
     expect(fs.readFileSync(path.join(dir, "settings.json"), "utf8")).not.toContain("bunx oxlint");
   });
 
-  test("an install-only key lands in the install file", async () => {
-    await runProjectSettings(dir, project, {}, "daemon.tcp_port", "4000");
-    expect(fs.readFileSync(path.join(dir, "settings.json"), "utf8")).toContain("4000");
+  test("--local refuses a global-only key", async () => {
+    expect((await runProjectSettingsExpectingFailure(dir, project, {}, "daemon.tcp_port", "4000", "--local")).message).toContain("global only");
     expect(fs.existsSync(path.join(project, ".orch", "settings.json"))).toBe(false);
   });
 
-  test("--install writes the install file's value", async () => {
-    await runProjectSettings(dir, project, {}, "workers.verify_commands", '["go vet"]', "--install");
-    expect(fs.readFileSync(path.join(dir, "settings.json"), "utf8")).toContain("go vet");
-    expect(fs.existsSync(path.join(project, ".orch", "settings.json"))).toBe(false);
+  test("an agent in a project writes only with --local", async () => {
+    expect((await runProjectSettingsExpectingFailure(dir, project, asAgent(), "workers.verify_commands", '["go vet"]')).message).toContain("--local");
+    expect(await runProjectSettings(dir, project, asAgent(), "workers.verify_commands", '["go vet"]', "--local")).toContain("local");
   });
 
-  test("--install is refused for an agent", async () => {
-    expect((await runProjectSettingsExpectingFailure(dir, project, asAgent(), "workers.verify_commands", '["go vet"]', "--install")).message).toContain("--install");
-  });
-
-  test("--clear removes the project's value", async () => {
-    await runProjectSettings(dir, project, {}, "workers.verify_commands", '["bunx oxlint"]');
-    expect(await runProjectSettings(dir, project, {}, "workers.verify_commands", "--clear")).toContain("cleared");
+  test("--clear --local removes the project's value", async () => {
+    await runProjectSettings(dir, project, {}, "workers.verify_commands", '["bunx oxlint"]', "--local");
+    expect(await runProjectSettings(dir, project, {}, "workers.verify_commands", "--clear", "--local")).toContain("cleared in local");
     const parsed: unknown = JSON.parse(fs.readFileSync(path.join(project, ".orch", "settings.json"), "utf8"));
-    if (!isRecord(parsed) || !isRecord(parsed.workers)) throw new Error("missing workers object");
-    expect(parsed.workers).not.toHaveProperty("verify_commands");
+    expect(parsed).not.toHaveProperty("workers");
+  });
+
+  test("--local with no key lists the local file's values alone", async () => {
+    writeProjectSettingsFixture(project, { workers: { verify_commands: ["bunx oxlint"] } });
+    const rows = (await runProjectSettings(dir, project, {}, "--local")).split("\n").filter((line) => line.startsWith("  ") && line.includes(" local "));
+    expect(rows.map((line) => line.trim().split(" ")[0])).toEqual(["workers.verify_commands"]);
   });
 
   test("the table and --json name the project as the source", async () => {
     writeProjectSettingsFixture(project, { workers: { verify_commands: ["bunx oxlint"] } });
     expect(settingsReport(await runProjectSettings(dir, project, {}, "--json"))["workers.verify_commands"]).toEqual({ value: ["bunx oxlint"], source: "project", agentWritable: true });
-    expect(await runProjectSettings(dir, project, {})).toContain(`project   ${path.join(project, ".orch", "settings.json")}`);
+    expect(await runProjectSettings(dir, project, {})).toContain(`local   ${path.join(project, ".orch", "settings.json")}`);
   });
 
   test("an invalid project file shows its error and refuses a write", async () => {
     writeProjectSettingsText(project, '{"runtime":"node"}');
     expect(await runProjectSettings(dir, project, {})).toContain("install-only");
-    expect((await runProjectSettingsExpectingFailure(dir, project, {}, "workers.verify_commands", '["x"]')).message).toContain("install-only");
+    expect((await runProjectSettingsExpectingFailure(dir, project, {}, "workers.verify_commands", '["x"]', "--local")).message).toContain("install-only");
   });
 });

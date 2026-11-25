@@ -11,12 +11,12 @@ import {
   visibleEntryIndices,
   windowBounds,
 } from "../src/settings/view.ts";
-import type { EditorSetting, SettingKind, SettingSpec } from "../src/types/settings.ts";
+import type { EditorSetting, RowSource, SettingKind, SettingSpec } from "../src/types/settings.ts";
 import type { SettingsScreen } from "../src/settings/view.ts";
 
 function entry(key: string, value: unknown, options?: {
   readonly kind?: SettingKind;
-  readonly source?: string;
+  readonly source?: RowSource;
   readonly writable?: boolean;
   readonly agentWritable?: boolean;
 }): EditorSetting {
@@ -32,14 +32,15 @@ function entry(key: string, value: unknown, options?: {
   return {
     spec,
     value,
-    ...(options?.source === undefined ? {} : { source: options.source }),
+    source: options?.source ?? { kind: "install" },
     agentWritable: options?.agentWritable === true,
   };
 }
 
 function screen(entries: readonly EditorSetting[], overrides?: Partial<SettingsScreen>): SettingsScreen {
   return {
-    file: "/tmp/orch/settings.json",
+    files: { local: "/tmp/project/.orch/settings.json", global: "/tmp/orch/settings.json" },
+    editing: "global",
     entries,
     focusedIndex: 0,
     filter: "",
@@ -77,9 +78,9 @@ describe("settings view", () => {
   test("frame shows group headers, values, provenance tags, and the focused help", () => {
     const frame = stripAnsi(settingsFrame(
       screen([
-        entry("daemon.tcp_port", 3716, { source: "default" }),
+        entry("daemon.tcp_port", 3716, { source: { kind: "default" } }),
         entry("runtime", "bun", { writable: false }),
-        entry("locked_commands.commands", [], { source: "default", agentWritable: true }),
+        entry("locked_commands.commands", [], { source: { kind: "default" }, agentWritable: true }),
       ]),
       100,
       40,
@@ -94,6 +95,21 @@ describe("settings view", () => {
     expect(frame).toContain("[default] [agent]");
     expect(frame).toContain("Help for daemon.tcp_port");
     expect(frame).toContain(BROWSE_KEYBAR);
+    expect(stripAnsi(settingsFrame(screen([]), 160, 20, undefined, BROWSE_KEYBAR))).toContain("editing global /tmp/orch/settings.json  (local /tmp/project/.orch/settings.json overrides it here)");
+  });
+
+  test("a local value says it overrides the global one, and its focused row shows the global value", () => {
+    const frame = stripAnsi(settingsFrame(
+      screen([entry("council.rounds", 2, { source: { kind: "project", overrides: 4 } }), entry("council.scale", 10, { source: { kind: "install" } })]),
+      100,
+      40,
+      undefined,
+      BROWSE_KEYBAR,
+    ));
+    expect(frame).toContain("[local over global]");
+    expect(stripAnsi(settingsFrame(screen([], { editing: "local" }), 120, 20, undefined, BROWSE_KEYBAR))).toContain("editing local /tmp/project/.orch/settings.json  (keys not set here show global /tmp/orch/settings.json)");
+    expect(frame).toContain("[global]");
+    expect(frame).toContain("global value, which the local value replaces here: 4");
   });
 
   test("frame with a filter narrows the list and draws the filter line", () => {

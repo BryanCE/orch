@@ -2,7 +2,7 @@ import { ADAPTER_IDS } from "../types/adapter.ts";
 import type { AdapterId } from "../types/adapter.ts";
 import type { BackendId } from "../types/backend.ts";
 import type { OrchRuntime } from "../runtimes.ts";
-import { isRecord } from "../util.ts";
+import { isRecord, valueAtPath } from "../util.ts";
 import {
   SETTINGS_DEFAULTS, SETTINGS_SCHEMA,
   type ProjectSettingsFile, type SettingsFile,
@@ -70,7 +70,7 @@ function updateSettingsFile(settings: SettingsManager, mutate: (root: Partial<Se
   if (scope.kind === "project") {
     settings.update((current) => {
       const root: ProjectSettingsFile = current === null ? { schemaVersion: SETTINGS_SCHEMA } : parseProjectSettingsText(current, settings.file, scope.install.file);
-      return serializeProjectRoot(settings.file, scope, mutate(root));
+      return serializeProjectRoot(settings.file, scope, withoutEmptySections(mutate(root)));
     });
     return;
   }
@@ -79,6 +79,12 @@ function updateSettingsFile(settings: SettingsManager, mutate: (root: Partial<Se
     const root: Partial<SettingsFile> = parsed?.settings ?? { schemaVersion: SETTINGS_SCHEMA };
     return serializeSettingsRoot(settings.file, withKeys(mutate(root), parsed?.newer ?? []));
   });
+}
+
+/** A project root without its empty sections. An empty section overrides nothing, because the
+ *  merge spreads it over the install's, so a project file never keeps one. */
+function withoutEmptySections(root: object): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(root).filter(([, section]) => !isRecord(section) || Object.keys(section).length > 0));
 }
 
 function copyRecord(root: object): Record<string, unknown> {
@@ -133,7 +139,20 @@ function deleteSettingsPathRecord(root: object, segments: readonly string[]): Re
   const last = segments.at(-1);
   if (last === undefined) throw new Error("settings key must not be empty");
   delete cursor[last];
+  pruneEmptyParents(candidate, segments.slice(0, -1));
   return candidate;
+}
+
+/** Remove each object on `path` that a delete left empty, deepest first. The root stays. */
+function pruneEmptyParents(root: Record<string, unknown>, path: readonly string[]): void {
+  for (let depth = path.length; depth > 0; depth -= 1) {
+    const parent = valueAtPath(root, path.slice(0, depth - 1));
+    const key = path[depth - 1];
+    if (!isRecord(parent) || key === undefined) return;
+    const child = parent[key];
+    if (!isRecord(child) || Object.keys(child).length > 0) return;
+    delete parent[key];
+  }
 }
 
 function deleteSettingsPath(root: Partial<SettingsFile>, segments: readonly string[]): Record<string, unknown> {

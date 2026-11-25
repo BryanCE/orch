@@ -21,7 +21,7 @@ function setting(
     read: settingsReader(value),
     write,
   };
-  return { spec, value, agentWritable: false };
+  return { spec, value, source: { kind: "install" }, agentWritable: false };
 }
 
 function readOnlySetting(key: string, type: SettingKind, value: unknown): EditorSetting {
@@ -33,7 +33,7 @@ function readOnlySetting(key: string, type: SettingKind, value: unknown): Editor
     scope: "project",
     read: settingsReader(value),
   };
-  return { spec, value, agentWritable: false };
+  return { spec, value, source: { kind: "install" }, agentWritable: false };
 }
 
 describe("settings editor reducer", () => {

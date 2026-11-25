@@ -111,6 +111,12 @@ export interface SettingsWatch {
  *  settings.json, so the source names which. */
 export type SettingSource = "flag" | "project" | "install" | "default";
 
+/** Where an editor row's value comes from. A project value carries the install value it replaces. */
+export type RowSource =
+  | { readonly kind: "default" }
+  | { readonly kind: "install" }
+  | { readonly kind: "project"; readonly overrides: unknown };
+
 /**
  * The declared shape of one setting is the contract.
  *
@@ -165,8 +171,7 @@ export interface SettingSpec {
 export interface EditorSetting {
   readonly spec: SettingSpec;
   readonly value: unknown;
-  /** Provenance used by the shell when rendering the row. */
-  readonly source?: string;
+  readonly source: RowSource;
   /** Whether `agents.writable_settings` lets an agent write this row. */
   readonly agentWritable: boolean;
 }

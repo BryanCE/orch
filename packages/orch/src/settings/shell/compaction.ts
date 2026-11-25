@@ -1,11 +1,11 @@
 import type { AdapterId } from "../../types/adapter.ts";
 import type { CompactionTable, EditingState } from "../../types/settings.ts";
-import type { SettingsManager } from "../../types/services.ts";
 import { readHarnessCatalogue, type HarnessOffers } from "../../setup/composition.ts";
 import { concreteModel } from "../../policy/compaction.ts";
 import { parseNumberSetting } from "../parse.ts";
 import { askChoice, askValue } from "./ask.ts";
-import { cancelEdit, commitAndFlush, type Session } from "./state.ts";
+import { cancelEdit, editTarget, type Session } from "./state.ts";
+import { commitAndFlush } from "./save.ts";
 
 const TOKENS = { kind: "number", whole: true, min: 1 } as const;
 const HARNESS_DEFAULT = "harness default";
@@ -43,33 +43,34 @@ function tokensRefusal(input: string): string | undefined {
 }
 
 /** The enabled harness to edit: asked only when more than one takes a compaction point. */
-async function pickHarness(session: Session, manager: SettingsManager, harnesses: readonly AdapterId[]): Promise<AdapterId | undefined> {
-  const picked = harnesses.length === 1 ? harnesses[0] : await askChoice(session, manager, harnesses, undefined);
+async function pickHarness(session: Session, harnesses: readonly AdapterId[]): Promise<AdapterId | undefined> {
+  const picked = harnesses.length === 1 ? harnesses[0] : await askChoice(session, harnesses, undefined);
   return harnesses.find((candidate) => candidate === picked);
 }
 
 /** One concrete model, then any recorded key the harness does not run, so that one can be cleared. */
-async function pickModel(session: Session, manager: SettingsManager, models: ReadonlyMap<string, string[]>, recorded: Readonly<Record<string, number>>): Promise<string | null> {
+async function pickModel(session: Session, models: ReadonlyMap<string, string[]>, recorded: Readonly<Record<string, number>>): Promise<string | null> {
   const choices = [...new Set([...models.keys(), ...Object.keys(recorded)])];
   const notes = Object.fromEntries(choices.map((model) => [model, modelNote(models.get(model), recorded[model])]));
-  return askChoice(session, manager, choices, undefined, notes);
+  return askChoice(session, choices, undefined, notes);
 }
 
 /** Pick a harness that takes a compaction point, one of its models, then the token count.
  *  An empty count drops the pair, so that model launches on the harness's own default. */
-export async function editCompaction(session: Session, manager: SettingsManager, offers: HarnessOffers, editing: EditingState): Promise<void> {
-  const table = manager.current().workers.compact_at_tokens;
-  const enabled = manager.current().enabled.adapters;
+export async function editCompaction(session: Session, offers: HarnessOffers, editing: EditingState): Promise<void> {
+  const current = editTarget(session).current();
+  const table = current.workers.compact_at_tokens;
+  const enabled = current.enabled.adapters;
   const harnesses = (await offers(enabled)).filter((offer) => offer.compaction).map((offer) => offer.id);
   if (!harnesses.length) return cancelEdit(session, editing, "no enabled harness takes a compaction point");
-  const id = await pickHarness(session, manager, harnesses);
+  const id = await pickHarness(session, harnesses);
   if (id === undefined) return cancelEdit(session, editing);
   const recorded = table[id] ?? {};
   const models = await concreteModels(id, offers);
   if (!models.size) return cancelEdit(session, editing, `${id} lists no models`);
-  const model = await pickModel(session, manager, models, recorded);
+  const model = await pickModel(session, models, recorded);
   if (model === null) return cancelEdit(session, editing);
-  const typed = await askValue(session, manager, `${id} ${model} compacts at (tokens, empty for ${HARNESS_DEFAULT})`, String(recorded[model] ?? ""), undefined, tokensRefusal);
+  const typed = await askValue(session, `${id} ${model} compacts at (tokens, empty for ${HARNESS_DEFAULT})`, String(recorded[model] ?? ""), undefined, tokensRefusal);
   if (typed === null) return cancelEdit(session, editing);
-  commitAndFlush(session, manager, editing, withPair(table, id, model, typed.trim() ? Number(typed.trim()) : null));
+  return commitAndFlush(session, editing, withPair(table, id, model, typed.trim() ? Number(typed.trim()) : null));
 }

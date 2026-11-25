@@ -1,6 +1,6 @@
 import { dim } from "../tui/screen.ts";
 import { ARROW } from "../util.ts";
-import { displaySetting, displayValue } from "./display.ts";
+import { displaySetting, displayValue, SOURCE_LABELS } from "./display.ts";
 import { repairChoicesFor } from "./repair.ts";
 import type { EditorSetting, RepairChoice, SettingsDefect } from "../types/settings.ts";
 
@@ -28,8 +28,10 @@ export function stripAnsi(text: string): string {
 
 /** One editor screen: the full entry list plus everything transient the frame shows. */
 export interface SettingsScreen {
-  /** settings.json path, shown in the header. */
-  readonly file: string;
+  /** The files the rows read: the global file, and the local file over it, null where there is none. */
+  readonly files: { readonly local: string | null; readonly global: string };
+  /** Which file every edit writes: `local` in `orch settings --local`, else the global file. */
+  readonly editing: "global" | "local";
   readonly entries: readonly EditorSetting[];
   readonly focusedIndex: number;
   readonly filter: string;
@@ -40,7 +42,7 @@ export interface SettingsScreen {
 
 // ASCII only, here and in every glyph below: a terminal that is not decoding UTF-8 renders
 // arrows and boxes as mojibake, and a settings editor nobody can read is not a fallback.
-export const BROWSE_KEYBAR = "up/down move | tab project/install | enter edit | ctrl+d use default | a agent may write | / search | esc quit";
+export const BROWSE_KEYBAR = "up/down move | enter edit | ctrl+d clear value | a agent may write | / search | esc quit";
 export const SEARCH_KEYBAR = "type to narrow | up/down move | enter keep matches | esc clear";
 export const SELECT_KEYBAR = "up/down choose | enter save | esc cancel";
 export const MULTI_KEYBAR = "up/down move | space toggle | enter save | esc cancel";
@@ -83,7 +85,8 @@ function fit(text: string, width: number): string {
 function sourceTag(entry: EditorSetting): string {
   const tags: string[] = [];
   if (entry.spec.write === undefined) tags.push("[read-only]");
-  else if (entry.source !== undefined && entry.source !== "install") tags.push(`[${entry.source}]`);
+  else if (entry.source.kind === "project") tags.push(`[${SOURCE_LABELS.project} over ${SOURCE_LABELS.install}]`);
+  else tags.push(`[${SOURCE_LABELS[entry.source.kind]}]`);
   if (entry.agentWritable) tags.push("[agent]");
   return tags.join(" ");
 }
@@ -275,6 +278,14 @@ function visibleWindow(lines: readonly string[], focusLine: number, budget: numb
   return windowed;
 }
 
+/** The header: the file every edit writes, then the other file the rows read. */
+function filesLine(screen: SettingsScreen): string {
+  const global = `${SOURCE_LABELS.install} ${screen.files.global}`;
+  if (screen.files.local === null) return `editing ${global}`;
+  const local = `${SOURCE_LABELS.project} ${screen.files.local}`;
+  return screen.editing === "local" ? `editing ${local}  (keys not set here show ${global})` : `editing ${global}  (${local} overrides it here)`;
+}
+
 function filterLineOf(screen: SettingsScreen): string[] {
   if (screen.searching) return [cyan(` search: ${screen.filter}_`)];
   if (screen.filter === "") return [];
@@ -299,19 +310,20 @@ export function settingsFrame(
 
   const filterLine = filterLineOf(screen);
   const overlayLines = overlay ?? [];
-  const chrome = 1 + filterLine.length + 1 + 1 + 1 + overlayLines.length + 1 + 1;
+  const chrome = 1 + filterLine.length + 1 + 1 + 1 + 1 + overlayLines.length + 1 + 1;
   const budget = Math.max(3, rows - chrome);
 
   const windowed = visibleWindow(lines, focusLine, budget);
   if (windowed.length === 0) windowed.push(dim(` no settings match ${JSON.stringify(screen.filter)}`));
 
   const frame = [
-    `${bold(" orch settings")}  ${dim(screen.file)}`,
+    `${bold(" orch settings")}  ${dim(fit(filesLine(screen), Math.max(0, columns - 17)))}`,
     ...filterLine,
     "",
     ...windowed,
     "",
     dim(` ${focused?.spec.help ?? ""}`),
+    focused?.source.kind === "project" ? dim(fit(` ${SOURCE_LABELS.install} value, which the ${SOURCE_LABELS.project} value replaces here: ${displaySetting(focused.source.overrides, focused.spec.type)}`, columns - 1)) : "",
     ...overlayLines,
     dim(` ${keybar}`),
     screen.status === undefined ? "" : yellow(` ${screen.status}`),

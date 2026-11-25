@@ -7,7 +7,17 @@
  * everything else importing the renderer to get at it.
  */
 import { isRecord } from "../util.ts";
-import type { SettingKind } from "../types/settings.ts";
+import type { SettingKind, SettingSource } from "../types/settings.ts";
+import type { SettingsManager } from "../types/services.ts";
+
+/** What a person calls the place a value comes from: local is the project's file, global the
+ *  install file every project inherits. */
+export const SOURCE_LABELS: Readonly<Record<SettingSource, string>> = { flag: "flag", project: "local", install: "global", default: "default" };
+
+/** What a person calls the file a manager writes: local for a project file, global for the install file. */
+export function layerLabel(manager: SettingsManager): string {
+  return SOURCE_LABELS[manager.scope.kind === "project" ? "project" : "install"];
+}
 
 /** A settings value as one line: scalars bare, shapes as JSON, null or nothing as "(none)". */
 export function displayValue(value: unknown): string {

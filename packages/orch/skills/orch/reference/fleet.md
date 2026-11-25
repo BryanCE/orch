@@ -3,12 +3,13 @@
 ## Project checks
 
 Before the first wave, set the project's checks from its scripts. Keep what
-`orch settings` already shows. The values land in the project's own `.orch/settings.json`, so
-they change no other project. For a Bun project:
+`orch settings` already shows. Pass `--local`: the values land in the project's own file, so
+they change no other project. Without `--local`, a write goes to the user's global file, and
+an agent is refused it. For a Bun project:
 
 ```bash
-orch settings workers.verify_commands '["bunx oxlint"]'
-orch settings locked_commands.commands '["bun test", "bunx tsc"]'
+orch settings workers.verify_commands '["bunx oxlint"]' --local
+orch settings locked_commands.commands '["bun test", "bunx tsc"]' --local
 ```
 
 Each agent runs `workers.verify_commands` over the files it edited before it reports, so a task

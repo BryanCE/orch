@@ -159,6 +159,26 @@ describe("project writes", () => {
     clearRegisteredSetting(projectSettingsManager(dir, manager), "workers.verify_commands");
     expect(projectSettingsManager(dir, manager).current().workers.verify_commands).toEqual(["go vet"]);
   });
+  test("a clear removes each section it leaves empty, and keeps a section that still holds a key", () => {
+    const manager = install({});
+    const dir = project();
+    writeProjectSettingsFixture(dir, { council: { models: { pi: ["a"] } }, models: { allowed: { pi: ["a"] }, preferred: { pi: ["a"] } } });
+    const local = projectSettingsManager(dir, manager);
+    clearRegisteredSetting(local, "council.models");
+    clearRegisteredSetting(local, "models.allowed");
+    const parsed: unknown = JSON.parse(readFileSync(path.join(dir, ".orch", "settings.json"), "utf8"));
+    expect(parsed).not.toHaveProperty("council");
+    expect(parsed).toMatchObject({ models: { preferred: { pi: ["a"] } } });
+    expect(parsed).not.toHaveProperty("models.allowed");
+  });
+  test("any write to a project file drops its empty sections", () => {
+    const manager = install({});
+    const dir = project();
+    writeProjectSettingsFixture(dir, { defaults: {}, council: {}, workers: { verify_commands: ["x"] }, models: { allowed: { pi: ["a"] } } });
+    clearRegisteredSetting(projectSettingsManager(dir, manager), "models.allowed");
+    const parsed: unknown = JSON.parse(readFileSync(path.join(dir, ".orch", "settings.json"), "utf8"));
+    expect(parsed).toEqual({ schemaVersion: 1, workers: { verify_commands: ["x"] } });
+  });
   test("a write to an invalid project file is refused", () => {
     const manager = install({});
     const dir = project();

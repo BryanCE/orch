@@ -434,8 +434,8 @@ const MAINTENANCE: readonly CommandSpec[] = [
     name: "settings", section: "maintenance", args: "[<key> [<value>]]",
     summary: "Every effective setting and its source.",
     flags: [{ ...HARNESS, help: "Switch the default harness." }, { ...PLEXER, help: "Switch the default plexer." },
-      { name: "--install", arity: "none", help: "Write or clear the install file's value, which every project without its own inherits." },
-      { name: "--clear", arity: "none", help: "Remove the key so it falls back: from the project file, or with --install from the install file." }],
+      { name: "--local", arity: "none", help: "Act on this project's own file (the project.file setting names it), whose values override the global file here only. Without it, a write, a clear or an edit in the editor goes to the global file every project inherits. With no key, opens the same editor writing the local file, or off a terminal lists the local file's values." },
+      { name: "--clear", arity: "none", help: "Remove the key so it falls back: from the global file to the default, or with --local from the local file to the global value." }],
     subcommands: [
       {
         name: "models",

@@ -141,6 +141,17 @@ const COLLECT: readonly CommandSpec[] = [
 ];
 
 const TAKER: FlagSpec = { name: "--agent", arity: "one", placeholder: "<target>", help: "The agent that takes it. Default: the caller." };
+const LANE: FlagSpec = { name: "--lane", arity: "one", placeholder: "<lane>", help: "Only an agent spawned into this lane takes it. Default: only an agent in no lane." };
+
+/** Where a task is filed and who may take it: `queue add` and `queue load` take the same. */
+const TASK_FLAGS: readonly FlagSpec[] = [
+  { name: "--agent", arity: "one", placeholder: "<target>", help: "Scope the task to one agent." },
+  { name: "--pack", arity: "one", placeholder: "<target>", help: "Scope the task to that agent's pack." },
+  { ...SPACE, help: "Scope the task to a space." },
+  LANE,
+  { ...HARNESS, help: "Only an agent on this harness takes it." },
+  { ...MODEL, placeholder: "<glob>", help: "Only an agent whose model matches this glob (*haiku*) takes it." },
+];
 
 const QUEUE: readonly CommandSpec[] = [
   {
@@ -151,13 +162,12 @@ const QUEUE: readonly CommandSpec[] = [
       {
         name: "add", args: "\"<task text>\"",
         summary: "Add a task and print its id.",
-        flags: [
-          { name: "--agent", arity: "one", placeholder: "<target>", help: "Scope the task to one agent." },
-          { name: "--pack", arity: "one", placeholder: "<target>", help: "Scope the task to that agent's pack." },
-          { ...SPACE, help: "Scope the task to a space." },
-          { ...HARNESS, help: "Only an agent on this harness takes it." },
-          { ...MODEL, placeholder: "<glob>", help: "Only an agent whose model matches this glob (*haiku*) takes it." },
-        ],
+        flags: TASK_FLAGS,
+      },
+      {
+        name: "load", args: "<file>",
+        summary: "Add one task per '## ' section of a plan file, in file order. Text above the first section starts every task.",
+        flags: TASK_FLAGS,
       },
       { name: "list", summary: "Queued, claimed, and settled tasks.", flags: [] },
       { name: "history", summary: "Completed, failed, and cancelled tasks.", flags: [] },
@@ -220,6 +230,7 @@ const AGENTS: readonly CommandSpec[] = [
       { name: "--tasks", arity: "one", placeholder: "<path>", help: "A JSON array of task strings, one per name." },
       { name: "--read-only", arity: "none", help: "Every agent keeps only the tools that read: no shell, no MCP tool, no extension tool." },
       { name: "--out", arity: "many", placeholder: "<dir>", help: "With --read-only: the one directory an agent may write in. One, or one per name." },
+      { ...LANE, help: "The queue lane every agent drains: it takes only tasks filed under that lane." },
       WORKTREE, WORKTREE_PROVIDER,
     ],
   },

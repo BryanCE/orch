@@ -136,6 +136,7 @@ function validateValue(kind: SettingKind, value: unknown): string | null {
     case "choice":
       return validateChoiceValue(kind, value);
     case "text":
+    case "prompt":
       return typeof value === "string" ? null : "Value must be text";
     default:
       return validateShapedValue(kind, value);

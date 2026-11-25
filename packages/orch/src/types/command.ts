@@ -6,6 +6,7 @@ import type { LogLevel, TokenTotals, WorkerCallerContext } from "./core.ts";
 import type { DaemonContext } from "./services.ts";
 import type { TerminalPreparer } from "./held-session.ts";
 import type { AgentWorktree } from "./worktree.ts";
+import type { Lane } from "./queue.ts";
 import type { HostIdentity, HostOffline } from "./host.ts";
 import type { ResultOf } from "../daemon/client/protocol.ts";
 export interface DispatchToAgentOptions {
@@ -172,6 +173,8 @@ export interface TabSpawnSpec {
   key?: string;
   env?: Readonly<Record<string, string>>;
   worktree?: AgentWorktree;
+  /** The queue lane the agent drains; null for no lane. */
+  lane: Lane | null;
   /** The launching agent's id; null for an unregistered caller. */
   spawner: string | null;
   /** Owner lease for the launched agent. */

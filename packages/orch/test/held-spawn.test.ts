@@ -54,7 +54,7 @@ describe("a spawn another host asks for", () => {
     const state = idleDaemonState(servicesAt(orchDir), orchDir, provider);
     const key = mintAgentId();
     const result = await spawnHeadless(state, { project: "/fleet/project",
-      readOnly: null,
+      readOnly: null, lane: null,
       form: "tui", key, name: "local-held", spawner: null, adapter: "pi",
       model: "openai/gpt-5.6-luna", thinking: "medium", prompt: null, cwd: orchDir,
     });
@@ -70,7 +70,7 @@ describe("a spawn another host asks for", () => {
     const key = mintAgentId();
 
     const result = await spawnHeadless(state, { project: "/fleet/project",
-      readOnly: null,
+      readOnly: null, lane: null,
       form: null,
       key,
       name: "far-worker",
@@ -105,7 +105,7 @@ describe("a spawn another host asks for", () => {
     const state = idleDaemonState(servicesAt(orchDir), orchDir, new FakePtyProvider());
     const key = mintAgentId();
     await spawnHeadless(state, { project: "/fleet/project",
-      readOnly: null,
+      readOnly: null, lane: null,
       form: null, key, name: "far-idle", spawner: "spawner-on-the-other-host", adapter: "pi",
       model: "openai/gpt-5.6-luna", thinking: "medium", prompt: null, cwd: orchDir,
     }, hostIdFrom("the-other-host"));
@@ -120,7 +120,7 @@ describe("a spawn another host asks for", () => {
     const provider = new FakePtyProvider(() => process.pid);
     const state = idleDaemonState(servicesAt(orchDir, { max_agents_total: 1 }), orchDir, provider);
     const ask = (name: string): Promise<string | null> => spawnHeadless(state, { project: "/fleet/project",
-      readOnly: null,
+      readOnly: null, lane: null,
       form: null, key: mintAgentId(), name, spawner: "spawner-on-the-other-host", adapter: "pi",
       model: "openai/gpt-5.6-luna", thinking: "medium", prompt: null, cwd: orchDir,
     }, hostIdFrom("the-other-host")).then(() => null, (error: unknown) => errorMessage(error));
@@ -136,7 +136,7 @@ describe("a spawn another host asks for", () => {
     const state = idleDaemonState(servicesAt(orchDir), orchDir, new FakePtyProvider());
     const key = mintAgentId();
     const refused = await spawnHeadless(state, { project: "/fleet/project",
-      readOnly: null,
+      readOnly: null, lane: null,
       form: "oneshot", key, name: "here-idle", spawner: null, adapter: "pi",
       model: "openai/gpt-5.6-luna", thinking: "medium", prompt: null, cwd: orchDir,
     }).then(() => null, (error: unknown) => errorMessage(error));
@@ -151,7 +151,7 @@ describe("a spawn another host asks for", () => {
     const key = mintAgentId();
 
     await spawnHeadless(state, { project: "/fleet/project",
-      readOnly: null,
+      readOnly: null, lane: null,
       form: null,
       key,
       name: "far-worker",

@@ -23,11 +23,19 @@ export function promptEntry(text: string): PromptEntry | null {
   return lines.length === 0 ? null : (lines.join("\n").trim() as PromptEntry);
 }
 
+/** An absolute path to a prompt entries file. `promptPath` is its only mint. */
+export type PromptPath = string & { readonly __brand: "PromptPath" };
+
+/** `text` as an absolute path: `~` expanded, a relative path resolved against `base`. */
+export function promptPath(base: string, text: string): PromptPath {
+  return path.resolve(base, expandHome(text.trim())) as PromptPath;
+}
+
 /** The file a level reads. `default` is orch's own file beside the level's settings file, which
  *  clear deletes. `named` is a file the user named in the setting, which clear never deletes. */
 export type PromptFile =
-  | { readonly kind: "default"; readonly path: string }
-  | { readonly kind: "named"; readonly path: string };
+  | { readonly kind: "default"; readonly path: PromptPath }
+  | { readonly kind: "named"; readonly path: PromptPath };
 
 /** One level's file and the entries in it, in order. */
 export interface PromptEntries {
@@ -42,7 +50,7 @@ interface PromptLevel {
 }
 
 function defaultFile(directory: string): PromptFile {
-  return { kind: "default", path: path.resolve(directory, SETTINGS_DEFAULTS.orchs.append_system_prompt) };
+  return { kind: "default", path: promptPath(directory, SETTINGS_DEFAULTS.orchs.append_system_prompt) };
 }
 
 /** The level whose settings file is `settingsFile` and whose setting holds `named`. */
@@ -50,7 +58,7 @@ function promptLevel(settingsFile: string, named: string | undefined): PromptLev
   const directory = path.dirname(settingsFile);
   const file: PromptFile = named === undefined || named === SETTINGS_DEFAULTS.orchs.append_system_prompt
     ? defaultFile(directory)
-    : { kind: "named", path: path.resolve(directory, expandHome(named)) };
+    : { kind: "named", path: promptPath(directory, named) };
   return { directory, file };
 }
 
@@ -126,9 +134,7 @@ export function promptEntries(settings: SettingsManager): PromptEntries {
 }
 
 /** Add one entry at the end. An entry the level already holds is not added again. */
-export function addPromptEntry(settings: SettingsManager, text: string): PromptEntries {
-  const entry = promptEntry(text);
-  if (entry === null) throw new Error("A prompt entry needs text.");
+export function addPromptEntry(settings: SettingsManager, entry: PromptEntry): PromptEntries {
   const { file, entries } = promptEntries(settings);
   return entries.includes(entry) ? { file, entries } : writeEntries(file, [...entries, entry]);
 }
@@ -148,13 +154,24 @@ export function clearPromptEntries(settings: SettingsManager): PromptEntries {
   return writeEntries(defaultFile(directory), []);
 }
 
+function isFile(file: PromptPath): boolean {
+  return filesystem.statSync(file, { throwIfNoEntry: false })?.isFile() === true;
+}
+
+/** Make `file` this level's file. A missing file is made empty. */
+export function namePromptFile(settings: SettingsManager, file: PromptPath): void {
+  filesystem.mkdirSync(path.dirname(file), { recursive: true });
+  filesystem.appendFileSync(file, "");
+  writeSettingsValue(settings, APPEND_SYSTEM_KEY, file);
+}
+
 /** The registry's writer. A file that exists becomes the setting, as an absolute path. Any other
  *  text is one entry. One word that names no file is refused: it is a mistyped path. */
 export function writeAppendSystemPrompt(settings: SettingsManager, value: unknown): void {
   if (typeof value !== "string" || value.trim() === "") throw new Error(`${APPEND_SYSTEM_KEY} takes a file path or the text of one entry`);
-  const text = value.trim();
-  const named = path.resolve(expandHome(text));
-  if (filesystem.statSync(named, { throwIfNoEntry: false })?.isFile() === true) return writeSettingsValue(settings, APPEND_SYSTEM_KEY, named);
-  if (!/\s/.test(text)) throw new Error(`${APPEND_SYSTEM_KEY}: ${text} names no file. Give a file that exists, or the text of one entry.`);
-  addPromptEntry(settings, text);
+  const named = promptPath(process.cwd(), value);
+  if (isFile(named)) return namePromptFile(settings, named);
+  const entry = promptEntry(value);
+  if (entry === null || !/\s/.test(entry)) throw new Error(`${APPEND_SYSTEM_KEY}: ${value.trim()} names no file. Give a file that exists, or the text of one entry.`);
+  addPromptEntry(settings, entry);
 }

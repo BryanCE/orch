@@ -7,6 +7,7 @@ import { placeHere } from "../process-place.ts";
 import { spaces } from "../db/schema.ts";
 import { acquireLease } from "./lease-rows.ts";
 import { setReadOnly } from "./read-only-rows.ts";
+import { setLane } from "./lane-rows.ts";
 import { orm, withTransaction } from "./connection.ts";
 import type { HostedSpawnRegistration, SpawnRegistration } from "../types/store.ts";
 import type { HostIdentity } from "../types/host.ts";
@@ -117,6 +118,7 @@ function writeEnvironment(directory: OrchDir, agent: HereAgent, now: number, inp
   // id — so the row said the fleet ran at no effort while every pin said `high`.
   setTuning(directory, agentId, now, { model: input.model, thinking: input.thinking });
   if (input.readOnly !== undefined) setReadOnly(directory, agentId, now, input.readOnly);
+  if (input.lane !== undefined) setLane(directory, agentId, now, input.lane);
   if (input.worktree) setWorktree(directory, agent, input.worktree);
 }
 

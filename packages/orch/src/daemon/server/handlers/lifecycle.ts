@@ -17,6 +17,7 @@ import { headlessBackend, heldBackend, startHeldAgent } from "../../../backends/
 import { startAttachedTerminal, startSessionAgent, terminalAttach } from "../session-agents.ts";
 import { insertOutboxMessage } from "../../../store/outbox-rows.ts";
 import type { AgentAdapter } from "../../../types/adapter.ts";
+import type { OrchSettings } from "../../../types/settings.ts";
 import type { BackendSpawnOpts } from "../../../types/backend.ts";
 import { deliverControl } from "../../../control/dispatch.ts";
 import { publishFromOrchd } from "../events.ts";
@@ -44,21 +45,12 @@ import type { NotifyEvent } from "../../../types/notify.ts";
 import type { HostId } from "../../../types/host.ts";
 import type { HereAgent } from "../../../types/agent-place.ts";
 import type { PendingQuestionView } from "../../../types/daemon.ts";
-import { addTask } from "../../../queue.ts";
-import type { TaskRec } from "../../../types/queue.ts";
+import { addTasks } from "../../../queue.ts";
 
-/**
- * Launch one headless agent from INSIDE the daemon.
- *
- * A headless agent has no TTY: it runs the prompt it was launched with and exits.
- * The prompt is therefore required, not optional — a headless agent with nothing
- * to do registers, finds no work, and dies before anything can be sent to it.
- * orchd owns the launch because it already owns delivery and outlives the CLI.
- */
-export function enqueue(state: DaemonState, params: ParamsOf<"enqueue">): { task: TaskRec } {
-  const task = addTask(state.directory, params.text, params.opts, params.enqueuedBy, params.scope);
+export function enqueue(state: DaemonState, params: ParamsOf<"enqueue">): ResultOf<"enqueue"> {
+  const tasks = addTasks(state.directory, params.texts, params.opts, params.enqueuedBy, params.scope);
   state.wake.wake();
-  return { task };
+  return { tasks };
 }
 
 /** `peer` is the host whose orchd asked for this spawn over its link: the agent runs here and
@@ -81,15 +73,8 @@ export async function spawnHeadless(state: DaemonState, params: ParamsOf<"spawn-
   }
   // The host that starts the process builds the launch's policy from its own project; the asking host sends only the read-only request.
   const launch = await prepareLaunch(state, { adapter, project: params.project, model, name: params.name, readOnly: params.readOnly }, (message) => new CommandRefusal(message));
-  // A local spawn's plan resolved its form already; only a linked host's orchd resolves it here.
-  let form: FormId;
-  if (peer !== undefined) form = selectSpawnForm(params.form, settings.defaults.forms, adapter, heldBackend, heldBackend).form;
-  else if (params.form === null) throw new Error(`cannot spawn ${key}: no form resolved by the local plan`);
-  else form = params.form;
-  // The first prompt's header is composed here, where the agent runs, with its project's rules.
-  const prompt = params.prompt === null || params.worker === undefined
-    ? params.prompt
-    : workerText(state, key, state.services.settingsFor(params.project), params.prompt, params.worker, params.readOnly === null ? {} : { readOnly: params.readOnly });
+  const form = spawnForm(params, settings, adapter, peer);
+  const prompt = firstPrompt(state, params);
   const opts: BackendSpawnOpts = {
     form,
     key,
@@ -107,6 +92,7 @@ export async function spawnHeadless(state: DaemonState, params: ParamsOf<"spawn-
     preferredModels: launch.preferredModels,
     tools: launch.tools,
     workers: launch.workers,
+    ...(params.lane === null ? {} : { lane: params.lane }),
   };
   if (peer !== undefined) assertHostAdmits(directory, settings, 1);
   // A form that needs a process orchd holds runs in a held launch; a headless form runs detached.
@@ -114,11 +100,30 @@ export async function spawnHeadless(state: DaemonState, params: ParamsOf<"spawn-
     return spawnHeldLaunch(state, adapter, { ...opts, key, firstPrompt: prompt, spawner: peer === undefined ? params.spawner : null, ...(peer === undefined ? {} : { origin: { askedBy: peer, spawner: params.spawner } }) });
   }
   if (prompt === null) throw new Error(`cannot spawn ${key}: a headless agent needs its prompt at launch`);
-  const handle = headlessBackend.spawn(adapter, { ...opts, spawner: params.spawner });
-  // It takes its prompt at launch, not as a dispatch: its run opens here, before its first report.
-  openLaunchRun(directory, adapter, key, prompt);
+  return spawnDetached(directory, adapter, { ...opts, key, spawner: params.spawner }, prompt);
+}
+
+/** The form an agent launches in. A local spawn's plan resolved it already; only a linked host's
+ *  orchd resolves it here. */
+function spawnForm(params: ParamsOf<"spawn-headless">, settings: OrchSettings, adapter: AgentAdapter, peer: HostId | undefined): FormId {
+  if (peer !== undefined) return selectSpawnForm(params.form, settings.defaults.forms, adapter, heldBackend, heldBackend).form;
+  if (params.form === null) throw new Error(`cannot spawn ${params.key}: no form resolved by the local plan`);
+  return params.form;
+}
+
+/** The first prompt, its header composed here, where the agent runs, with its project's rules. */
+function firstPrompt(state: DaemonState, params: ParamsOf<"spawn-headless">): string | null {
+  if (params.prompt === null || params.worker === undefined) return params.prompt;
+  return workerText(state, params.key, state.services.settingsFor(params.project), params.prompt, params.worker, params.readOnly === null ? {} : { readOnly: params.readOnly });
+}
+
+/** Launch a headless agent, detached. It takes its prompt at launch, not as a dispatch: its run
+ *  opens here, before its first report. */
+function spawnDetached(directory: OrchDir, adapter: AgentAdapter, opts: BackendSpawnOpts & { readonly key: string }, prompt: string): ResultOf<"spawn-headless"> {
+  const handle = headlessBackend.spawn(adapter, opts);
+  openLaunchRun(directory, adapter, opts.key, prompt);
   const running = headlessBackend.process.running(handle);
-  return { form, key, backend: headlessBackend.id, handle: JSON.stringify(handle), process: hostedHere(running.pid, running.startToken) };
+  return { form: opts.form, key: opts.key, backend: headlessBackend.id, handle: JSON.stringify(handle), process: hostedHere(running.pid, running.startToken) };
 }
 
 /** Start an agent in a form orchd holds: the form's session driver on pipes for one whose session
@@ -149,9 +154,9 @@ async function spawnOnHost(state: DaemonState, hostName: string, params: ParamsO
   const link = state.hosts.link(hostName);
   const greeting = await link.requireUp();
   // Governed here already; the far orchd runs it for this host, as this host's peer.
-  const { key, name, spawner, adapter, model, thinking, prompt, worker, cwd, readOnly, form } = params;
+  const { key, name, spawner, adapter, model, thinking, prompt, worker, cwd, readOnly, lane, form } = params;
   // The agent's project is on that host's disk: the directory there it runs in.
-  const launched = await link.call("spawn-headless", { key, name, spawner, adapter, model, thinking, prompt, ...(worker === undefined ? {} : { worker }), cwd, project: params.cwd, readOnly, form });
+  const launched = await link.call("spawn-headless", { key, name, spawner, adapter, model, thinking, prompt, ...(worker === undefined ? {} : { worker }), cwd, project: params.cwd, readOnly, lane, form });
   registerHostedAgent(state.directory, { form: launched.form, key, harnessId: adapter, cwd: params.cwd, project: params.cwd, name, model, thinking, spawner, host: greeting.host });
   return launched;
 }

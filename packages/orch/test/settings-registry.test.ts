@@ -237,6 +237,12 @@ describe("settings registry", () => {
     expect(parseSettingValue(spec, "{\"pi\":[\"openai-codex/gpt-6-luna\"]}").ok).toBe(true);
   });
 
+  test("the prompt entries row opens the entries editor and still takes text on the CLI", () => {
+    const spec = registered("orchs.append_system_prompt");
+    expect(spec.type).toEqual({ kind: "prompt" });
+    expect(parseSettingValue(spec, "Never pass --model.")).toEqual({ ok: true, value: "Never pass --model." });
+  });
+
   test("a council's stop, target score, patience and context are settings the editor offers", () => {
     expect(registered("council.stop").type).toEqual({ kind: "choice", choices: ["rounds", "score"] });
     expect(registered("council.target_score").type).toEqual({ kind: "number", whole: false, min: 1 });

@@ -195,7 +195,7 @@ describe("fleet ownership scoping", () => {
     const backend = new FakePanedBackend({ id: "headless" });
 
     const agent = await spawnOneIntoTab(await commandServices(dir), { project: "/fleet/project", form: "tui",
-      prepareTerminal: () => Promise.resolve(null),
+      prepareTerminal: () => Promise.resolve(null), lane: null,
       backend,
       adapter: fakeAdapter(),
       adapterId: "pi",

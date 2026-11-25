@@ -27,6 +27,7 @@ export function unplacedRegistration(backend: Backend, harnessId: string, key: s
     model: opts.model ?? "",
     thinking: opts.thinking,
     readOnly: opts.workers?.readOnly ?? undefined,
+    lane: opts.lane,
     spawner: opts.spawner ?? null,
     origin: opts.origin,
     worktree: opts.worktree,

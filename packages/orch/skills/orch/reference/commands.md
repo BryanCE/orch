@@ -8,7 +8,7 @@ help disagree, help is right.
 | Sizing and naming a wave, tabs, one file or model per agent, headless | `orch help spawn` |
 | Picking or changing a model, short names, refusals | `orch help model`, `orch help models` |
 | Sending a task, quoting the prompt, `--with`, Delivered vs Queued | `orch help dispatch` |
-| Fan-out where any idle agent may take any task | `orch help queue`, `orch help work` |
+| Fan-out where any idle agent may take any task, lanes, loading a plan file | `orch help queue`, `orch help work`, the `orch-plan` skill |
 | A lookup or review that must change nothing, `--read-only`, `--out` | `orch help spawn` |
 | Several models scoring one plan, UI or change, round by round | `orch help council`, the `orch-council` skill |
 | Arming the watch, what it shows, silence | `orch help monitor`, `orch help events` |

@@ -54,12 +54,21 @@ export type ScopeQuery =
   | { packId: string; agentId?: never; spaceId?: never }
   | { spaceId: string; agentId?: never; packId?: never };
 
+/** A queue lane's name, as people choose it: non-blank, no space at either end. */
+export type Lane = string & { readonly __brand: "Lane" };
+
+export function isLane(value: unknown): value is Lane {
+  return typeof value === "string" && value !== "" && value.trim() === value;
+}
+
 export interface TaskOptions {
   agent?: string;
   /** Only an agent on this harness takes the task. */
   harness?: string;
   /** Only an agent whose model matches this glob takes the task. */
   model?: string;
+  /** Only an agent spawned into this lane takes the task. Absent: only an agent in no lane. */
+  lane?: Lane;
   constraints?: Record<string, unknown>;
   [key: string]: unknown;
 }
@@ -70,6 +79,7 @@ const TASK_OPTION_TYPES: Readonly<Record<string, "string">> = { agent: "string",
 export function isTaskOptions(value: unknown): value is TaskOptions {
   if (!isRecord(value)) return false;
   if ("constraints" in value && !isRecord(value.constraints)) return false;
+  if ("lane" in value && !isLane(value.lane)) return false;
   return Object.entries(TASK_OPTION_TYPES).every(([key, type]) => !(key in value) || typeof value[key] === type);
 }
 

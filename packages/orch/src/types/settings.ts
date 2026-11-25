@@ -150,6 +150,8 @@ export type SettingKind =
   | { readonly kind: "compaction" }
   /** A council's models per harness, picked from the models each harness lists and may launch; typed as JSON on the CLI. */
   | { readonly kind: "lineup" }
+  /** The prompt entries file: entries added and removed one at a time, or another file named; typed as text on the CLI. */
+  | { readonly kind: "prompt" }
   | { readonly kind: "text" }
   | { readonly kind: "list" };
 

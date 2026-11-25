@@ -10,6 +10,7 @@ import type { AgentAdapter, AdapterId } from "../../../types/adapter.ts";
 import type { Backend } from "../../../types/backend.ts";
 import type { ReadOnly } from "../../../policy/read-only.ts";
 import type { ThinkingLevel } from "../../../types/policy.ts";
+import type { Lane } from "../../../types/queue.ts";
 import type { OrchSettings } from "../../../types/settings.ts";
 import type { WorktreeIntent } from "../../../worktrees/agent.ts";
 import type { ParamsOf } from "../../client/protocol.ts";
@@ -56,6 +57,8 @@ export interface SpawnSettings {
   readonly agents: readonly SpawnAgentPlan[];
   /** Null when these agents run in the directory they were launched from. */
   readonly worktree: WorktreeIntent | null;
+  /** The queue lane every agent drains; null for no lane. */
+  readonly lane: Lane | null;
   readonly fleet: OrchSettings["fleet"];
   readonly tiling: OrchSettings["tiling"];
 }
@@ -130,6 +133,7 @@ export function planSpawn(params: ParamsOf<"spawn">, settings: OrchSettings, cho
     prefix: first.name,
     agents,
     worktree: params.host === null ? worktreeIntent(params.worktree, settings) : null,
+    lane: params.lane,
     fleet: settings.fleet,
     tiling: settings.tiling,
   };

@@ -292,10 +292,10 @@ describe("daemon RPC", () => {
     const stop = await startRealDaemon(dir, { defaults: { adapter: "pi" } });
     try {
       const identity = await rpcRegisterSession(dir, testServices({ orchDir: dir }).logger);
-      const result = await rpcCall(dir, "enqueue", { enqueuedBy: identity.id, text: "queued through rpc", opts: {}, scope: {} });
-      expect(result.task.state).toBe("queued");
-      const stored = listTasks(dir).find((task) => task.id === result.task.id);
-      expect(stored?.state).toBe("queued");
+      const { tasks: [task, second] } = await rpcCall(dir, "enqueue", { enqueuedBy: identity.id, texts: ["queued through rpc", "second in line"], opts: {}, scope: {} });
+      expect(task.state).toBe("queued");
+      expect(listTasks(dir).find((stored) => stored.id === task.id)?.state).toBe("queued");
+      expect(second?.createdAt.localeCompare(task.createdAt)).toBe(1);
     } finally {
       await stop();
     }

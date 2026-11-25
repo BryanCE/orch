@@ -83,7 +83,7 @@ describe("the preferred quicklist reaches every launch route", () => {
     const { backend, seen } = capturingPaneBackend();
 
     await spawnOneIntoTab(await spawningServices(directory), { project: "/fleet/project", form: "tui",
-      prepareTerminal: () => Promise.resolve(null),
+      prepareTerminal: () => Promise.resolve(null), lane: null,
       backend,
       adapter: piAdapter,
       adapterId: "pi",
@@ -109,7 +109,7 @@ describe("the preferred quicklist reaches every launch route", () => {
     const agents = [["quick-a", "openai/gpt-5.6", "medium"], ["quick-b", "anthropic/claude-sonnet-4.5", "high"]] satisfies readonly (readonly [string, string, ThinkingLevel])[];
     for (const [name, model, thinking] of agents) {
       await spawnOneIntoTab(services, { project: "/fleet/project", form: "tui",
-        prepareTerminal: () => Promise.resolve(null),
+        prepareTerminal: () => Promise.resolve(null), lane: null,
         backend,
         adapter: piAdapter,
         adapterId: "pi",
@@ -136,7 +136,7 @@ describe("the preferred quicklist reaches every launch route", () => {
     const { backend, seen } = capturingPaneBackend();
 
     await spawnOneIntoTab(await spawningServices(directory), { project: "/fleet/project", form: "tui",
-      prepareTerminal: () => Promise.resolve(null),
+      prepareTerminal: () => Promise.resolve(null), lane: null,
       backend,
       adapter: piAdapter,
       adapterId: "pi",

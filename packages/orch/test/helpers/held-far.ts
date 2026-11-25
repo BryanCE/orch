@@ -94,7 +94,7 @@ export interface HeldFarAgentOptions {
 export async function heldFarAgent<T extends PtyProcess>(far: HeldFar<HeldPtys<T>>, opts: HeldFarAgentOptions = {}): Promise<{ readonly key: string; readonly pty: T }> {
   const key = mintAgentId();
   await spawnHeadless(far.state, { project: "/fleet/project",
-      readOnly: null,
+      readOnly: null, lane: null,
     form: null,
     key,
     name: opts.name ?? key,

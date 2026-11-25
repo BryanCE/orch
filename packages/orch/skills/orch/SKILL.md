@@ -102,6 +102,13 @@ orch dispatch api-types --rename api-auth "Do section T4 of tasks/W2-api.md. Onl
   While the user is in your pane and your monitor is armed, it comes as a monitor line instead.
   Answer it with `orch message <name> "<text>"`.
 
+## A queued plan
+
+A job planned ahead, or more tasks than agents: write the tasks in queue shape with the
+`orch-plan` skill. Each wave file loads into a lane with one `orch queue load <file> --lane
+<lane>`, each lane gets agents from `orch spawn <names> --lane <lane>`, and orchd hands every
+idle agent the next task in its lane. You review results as they settle.
+
 ## While agents run
 
 - `MESSAGE <code> from <name>: <text>`: mail sent to you, from a worker or another orch.

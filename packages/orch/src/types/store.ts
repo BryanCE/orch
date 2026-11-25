@@ -7,6 +7,7 @@ import type { CallerKind, ThinkingLevel } from "./policy.ts";
 import type { AgentOrigin, HostId, HostIdentity } from "./host.ts";
 import type { FormId } from "./form.ts";
 import type { ReadOnly } from "../policy/read-only.ts";
+import type { Lane } from "./queue.ts";
 
 export interface AgentInput {
   id: string;
@@ -273,6 +274,8 @@ export interface SpawnRegistration {
   worktree?: AgentWorktree;
   /** Set for an agent launched read-only, with its output directory. */
   readOnly?: ReadOnly;
+  /** The queue lane the agent drains. Absent: it takes only tasks filed under no lane. */
+  lane?: Lane;
   /**
    * Environment: the OS process this agent runs in, on the host it runs on. That host is
    * the agent's host: orchd registers only an agent that runs on its own host.

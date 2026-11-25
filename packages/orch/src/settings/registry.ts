@@ -28,6 +28,7 @@ function namedKind(key: string): SettingKind | undefined {
   if (MODEL_KEYS.includes(key)) return { kind: "models" };
   if (key === "workers.compact_at_tokens") return { kind: "compaction" };
   if (key === "council.models") return { kind: "lineup" };
+  if (key === APPEND_SYSTEM_KEY) return { kind: "prompt" };
   // Sinks are checked off a list; the ones that carry a value declare the field to ask for.
   if (key !== "notify") return undefined;
   return {

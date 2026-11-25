@@ -78,6 +78,7 @@ export function parseSettingValue(spec: SettingSpec, input: string): SettingValu
     case "sinks":
       return parseSinksSetting(kind, input);
     case "text":
+    case "prompt":
       return parseTextSetting(input);
     case "models":
     case "compaction":

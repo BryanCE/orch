@@ -359,6 +359,14 @@ export const agentReadOnly = sqliteTable("agent_read_only", {
   setAt: integer("set_at").notNull(),
 });
 
+/** The queue lane an agent drains: it takes only tasks filed under this lane. An agent with no
+ *  row takes only tasks filed under no lane. Written with the spawn and never changed. */
+export const agentLanes = sqliteTable("agent_lanes", {
+  agentId: text("agent_id").primaryKey().references(() => agents.id, { onDelete: "cascade" }),
+  lane: text("lane").notNull(),
+  setAt: integer("set_at").notNull(),
+});
+
 /** The form an agent's harness runs in over time: `tui`, `oneshot` or `acp`. An agent orch
  *  did not launch has no row. */
 export const agentForms = sqliteTable("agent_forms", {

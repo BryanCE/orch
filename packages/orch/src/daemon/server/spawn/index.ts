@@ -29,6 +29,7 @@ import type { CallerCredential } from "../../../types/core.ts";
 import { validProjectSettings } from "../../../settings/project.ts";
 import type { AgentEnvironment } from "../../../types/store.ts";
 import type { HarnessTraits, ParamsOf, ResultOf } from "../../client/protocol.ts";
+import type { OrchSettings } from "../../../types/settings.ts";
 import type { DaemonState } from "../state.ts";
 
 type SpawnResult = ResultOf<"spawn">;
@@ -98,23 +99,41 @@ function spawnedResult(settings: SpawnSettings, created: readonly CreatedAgent[]
   };
 }
 
+/** A headless agent here has no TTY to idle on: it runs its prompt and exits, so work
+ *  dispatched after launch would arrive at a dead process. An agent on a linked host runs in
+ *  a PTY that host's orchd holds, and idles there waiting for a dispatch like any other. */
+function assertWorkUpFront(settings: SpawnSettings): void {
+  if (settings.host !== null) return;
+  const idleDetached = settings.agents.some((agent) => agent.form !== null && FORM_STDIO[agent.form] === "none" && !agent.prompt?.trim());
+  if (idleDetached) throw new SpawnRefusalError(`a ${settings.backend} spawn needs its work up front: pass --prompt "<text>" or --file <path> (a headless agent runs it and exits)`);
+}
+
+/** The agent's first prompt and the worker header it goes out under. An agent spawned with no
+ *  work idles until its first dispatch. */
+function firstWork(plan: SpawnAgentPlan, context: NonNullable<ParamsOf<"spawn-headless">["worker"]>["context"]): Pick<ParamsOf<"spawn-headless">, "prompt" | "worker"> {
+  if (!plan.prompt?.trim()) return { prompt: null };
+  return { prompt: plan.prompt, worker: { harness: plan.adapter, context } };
+}
+
+/** A host's total is its own: agents bound for a linked host are counted and ruled on there. */
+function assertHeadlessCapacity(settingsFile: OrchSettings, settings: SpawnSettings, space: string | null, fleet: ReturnType<typeof liveFleet>): void {
+  const count = settings.agents.length;
+  if (settings.host === null) assertSpawnCapacity(settingsFile, space, count, fleet.views, fleet.presence);
+  else assertSpaceCapacity(settingsFile, space, count, fleet.views, fleet.presence);
+}
+
 // Headless agents run their prompt and exit. An agent in a process orchd holds, on a linked host
 // or here, is shown in a pane of the caller's own plexer.
 async function executeHeadlessSpawn(state: DaemonState, params: ParamsOf<"spawn">, self: CallerSelf, settings: SpawnSettings, environment: AgentEnvironment, notes: SpawnNotes): Promise<SpawnResult> {
   const services = state.services;
   const settingsFile = services.settingsFor(projectDirectory(state.directory, self.id, settings.cwd)).settings;
-  // A headless agent here has no TTY to idle on: it runs its prompt and exits, so work
-  // dispatched after launch would arrive at a dead process. An agent on a linked host runs in
-  // a PTY that host's orchd holds, and idles there waiting for a dispatch like any other.
-  if (settings.host === null && settings.agents.some((agent) => agent.form !== null && FORM_STDIO[agent.form] === "none" && !agent.prompt?.trim())) throw new SpawnRefusalError(`a ${settings.backend} spawn needs its work up front: pass --prompt "<text>" or --file <path> (a headless agent runs it and exits)`);
+  assertWorkUpFront(settings);
   // Headless agents have no placement environment; without an explicit space, use NULL
   // rather than inventing a space that the caller's environment does not belong to.
   const space = settings.space ?? null;
   const { views, presence } = liveFleet(state.directory);
   assertSpawnPolicy(settingsFile, space, settings.agents.length, views, presence, self.id);
-  // A host's total is its own: agents bound for a linked host are counted and ruled on there.
-  if (settings.host === null) assertSpawnCapacity(settingsFile, space, settings.agents.length, views, presence);
-  else assertSpaceCapacity(settingsFile, space, settings.agents.length, views, presence);
+  assertHeadlessCapacity(settingsFile, settings, space, { views, presence });
   const maySpawn = self.depth + 1 < settingsFile.fleet.max_depth;
   const viewers = planViewers({ services, settings, environment, actor: self.id });
   const created: CreatedAgent[] = [];
@@ -141,10 +160,9 @@ async function executeHeadlessSpawn(state: DaemonState, params: ParamsOf<"spawn"
         project,
         model: plan.model,
         thinking: plan.thinking,
-        // An agent on a linked host spawned with no work idles there until its first dispatch.
-        prompt: plan.prompt?.trim() ? plan.prompt : null,
-        ...(plan.prompt?.trim() ? { worker: { harness: plan.adapter, context: { maySpawn, cwd, ...(worktree === undefined ? {} : { worktreeBranch: worktree.branch }), spawnerRepliable: self.id !== null } } } : {}),
+        ...firstWork(plan, { maySpawn, cwd, ...(worktree === undefined ? {} : { worktreeBranch: worktree.branch }), spawnerRepliable: self.id !== null }),
         readOnly: plan.readOnly,
+        lane: settings.lane,
         ...(settings.host === null ? {} : { host: settings.host.name }),
         ...(params.actor === undefined ? {} : { actor: params.actor }),
       });
@@ -247,7 +265,7 @@ async function launchPrepared(state: DaemonState, prepared: readonly PreparedAge
         backend, adapter: resolveAdapterOrDie(plan.adapter), adapterId: plan.adapter, name: item.name, cwd: item.cwd, space, workspace, group: groupId,
         project: projectDirectory(state.directory, self.id, settings.cwd),
         form: plan.form, model: plan.model, thinking: plan.thinking, launch: item.launch,
-        worktree: item.worktree,
+        worktree: item.worktree, lane: settings.lane,
         spawner: self.id, owner: self.id ?? undefined,
         intoHandle: item.handle, key: item.key, env: item.env,
       }));
@@ -444,6 +462,7 @@ export async function tileAgent(state: DaemonState, params: ParamsOf<"tile">): P
     model,
     thinking: agent.thinking,
     launch,
+    lane: null,
     spawner: self.id,
     owner: self.id ?? undefined,
   };

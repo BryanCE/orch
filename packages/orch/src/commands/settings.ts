@@ -27,7 +27,7 @@ import { AGENT_SETTINGS_GRANT, agentMayWriteSetting, agentSettingRefusal, grantA
 import { nearestKeys } from "../settings/nearest.ts";
 import { SETTINGS_REGISTRY, clearRegisteredSetting, writeNotifyEntries, writeRegisteredSetting } from "../settings/registry.ts";
 import { parseSettingValue } from "../settings/parse.ts";
-import { APPEND_SYSTEM_KEY, addPromptEntry, clearPromptEntries, promptEntries, removePromptEntry, type PromptEntries } from "../settings/append-system.ts";
+import { APPEND_SYSTEM_KEY, addPromptEntry, clearPromptEntries, promptEntries, promptEntry, removePromptEntry, type PromptEntries, type PromptEntry } from "../settings/append-system.ts";
 import { runSettingsEditor } from "../settings/shell/index.ts";
 import type { SaveMode } from "../settings/shell/state.ts";
 import type { NotifierChoice } from "../types/notify.ts";
@@ -435,13 +435,19 @@ function readEntryNumber(invocation: Invocation, value: string | undefined): num
   return parsed;
 }
 
+/** The words after `add` as one entry, or a refusal when they hold no text. */
+function readEntry(invocation: Invocation, words: readonly string[]): PromptEntry {
+  const entry = promptEntry(words.join(" "));
+  if (entry === null) throw usageError(invocation, "add needs the text of an entry");
+  return entry;
+}
+
 /** List, add, remove or clear the entries orch puts in the header of every task. */
 async function settingsPrompt(services: Services, invocation: Invocation): Promise<void> {
   const { positional } = invocation;
   switch (invocation.command.name) {
     case "add":
-      if (positional.length === 0) throw usageError(invocation);
-      return changePromptEntries(services, invocation, (target) => addPromptEntry(target, positional.join(" ")));
+      return changePromptEntries(services, invocation, (target) => addPromptEntry(target, readEntry(invocation, positional)));
     case "remove":
       if (positional.length !== 1) throw usageError(invocation);
       return changePromptEntries(services, invocation, (target) => removePromptEntry(target, readEntryNumber(invocation, positional[0])));

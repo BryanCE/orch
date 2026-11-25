@@ -5,6 +5,8 @@ import { currentSpace, currentTuning } from "./store/interval-rows.ts";
 import { matchesModelPattern } from "./settings/read.ts";
 import { currentLease, holdsLease, leasesByOrch } from "./store/lease-rows.ts";
 import { errorMessage } from "./util.ts";
+import { laneOf } from "./store/lane-rows.ts";
+import { withTransaction } from "./store/connection.ts";
 import {
   agentsInTaskScope,
   allTasks,
@@ -168,9 +170,29 @@ export function addTask(
   enqueuedBy: string,
   scope: TaskScopeSelection = {},
 ): TaskRec {
-  const id = randomUUID();
-  enqueueTask(orchDir, { id, text, opts, enqueuedBy, ...selectedScope(orchDir, enqueuedBy, scope) });
-  return requireTask(orchDir, id);
+  const [task] = addTasks(orchDir, [text], opts, enqueuedBy, scope);
+  return task;
+}
+
+/** Enqueue every text, in order, under one scope and one set of options. All land or none do. */
+export function addTasks(
+  orchDir: OrchDir,
+  texts: readonly [string, ...string[]],
+  opts: TaskOptions,
+  enqueuedBy: string,
+  scope: TaskScopeSelection = {},
+): [TaskRec, ...TaskRec[]] {
+  const selected = selectedScope(orchDir, enqueuedBy, scope);
+  const createdAt = Date.now();
+  // FIFO is by created_at: each task gets its own instant, so the queue takes them in the order given.
+  const insert = (text: string, index: number): string => {
+    const id = randomUUID();
+    enqueueTask(orchDir, { id, text, opts, enqueuedBy, createdAt: createdAt + index, ...selected });
+    return id;
+  };
+  const [first, ...rest] = texts;
+  const ids = withTransaction(orchDir, () => ({ first: insert(first, 0), rest: rest.map((text, index) => insert(text, index + 1)) }));
+  return [requireTask(orchDir, ids.first), ...ids.rest.map((id) => requireTask(orchDir, id))];
 }
 
 export function listTasks(orchDir: OrchDir): TaskRec[] {
@@ -233,9 +255,10 @@ function agentMayClaim(task: TaskRec, agentId: string): boolean {
     || task.scopeSpaceId !== null;
 }
 
-/** Whether the agent runs the harness and model the task asks for. A task that names neither fits any agent. */
+/** Whether the agent drains the task's lane and runs the harness and model the task asks for. */
 function fitsAgent(orchDir: OrchDir, task: TaskRec, agentId: string): boolean {
-  const { harness, model } = task.opts;
+  const { harness, model, lane } = task.opts;
+  if ((lane ?? null) !== laneOf(orchDir, agentId)) return false;
   if (harness !== undefined && agentById(orchDir, agentId)?.harnessId !== harness) return false;
   if (model === undefined) return true;
   const running = currentTuning(orchDir, agentId)?.model;

@@ -5,6 +5,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 
 import {
   addTask,
+  addTasks,
   cancelTask,
   claimTask,
   listTasks,
@@ -24,6 +25,8 @@ import { isRecord } from "../src/util.ts";
 import { openTasksInScope, taskState } from "../src/store/task-rows.ts";
 import { removeTempDir, tempOrchDir } from "./helpers/tempdir.ts";
 import { seedAgentRow } from "./helpers/agent.ts";
+import { setLane } from "../src/store/lane-rows.ts";
+import { lane } from "./helpers/lane.ts";
 import { sql } from "drizzle-orm";
 
 const dirs: OrchDir[] = [];
@@ -202,6 +205,35 @@ describe("queue facade on tasks and attempts", () => {
     orm(dir).run(sql`INSERT INTO harnesses(id,name) VALUES ('claude','Claude')`);
     orm(dir).run(sql`UPDATE agents SET harness_id='claude' WHERE id='a2'`);
     expect(claimTask(dir, claude.id, "a2", "d3")).toBe(true);
+  });
+
+  // A lane is a named queue: a task filed under it goes only to an agent spawned into it, and a
+  // task filed under none goes only to an agent in none.
+  test("a task filed under a lane goes only to an agent in that lane", () => {
+    const dir = fixture();
+    setLane(dir, "a1", 2, lane("hard"));
+    const hard = addTask(dir, "hard work", { lane: lane("hard") }, "a1");
+    const plain = addTask(dir, "plain work", {}, "a1");
+    expect(nextQueuedTask(dir, "a1", 1)?.id).toBe(hard.id);
+    expect(nextQueuedTask(dir, "a2", 1)?.id).toBe(plain.id);
+    expect(claimTask(dir, hard.id, "a2", "d1")).toBe(false);
+    expect(claimTask(dir, plain.id, "a1", "d2")).toBe(false);
+    expect(claimTask(dir, hard.id, "a1", "d3")).toBe(true);
+  });
+
+  test("a batch lands in the order given, and the queue takes it in that order", () => {
+    const dir = fixture();
+    const [first, second, third] = addTasks(dir, ["one", "two", "three"], {}, "a1");
+    expect([first.text, second?.text, third?.text]).toEqual(["one", "two", "three"]);
+    expect(nextQueuedTask(dir, "a2", 1)?.id).toBe(first.id);
+    expect(claimTask(dir, first.id, "a2", "d1")).toBe(true);
+    expect(nextQueuedTask(dir, "a1", 1)?.id).toBe(second?.id);
+  });
+
+  test("a batch with one refused scope adds nothing", () => {
+    const dir = fixture();
+    expect(() => addTasks(dir, ["one", "two"], {}, "a1", { packId: "orch-b" })).toThrow(/pack/i);
+    expect(listTasks(dir)).toHaveLength(0);
   });
 
   test("a claim is an insert and a lost race returns false", () => {

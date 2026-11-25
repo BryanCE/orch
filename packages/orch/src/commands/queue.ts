@@ -1,4 +1,5 @@
-import type { TaskRec, TaskScopeSelection } from "../queue.ts";
+import type { TaskOptions, TaskRec, TaskScopeSelection } from "../queue.ts";
+import { isLane } from "../types/queue.ts";
 import { rpcCall } from "../daemon/client/rpc.ts";
 import { renderTable } from "../table.ts";
 import { errorMessage } from "../util.ts";
@@ -10,6 +11,8 @@ import { callerId } from "./self.ts";
 import { die } from "./target.ts";
 import { parseCommand } from "./registry.ts";
 import { usageError } from "../cli/usage.ts";
+import { planSections } from "./plan-sections.ts";
+import { readPromptFile } from "./prompt-file.ts";
 import type { Invocation, ParsedFlags } from "../cli/spec.ts";
 import type { QueueScopeFlags } from "../types/command.ts";
 import type { DaemonClient } from "../types/services.ts";
@@ -21,13 +24,18 @@ export function renderQueueTasks(tasks: TaskRec[]): void {
     process.stdout.write("No queue tasks.\n");
     return;
   }
-  const headers = ["ID", "STATE", "ATTEMPTS", "AGENT", "TASK", "ERROR"];
-  const caps = [36, 10, 8, 16, 60, 40];
+  const headers = ["ID", "STATE", "LANE", "ATTEMPTS", "AGENT", "TASK", "ERROR"];
+  const caps = [36, 10, 16, 8, 16, 60, 40];
   const rows = tasks.map((task) => {
     const attempt = task.attempts.at(-1);
-    return [task.id, task.stale ? `${task.state} (stale)` : task.state, String(task.attempts.length), attempt?.agentId ?? "-", task.text, attempt?.error ?? ""];
+    return [task.id, task.stale ? `${task.state} (stale)` : task.state, task.opts.lane ?? "-", String(task.attempts.length), attempt?.agentId ?? "-", task.text, attempt?.error ?? ""];
   });
   process.stdout.write(renderTable(headers, rows, caps) + "\n");
+}
+
+function writeQueueTasks(tasks: TaskRec[], json: boolean): void {
+  if (json) process.stdout.write(JSON.stringify(tasks, null, 2) + "\n");
+  else renderQueueTasks(tasks);
 }
 
 function writeQueueTask(task: TaskRec, json: boolean, plainText: string): void {
@@ -83,31 +91,46 @@ function scopeFlags(flags: ParsedFlags): QueueScopeFlags {
   return scope;
 }
 
-/** The harness and model an agent must run to take the task, present ones only. */
-function takerOptions(flags: ParsedFlags): Record<string, string> {
+/** The lane, harness and model an agent must have to take the task, present ones only. */
+function takerOptions(flags: ParsedFlags): TaskOptions {
+  const lane = flags.value("--lane");
   const harness = flags.value("--harness");
   const model = flags.value("--model");
+  if (lane !== undefined && !isLane(lane)) die(`--lane ${JSON.stringify(lane)} is not a lane name; give non-blank text with no space at either end`);
   if (harness !== undefined && !isAdapterId(harness)) die(`--harness ${harness} is not a harness; use one of ${ADAPTER_IDS.join(", ")}`);
-  return { ...(harness === undefined ? {} : { harness }), ...(model === undefined ? {} : { model }) };
+  return { ...(lane === undefined ? {} : { lane }), ...(harness === undefined ? {} : { harness }), ...(model === undefined ? {} : { model }) };
+}
+
+/** Add the texts as tasks, in order, under the scope and taker the flags name. */
+async function enqueueTexts(services: DaemonClient, flags: ParsedFlags, texts: [string, ...string[]]): Promise<[TaskRec, ...TaskRec[]]> {
+  const enqueuedBy = await callerId(services);
+  const scope = await scopeFromFlags(services, scopeFlags(flags));
+  const { tasks } = await rpcCall(services.orchDir, "enqueue", { enqueuedBy, texts, opts: takerOptions(flags), scope });
+  return tasks;
 }
 
 async function queueAdd(services: DaemonClient, invocation: Invocation): Promise<void> {
   const { flags, positional } = invocation;
   const text = positional.join(" ");
   if (!text) throw usageError(invocation);
-  const enqueuedBy = await callerId(services);
-  const scope = await scopeFromFlags(services, scopeFlags(flags));
-  const opts = takerOptions(flags);
-  const { task } = await rpcCall(services.orchDir, "enqueue", { enqueuedBy, text, opts, scope });
+  const [task] = await enqueueTexts(services, flags, [text]);
   writeQueueTask(task, flags.has("--json"), `Added task ${task.id}.`);
+}
+
+/** `orch queue load <file>`: every `## ` section of a plan file, as one task each, in one call. */
+async function queueLoad(services: DaemonClient, invocation: Invocation): Promise<void> {
+  const { flags } = invocation;
+  const file = onePositional(invocation);
+  const [first, ...rest] = planSections(readPromptFile(file));
+  if (first === undefined) die(`${file} has no '## ' section; each task starts at a '## ' heading.`);
+  writeQueueTasks(await enqueueTexts(services, flags, [first, ...rest]), flags.has("--json"));
 }
 
 async function queueCollection(services: DaemonClient, invocation: Invocation): Promise<void> {
   const { command, flags, positional } = invocation;
   if (positional.length > 0) throw usageError(invocation);
   const { tasks } = await askDaemon(services, "queue-list", { history: command.name === "history" });
-  if (flags.has("--json")) process.stdout.write(JSON.stringify(tasks, null, 2) + "\n");
-  else renderQueueTasks(tasks);
+  writeQueueTasks(tasks, flags.has("--json"));
 }
 
 async function queueEdit(services: DaemonClient, invocation: Invocation): Promise<void> {
@@ -121,27 +144,33 @@ async function queueEdit(services: DaemonClient, invocation: Invocation): Promis
   });
 }
 
-/** The one task id a subcommand names, or the usage line. */
-function oneTaskId(invocation: Invocation): string {
+/** The one argument a subcommand names, a task id or a file, or the usage line. */
+function onePositional(invocation: Invocation): string {
   const id = invocation.positional[0];
   if (!id || invocation.positional.length !== 1) throw usageError(invocation);
   return id;
 }
 
-async function queueTakeOn(services: DaemonClient, invocation: Invocation): Promise<void> {
-  const { flags } = invocation;
-  const id = oneTaskId(invocation);
-  const agent = flags.value("--agent");
+/** Run one verb on the one task the invocation names, as the caller, and print the task it leaves. */
+async function actOnTask(services: DaemonClient, invocation: Invocation, done: string, act: (id: string, callerId: string) => Promise<{ task: TaskRec }>): Promise<void> {
+  const id = onePositional(invocation);
   await withQueueCaller(services, async (callerId) => {
+    const { task } = await act(id, callerId);
+    writeQueueTask(task, invocation.flags.has("--json"), `${done} task ${task.id}.`);
+  });
+}
+
+async function queueTakeOn(services: DaemonClient, invocation: Invocation): Promise<void> {
+  const agent = invocation.flags.value("--agent");
+  await actOnTask(services, invocation, "Took on", async (id, callerId) => {
     const taker = agent === undefined ? callerId : (await orchAgent(services, agent)).id;
-    const { task } = await callDaemon(services, "queue-take-on", { target: id, taker });
-    writeQueueTask(task, flags.has("--json"), `Took on task ${task.id}.`);
+    return callDaemon(services, "queue-take-on", { target: id, taker });
   });
 }
 
 async function queueReap(services: DaemonClient, invocation: Invocation): Promise<void> {
   const { flags } = invocation;
-  const id = oneTaskId(invocation);
+  const id = onePositional(invocation);
   await withQueueCaller(services, async (callerId) => {
     await callDaemon(services, "queue-reap", { target: id, by: callerId });
     if (flags.has("--json")) process.stdout.write(JSON.stringify({ id, state: "reaped" }) + "\n");
@@ -172,40 +201,25 @@ async function queueIntake(services: DaemonClient, invocation: Invocation): Prom
 }
 
 async function queueCancel(services: DaemonClient, invocation: Invocation): Promise<void> {
-  const { flags } = invocation;
-  const id = oneTaskId(invocation);
-  await withQueueCaller(services, async (callerId) => {
-    const { task } = await callDaemon(services, "queue-cancel", { target: id, by: callerId });
-    writeQueueTask(task, flags.has("--json"), `Cancelled task ${task.id}.`);
-  });
+  await actOnTask(services, invocation, "Cancelled", (id, callerId) => callDaemon(services, "queue-cancel", { target: id, by: callerId }));
 }
+
+/** Each `orch queue` subcommand and the function that runs it. */
+const QUEUE_VERBS: Readonly<Record<string, (services: DaemonClient, invocation: Invocation) => Promise<void>>> = {
+  add: queueAdd,
+  load: queueLoad,
+  list: queueCollection,
+  history: queueCollection,
+  cancel: queueCancel,
+  edit: queueEdit,
+  "take-on": queueTakeOn,
+  reap: queueReap,
+  intake: queueIntake,
+};
 
 export async function cmdQueue(services: Services, args: string[]): Promise<void> {
   const invocation = parseCommand("queue", args);
-  switch (invocation.command.name) {
-    case "add":
-      await queueAdd(services, invocation);
-      return;
-    case "list":
-    case "history":
-      await queueCollection(services, invocation);
-      return;
-    case "cancel":
-      await queueCancel(services, invocation);
-      return;
-    case "edit":
-      await queueEdit(services, invocation);
-      return;
-    case "take-on":
-      await queueTakeOn(services, invocation);
-      return;
-    case "reap":
-      await queueReap(services, invocation);
-      return;
-    case "intake":
-      await queueIntake(services, invocation);
-      return;
-    default:
-      throw usageError(invocation);
-  }
+  const verb = QUEUE_VERBS[invocation.command.name];
+  if (verb === undefined) throw usageError(invocation);
+  await verb(services, invocation);
 }

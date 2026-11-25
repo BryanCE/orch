@@ -79,7 +79,7 @@ function preflightSkew(directory: OrchDir, argv: string[]): string[] {
   const sanitized = argv.filter((arg) => arg !== "--stale-ok");
   const cmd = sanitized[0];
   const mutates = cmd === "queue"
-    ? sanitized[1] === "add" || sanitized[1] === "cancel"
+    ? sanitized[1] === "add" || sanitized[1] === "load" || sanitized[1] === "cancel"
     : Boolean(cmd && STALE_GUARD_COMMANDS.has(cmd));
   if (!mutates || staleOk) return sanitized;
   const skew = readDaemonCodeSkew(directory, daemonEntrypoint());

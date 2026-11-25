@@ -164,6 +164,7 @@ function registerSpawnedTabAgent(services: DaemonContext, spec: TabSpawnSpec, ke
     owner: spec.owner,
     worktree: spec.worktree,
     readOnly: spec.launch.workers.readOnly ?? undefined,
+    lane: spec.lane ?? undefined,
     // The pane opened on this machine, so its process runs on this host.
     process: { ...spec.backend.process.running(handle), host: hostIdentity().id },
   });
@@ -245,6 +246,7 @@ async function placeAgent(services: DaemonContext, settings: SpawnSettings, plan
     thinking: plan.thinking,
     launch,
     worktree,
+    lane: settings.lane,
     spawner: self.id,
     owner: self.id ?? undefined,
     }, settings.tiling.first_split, role);

@@ -11,13 +11,14 @@ import {
   SEARCH_KEYBAR,
   visibleEntryIndices,
 } from "../view.ts";
-import type { EditingState } from "../../types/settings.ts";
+import type { EditingState, SettingKind } from "../../types/settings.ts";
 import { editorReducer } from "../editor.ts";
 import { askChoice, askMulti, promptFrame, submittedText } from "./ask.ts";
 import { editSinks } from "./sinks.ts";
 import { editModels } from "./models.ts";
 import { editCompaction } from "./compaction.ts";
 import { editLineup } from "./lineup.ts";
+import { editPrompt } from "./prompt.ts";
 import type { HarnessOffers } from "../../setup/composition.ts";
 import { asBrowsing, cancelEdit, editTarget, localRefusal, refocusVisible, resetFocused, stepFocus, toggleAgentGrant, type Session } from "./state.ts";
 import { commitAndFlush, commitPick } from "./save.ts";
@@ -163,6 +164,26 @@ function openFocused(session: Session): EditingState | undefined {
   return undefined;
 }
 
+/** Run the picker a shaped kind calls for: each one asks for its value its own way. */
+function editShaped(session: Session, offers: HarnessOffers, opened: EditingState, kind: Extract<SettingKind, { kind: "sinks" | "models" | "compaction" | "lineup" | "prompt" }>): Promise<void> {
+  switch (kind.kind) {
+    case "sinks":
+      return editSinks(session, opened, kind);
+    case "models":
+      return editModels(session, offers, opened);
+    case "compaction":
+      return editCompaction(session, offers, opened);
+    case "lineup":
+      return editLineup(session, offers, opened);
+    case "prompt":
+      return editPrompt(session);
+    default: {
+      const exhaustive: never = kind;
+      return exhaustive;
+    }
+  }
+}
+
 /** Open the focused setting and run the edit interaction its declared kind calls for. */
 export async function editFocused(session: Session, offers: HarnessOffers): Promise<void> {
   const opened = openFocused(session);
@@ -175,21 +196,11 @@ export async function editFocused(session: Session, offers: HarnessOffers): Prom
       return editChoice(session, opened, kind.choices);
     case "multi":
       return editMulti(session, opened, kind.choices);
-    case "sinks":
-      return editSinks(session, opened, kind);
-    case "models":
-      return editModels(session, offers, opened);
-    case "compaction":
-      return editCompaction(session, offers, opened);
-    case "lineup":
-      return editLineup(session, offers, opened);
     case "number":
     case "text":
     case "list":
       return editText(session, opened);
-    default: {
-      const exhaustive: never = kind;
-      return exhaustive;
-    }
+    default:
+      return editShaped(session, offers, opened, kind);
   }
 }

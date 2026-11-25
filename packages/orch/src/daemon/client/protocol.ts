@@ -30,7 +30,7 @@ import { GRANT_KINDS, type GrantRequest, type SpaceListing, type SpaceRow, type 
 import { BACKEND_IDS, type BackendGroup } from "../../types/backend.ts";
 import type { CloseTargetWire } from "../../entities/close-targets.ts";
 import type { ReapCandidate, StatusRow } from "../../types/command.ts";
-import { isPackIntakeRec, isTaskOptions, isTaskRec, type PackIntakeRec, type TaskOptions, type TaskRec } from "../../types/queue.ts";
+import { isLane, isPackIntakeRec, isTaskOptions, isTaskRec, type Lane, type PackIntakeRec, type TaskOptions, type TaskRec } from "../../types/queue.ts";
 
 const agentWorktreeSchema = z.object({ path: z.string(), branch: z.string(), base: z.string(), provider: z.enum(WORKTREE_PROVIDER_IDS) });
 
@@ -207,6 +207,8 @@ const SPAWN_REGISTRATION = z.object({
 
 const LEASE_RESULT = z.object({ id: z.string(), name: z.string() });
 
+/** A queue lane's name. */
+const LANE = z.custom<Lane>(isLane);
 /** One agent a spawn launches. `readOnly` is set for a read-only agent, with the one directory it may write in, absolute, or null for none. */
 const SPAWN_AGENT = z.object({ name: nonBlank, harness: z.enum(ADAPTER_IDS), model: nonBlank, thinking: z.custom<ThinkingLevel>(isThinkingLevel), prompt: z.string().nullable(), readOnly: z.object({ out: nonBlank.nullable() }).nullable() });
 /** The worktree a launch asked for: the provider that makes it. orchd adds its own worktree settings. */
@@ -659,9 +661,10 @@ export const RPC_PARAMS = {
   /** `pid` is the caller's own process on this machine: orchd reads its identity from the OS. */
   "command-lock": z.object({ command: nonBlank, cwd: nonBlank, pid: z.number().int().positive(), agent: z.string().nullable(), held: z.array(z.string()), waitingSince: z.number() }),
   "command-unlock": z.object({ pid: z.number().int().positive() }),
+  /** Add each text as one task, in order, under one scope and one set of options. All land or none do. */
   enqueue: z.object({
     enqueuedBy: nonBlank,
-    text: nonBlank,
+    texts: z.tuple([nonBlank]).rest(nonBlank),
     opts: z.custom<TaskOptions>(isTaskOptions),
     scope: z.object({ agentId: nonBlank.optional(), packId: nonBlank.optional(), spaceId: nonBlank.optional() }),
   }),
@@ -723,6 +726,8 @@ export const RPC_PARAMS = {
     project: nonBlank,
     /** Set for a read-only agent: the request. The host that launches builds its policy from its project. */
     readOnly: SPAWN_AGENT.shape.readOnly,
+    /** The queue lane the agent drains; null for no lane. */
+    lane: LANE.nullable(),
     /** A host from settings.hosts to run the agent on, over its link; absent runs it here. */
     host: nonBlank.optional(),
   }),
@@ -737,6 +742,8 @@ export const RPC_PARAMS = {
     space: nonBlank.nullable(),
     host: nonBlank.nullable(),
     worktree: SPAWN_WORKTREE,
+    /** The queue lane every agent drains; null for no lane. */
+    lane: LANE.nullable(),
   }),
   /** Convene a council: launch each member read-only, with its own directory under the council's
    *  as the one place it writes. `tab` is the members' tab; none takes the council's name. */
@@ -907,7 +914,7 @@ export const RPC_RESULTS = {
     z.object({ verdict: z.literal("denied"), pattern: z.string() }),
   ]),
   "command-unlock": OK,
-  enqueue: z.object({ task: z.custom<TaskRec>(isTaskRec) }),
+  enqueue: z.object({ tasks: z.tuple([TASK.shape.task]).rest(TASK.shape.task) }),
   status: fleetStatus,
   attach: z.object({ attached: z.literal(true), open: z.number() }),
   dispatch: ACCEPTED,

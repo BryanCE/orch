@@ -5,6 +5,7 @@ import type { ThinkingLevel, WorkerPolicy } from "./policy.ts";
 import type { AgentId, HereAgent } from "./agent-place.ts";
 import type { Logger, OrchDir } from "./core.ts";
 import type { AgentWorktree } from "./worktree.ts";
+import type { Lane } from "./queue.ts";
 import type { AgentOrigin } from "./host.ts";
 import type { FormId, StdioKind } from "./form.ts";
 import type { ShellDialect } from "../shared/shell.ts";
@@ -317,6 +318,8 @@ export interface BackendSpawnOpts {
   readonly origin?: AgentOrigin;
   /** The git worktree the agent runs in, recorded by a backend that registers its own agents. */
   readonly worktree?: AgentWorktree;
+  /** The queue lane the agent drains, recorded by a backend that registers its own agents. */
+  readonly lane?: Lane;
   /** Explicit worker tool allowlist, when the launcher applies one. */
   readonly tools?: string;
   /** What this worker may load; the adapter maps it onto its harness's flags. */

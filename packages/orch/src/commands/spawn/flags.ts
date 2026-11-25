@@ -18,6 +18,7 @@ import { contextReference, readPromptFile } from "../prompt-file.ts";
 import { usageError, type CommandAt } from "../../cli/usage.ts";
 import type { Invocation } from "../../cli/spec.ts";
 import { taskWithReferences } from "../../worker-prompt.ts";
+import { isLane, type Lane } from "../../types/queue.ts";
 
 
 export type SpawnFlags = Omit<AgentFlags, "adapterFlag" | "modelFlag"> & {
@@ -49,6 +50,8 @@ export type SpawnFlags = Omit<AgentFlags, "adapterFlag" | "modelFlag"> & {
   readOnly: boolean;
   /** `--out`: where a read-only agent may write, one for all or one per agent. */
   outDirs: string[];
+  /** `--lane`: the queue lane every agent drains, or null for no lane. */
+  lane: Lane | null;
   tasksFile?: string;
   positional: string[];
 };
@@ -79,6 +82,13 @@ export function formFlag(invocation: Invocation): FormId | null {
   return form;
 }
 
+/** The `--lane` an invocation names, null when it names none. */
+function laneFlag(invocation: Invocation): Lane | null {
+  const lane = invocation.flags.value("--lane") ?? null;
+  if (lane !== null && !isLane(lane)) throw usageError(invocation, "--lane takes a name: non-blank, no space at either end");
+  return lane;
+}
+
 export function parseSpawnFlags(args: string[]): SpawnFlags {
   return spawnFlagsOf(parseCommand("spawn", args));
 }
@@ -107,6 +117,7 @@ export function spawnFlagsOf(invocation: Invocation): SpawnFlags {
     withPaths: [...flags.values("--with")],
     readOnly: flags.has("--read-only"),
     outDirs: [...flags.values("--out")],
+    lane: laneFlag(invocation),
     ...(tasksFile === undefined ? {} : { tasksFile }),
     positional: [...positional],
   };
@@ -231,6 +242,7 @@ export function resolveSpawnSettings(flags: SpawnFlags, settings: OrchSettings):
       space: flags.space,
       host: flags.host,
       worktree,
+      lane: flags.lane,
     },
   };
 }

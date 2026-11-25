@@ -1,4 +1,6 @@
 import { testLaunch } from "./helpers/launch.ts";
+import { laneOf } from "../src/store/lane-rows.ts";
+import { lane } from "./helpers/lane.ts";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { spawnOneIntoTab } from "../src/daemon/server/spawn/placement.ts";
 import { mintAgentId } from "../src/shared/agent-id.ts";
@@ -80,7 +82,7 @@ describe("one writer records a spawned agent (2.1)", () => {
     const owner = seedOperator(dir);
 
     const agent = await spawnOneIntoTab(await spawningServices(dir), { project: "/fleet/project", form: "tui",
-      prepareTerminal: () => Promise.resolve(null),
+      prepareTerminal: () => Promise.resolve(null), lane: lane("hard"),
       backend: new FakePanedBackend({ id: "herdr" }),
       adapter: piAdapter,
       adapterId: "pi",
@@ -97,6 +99,7 @@ describe("one writer records a spawned agent (2.1)", () => {
     const view = agentView(dir, agent.key);
     expect(view?.environment.space).toBe("wsTwo");
     expect(view?.heldBy?.orchId).toBe(owner);
+    expect(laneOf(dir, agent.key)).toBe(lane("hard"));
   });
 
   // A7: a space is optional. Rule 11: NULL means not-applicable, never a sentinel
@@ -110,7 +113,7 @@ describe("one writer records a spawned agent (2.1)", () => {
     const backend = new FakePanedBackend({ id: "herdr" });
 
     const agent = await spawnOneIntoTab(await spawningServices(dir), { project: "/fleet/project", form: "tui",
-      prepareTerminal: () => Promise.resolve(null),
+      prepareTerminal: () => Promise.resolve(null), lane: null,
       backend,
       adapter: piAdapter,
       adapterId: "pi",

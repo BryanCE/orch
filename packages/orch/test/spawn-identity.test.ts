@@ -89,7 +89,7 @@ describe("one key per pane spawn (12.1)", () => {
     const { backend, envKey } = fakePaneBackend("%5");
 
     const agent = await spawnOneIntoTab(await spawningServices(dir), { project: "/fleet/project", form: "tui",
-      prepareTerminal: () => Promise.resolve(null),
+      prepareTerminal: () => Promise.resolve(null), lane: null,
       backend,
       adapter: piAdapter,
       adapterId: "pi",
@@ -128,7 +128,7 @@ describe("one key per pane spawn (12.1)", () => {
     seedSpace(dir, "wsC");
     const services = await spawningServices(dir);
     const spawnAudit = () => spawnOneIntoTab(services, { project: "/fleet/project", form: "tui",
-      prepareTerminal: () => Promise.resolve(null),
+      prepareTerminal: () => Promise.resolve(null), lane: null,
       backend: fakePaneBackend("%9").backend,
       adapter: piAdapter,
       adapterId: "pi",
@@ -161,7 +161,7 @@ describe("one key per pane spawn (12.1)", () => {
     const { backend } = fakePaneBackend("%7");
 
     const agent = await spawnOneIntoTab(await spawningServices(dir), { project: "/fleet/project", form: "tui",
-      prepareTerminal: () => Promise.resolve(null),
+      prepareTerminal: () => Promise.resolve(null), lane: null,
       backend,
       adapter: piAdapter,
       adapterId: "pi",

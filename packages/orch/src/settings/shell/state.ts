@@ -175,7 +175,7 @@ function shadowNote(session: Session): string {
 }
 
 /** Run one write, show `status` or the write's error, and re-read the files with focus on `key`. */
-function applyWrite(session: Session, key: string, write: () => void, status: string): void {
+export function applyWrite(session: Session, key: string, write: () => void, status: string): void {
   try {
     write();
     session.status = status;

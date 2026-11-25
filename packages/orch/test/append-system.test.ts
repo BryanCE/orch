@@ -6,7 +6,7 @@ import { writeSettingsFixture, writeProjectSettingsFixture } from "./helpers/set
 import { fileSettingsManager, projectSettingsManager } from "../src/settings/manager.ts";
 import { clearRegisteredSetting, writeRegisteredSetting } from "../src/settings/registry.ts";
 import { projectSettings } from "../src/settings/project.ts";
-import { APPEND_SYSTEM_KEY, addPromptEntry, appendedEntries, clearPromptEntries, promptEntries, promptEntry, removePromptEntry } from "../src/settings/append-system.ts";
+import { APPEND_SYSTEM_KEY, addPromptEntry, appendedEntries, clearPromptEntries, namePromptFile, promptEntries, promptEntry, promptPath, removePromptEntry } from "../src/settings/append-system.ts";
 import type { OrchDir } from "../src/types/core.ts";
 import type { PromptEntry } from "../src/settings/append-system.ts";
 
@@ -34,6 +34,13 @@ function setup(settings: Record<string, unknown> = {}) {
     local: () => projectSettingsManager(project, install),
     read: () => appendedEntries(projectSettings(project, install), install.file),
   };
+}
+
+/** `text` as one entry; a fixture with no text is a broken test. */
+function entryOf(text: string): PromptEntry {
+  const entry = promptEntry(text);
+  if (entry === null) throw new Error(`no entry in ${JSON.stringify(text)}`);
+  return entry;
 }
 
 /** Entries as plain strings, to compare with literals. */
@@ -82,8 +89,8 @@ describe("appendedEntries", () => {
 describe("prompt entries", () => {
   test("add appends each entry to the global file and keeps the earlier ones", () => {
     const { orchDir, install, read } = setup();
-    addPromptEntry(install, "Never pass --model.");
-    const listed = addPromptEntry(install, "Never pass --harness.");
+    addPromptEntry(install, entryOf("Never pass --model."));
+    const listed = addPromptEntry(install, entryOf("Never pass --harness."));
     expect(plain(listed.entries)).toEqual(["Never pass --model.", "Never pass --harness."]);
     expect(readFileSync(path.join(orchDir, "APPEND_SYSTEM.md"), "utf8")).toBe("Never pass --model.\n\nNever pass --harness.\n");
     expect(plain(read())).toEqual(["Never pass --model.", "Never pass --harness."]);
@@ -91,27 +98,27 @@ describe("prompt entries", () => {
 
   test("an entry the level already holds is not added again", () => {
     const { install } = setup();
-    addPromptEntry(install, "Never pass --model.");
-    expect(plain(addPromptEntry(install, "  Never pass --model.  ").entries)).toEqual(["Never pass --model."]);
+    addPromptEntry(install, entryOf("Never pass --model."));
+    expect(plain(addPromptEntry(install, entryOf("  Never pass --model.  ")).entries)).toEqual(["Never pass --model."]);
   });
 
   test("an entry's blank lines are dropped, so it reads back as one entry", () => {
     const { install } = setup();
-    addPromptEntry(install, "Models:\n\n- use the defaults\n");
+    addPromptEntry(install, entryOf("Models:\n\n- use the defaults\n"));
     expect(plain(promptEntries(install).entries)).toEqual(["Models:\n- use the defaults"]);
     expect(promptEntry(" \n\n ")).toBeNull();
   });
 
   test("a multi-line entry stays one entry", () => {
     const { install } = setup();
-    addPromptEntry(install, "Models:\n- use the defaults");
-    addPromptEntry(install, "Tabs: one per area.");
+    addPromptEntry(install, entryOf("Models:\n- use the defaults"));
+    addPromptEntry(install, entryOf("Tabs: one per area."));
     expect(plain(promptEntries(install).entries)).toEqual(["Models:\n- use the defaults", "Tabs: one per area."]);
   });
 
   test("a local add lands in the project's file and leaves the global one", () => {
     const { orchDir, project, local, read } = setup();
-    addPromptEntry(local(), "Project rule.");
+    addPromptEntry(local(), entryOf("Project rule."));
     expect(readFileSync(path.join(project, ".orch", "APPEND_SYSTEM.md"), "utf8")).toBe("Project rule.\n");
     expect(existsSync(path.join(orchDir, "APPEND_SYSTEM.md"))).toBe(false);
     expect(plain(read())).toEqual(["Project rule."]);
@@ -119,28 +126,28 @@ describe("prompt entries", () => {
 
   test("remove drops the numbered entry and keeps the rest in order", () => {
     const { install } = setup();
-    for (const entry of ["One.", "Two.", "Three."]) addPromptEntry(install, entry);
+    for (const text of ["One.", "Two.", "Three."]) addPromptEntry(install, entryOf(text));
     expect(plain(removePromptEntry(install, 2).entries)).toEqual(["One.", "Three."]);
   });
 
   test("remove refuses a number the list does not have", () => {
     const { install } = setup();
-    addPromptEntry(install, "One.");
+    addPromptEntry(install, entryOf("One."));
     expect(() => removePromptEntry(install, 2)).toThrow("it holds 1");
     expect(() => removePromptEntry(install, 0)).toThrow("No prompt entry 0");
   });
 
   test("removing the last entry deletes orch's own file", () => {
     const { orchDir, install } = setup();
-    addPromptEntry(install, "One.");
+    addPromptEntry(install, entryOf("One."));
     removePromptEntry(install, 1);
     expect(existsSync(path.join(orchDir, "APPEND_SYSTEM.md"))).toBe(false);
   });
 
   test("a local clear drops the project's entries, and the global ones apply again", () => {
     const { install, project, local, read } = setup();
-    addPromptEntry(install, "Global rule.");
-    addPromptEntry(local(), "Project rule.");
+    addPromptEntry(install, entryOf("Global rule."));
+    addPromptEntry(local(), entryOf("Project rule."));
     expect(plain(clearPromptEntries(local()).entries)).toEqual([]);
     expect(existsSync(path.join(project, ".orch", "APPEND_SYSTEM.md"))).toBe(false);
     expect(plain(read())).toEqual(["Global rule."]);
@@ -188,5 +195,26 @@ describe("the orchs.append_system_prompt key", () => {
   test("one word that names no file is refused", () => {
     const { install } = setup();
     expect(() => writeRegisteredSetting(install, APPEND_SYSTEM_KEY, "typo.md")).toThrow("names no file");
+  });
+});
+
+describe("namePromptFile", () => {
+  test("a file that exists becomes the level's file, and adds go to it", () => {
+    const { project, local, read } = setup();
+    const own = path.join(project, "rules.md");
+    writeText(own, "my rule");
+    namePromptFile(local(), promptPath(project, own));
+    addPromptEntry(local(), entryOf("Another rule."));
+    expect(plain(read())).toEqual(["my rule", "Another rule."]);
+  });
+
+  test("a missing file is made empty, becomes the level's file, and takes the next entry", () => {
+    const { project, local, read } = setup();
+    const own = path.join(project, "notes", "rules.md");
+    namePromptFile(local(), promptPath(project, own));
+    expect(readFileSync(own, "utf8")).toBe("");
+    addPromptEntry(local(), entryOf("First rule."));
+    expect(readFileSync(own, "utf8")).toBe("First rule.\n");
+    expect(plain(read())).toEqual(["First rule."]);
   });
 });

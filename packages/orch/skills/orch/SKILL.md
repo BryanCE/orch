@@ -19,9 +19,8 @@ Read each reference at its moment:
 ## You are the engineer; agents are hands
 
 An orch agent is hands: you decide the approach, and it types your edits fast, in parallel with
-the others. orch's fast models are weak at agentic coding and strong at exact edits (GPT-6 Luna
-scores 13% on Terminal-Bench 4.0, Sol 44%). Hand an agent a goal and you redo its guess. Hand
-it an exact task and the wave lands 2 to 3 times faster.
+the others. Hand an agent a goal and you redo its guess. Hand it an exact task and the wave
+lands 2 to 3 times faster.
 
 - You design every change: each file's end state, the names, the types, where code lives, and
   how each new input meets every existing option (accepted, or refused with which message).
@@ -29,6 +28,14 @@ it an exact task and the wave lands 2 to 3 times faster.
   answers. "If X fails, use Y" is a question you left for the agent.
 - You review each diff before you refill that agent. A finding goes back as an exact edit.
 - Keep every agent full of small tasks. An idle agent is the waste you hunt.
+
+## The user's settings pick harness, model and thinking
+
+`orch settings` holds the user's choice of harness, model and thinking level. Every spawn,
+dispatch and restart runs on it. Pass `--harness`, `--model` or `--thinking`, or run
+`orch model`, only with the value the user named in this conversation. No other reason
+counts: not cost, not speed, not a task's kind, not an error, not a note in this skill. A
+wrong pick wastes the whole wave. Never write what a model is good or bad at into a task.
 
 ## The exact task
 
@@ -103,6 +110,7 @@ orch dispatch api-types --rename api-auth "Do section T4 of tasks/W2-api.md. Onl
 - `waiting`: a locked command holds the agent. `orch peek <holder>` shows if the holder is stuck.
 - `pending: <files>`: the agent's own files are clean, and the verify run fails only in another
   task's files. That agent is done.
-- `error`: dispatch once more, then move the model up one step.
+- `error`: dispatch once more. A second `error` goes to the user with its exact text. The
+  model stays.
 - Stuck: `orch peek` shows one tool call with a climbing `Elapsed`.
   `orch abort <target> "<what to do instead>"` cancels the call and steers in one command.

@@ -14,7 +14,7 @@ the faster route. A headless agent has no pane to abort: `orch restart <name>`.
 `timeouts.spawn_attach_ms` ran out before the agent's bridge attached or its start report
 landed. Spawn exits 1 and the other agents are fine. The task stays queued and lands on
 attach, with no model set. An agent that `orch status` later shows idle had a slow harness:
-set its model with `orch model`. One that stays stalled gets its harness startup checked,
+give it the model `orch settings` names for its harness, with `orch model`. One that stays stalled gets its harness startup checked,
 then `orch restart <name>`.
 
 ## Queued dispatch

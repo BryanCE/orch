@@ -20,6 +20,7 @@ const RAW: FlagSpec = { name: "--raw", arity: "none", help: "Send the exact prom
 const MODEL: FlagSpec = { name: "--model", arity: "one", placeholder: "<model[:thinking]>", help: "Pin the model. A short name expands to the one listed, allowed model that contains it." };
 const THINKING: FlagSpec = { name: "--thinking", arity: "one", placeholder: "<level>", help: "Thinking effort: off, minimal, low, medium, high, xhigh, max." };
 const HARNESS: FlagSpec = { name: "--harness", arity: "one", placeholder: "<harness>", help: `Harness id: ${ADAPTER_IDS.join(", ")}.` };
+const PROMPT_LOCAL: FlagSpec = { name: "--local", arity: "none", help: "Act on this project's entries, beside its settings file, which win over the global ones here." };
 const PLEXER: FlagSpec = { name: "--plexer", arity: "one", placeholder: "<plexer>", help: `Plexer id: ${BACKEND_IDS.join(", ")}.` };
 const DIR: FlagSpec = { name: "--dir", arity: "one", placeholder: "<path>", help: "Directory the agent starts in. Default: the spawner's own." };
 const COUNCIL_DIR: FlagSpec = { name: "--dir", arity: "one", placeholder: "<path>", help: "Directory the council was convened from. Default: this one." };
@@ -477,6 +478,17 @@ const MAINTENANCE: readonly CommandSpec[] = [
             openFlags: true,
           },
           { name: "remove", args: "<sink>", summary: "Stop delivering through that sink.", flags: [] },
+        ],
+      },
+      {
+        name: "prompt",
+        summary: "The entries orch puts in the header of every task it gives an agent, on every harness.",
+        flags: [PROMPT_LOCAL],
+        subcommands: [
+          { name: "list", summary: "Each entry of this level's file, numbered.", flags: [PROMPT_LOCAL] },
+          { name: "add", args: "<text...>", summary: "Add one entry at the end. An entry already there is not added again.", flags: [PROMPT_LOCAL] },
+          { name: "remove", args: "<n>", summary: "Remove entry <n>, as list numbers it.", flags: [PROMPT_LOCAL] },
+          { name: "clear", summary: "Drop every entry this level adds. A file you named stays on disk. With --local, the project falls back to the global entries.", flags: [PROMPT_LOCAL] },
         ],
       },
       { name: "grant", args: "<key>", summary: "Let an agent write that setting with orch settings.", flags: [] },

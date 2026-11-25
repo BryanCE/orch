@@ -8,6 +8,7 @@ import { commandIn } from "./policy/command-paths.ts";
 import { echoesPrompts } from "./shared/harness.ts";
 import type { AgentAdapter } from "./types/adapter.ts";
 import type { ReadOnly } from "./policy/read-only.ts";
+import type { PromptEntry } from "./settings/append-system.ts";
 import type { ContextReference, WorkerHeaderContext, WorkerRules } from "./types/core.ts";
 import type { OrchSettings } from "./types/settings.ts";
 
@@ -104,8 +105,19 @@ function gatedCommandsClause(gatedCommands: readonly string[]): string {
     ` A run is refused with a request id; report that id to the ${term("orch")} and run the exact command again only once it is approved.`;
 }
 
-/** Compose the worker header from the adapter's bridge role and this spawn's reachable peers. */
+/** The user's entries, one after another under the header. An entry holds no blank line, so
+ *  the header still ends at the first one and `stripWorkerHeader` cuts there. */
+function appendedClause(entries: readonly PromptEntry[]): string {
+  return entries.length === 0 ? "" : `\n${entries.join("\n")}`;
+}
+
+/** Compose the worker header, then the user's own entries for every agent. */
 export function workerHeaderFor(adapter: AgentAdapter | undefined, context: Partial<WorkerHeaderContext> = {}): string {
+  return workerRulesHeader(adapter, context) + appendedClause(context.appendedEntries ?? []);
+}
+
+/** The worker rules line, from the adapter's bridge role and this spawn's reachable peers. */
+function workerRulesHeader(adapter: AgentAdapter | undefined, context: Partial<WorkerHeaderContext>): string {
   const ask = askClause(adapter);
   const spawner = adapter?.bridge && context.spawnerRepliable
     ? WORKER_HEADER_SPAWNER_CLAUSE

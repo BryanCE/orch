@@ -123,7 +123,7 @@ describe("projectSettings", () => {
   });
   test("the project schema's sections are the ones the merge handles", () => {
     expect(Object.keys(PROJECT_SETTINGS_FILE_SCHEMA.shape).sort()).toEqual([
-      "agents", "council", "defaults", "denied_commands", "fleet", "gated_commands", "locked_commands", "models", "schemaVersion", "workers", "worktrees",
+      "agents", "council", "defaults", "denied_commands", "fleet", "gated_commands", "locked_commands", "models", "orchs", "schemaVersion", "workers", "worktrees",
     ]);
   });
 });

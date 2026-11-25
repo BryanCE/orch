@@ -117,6 +117,7 @@ export const SETTINGS_DEFAULTS = {
   attach: { queue_bytes: 1_048_576, detach_key: "ctrl-]" },
   links: { ssh_command: "ssh", ssh_keygen_command: "ssh-keygen", ssh_keyscan_command: "ssh-keyscan", connect_timeout_s: 10, keepalive_interval_s: 15, keepalive_count: 3, request_timeout_ms: 10_000, deliver_timeout_ms: 60_000, receipt_ttl_ms: 600_000, ping_interval_ms: 5_000, silence_timeout_ms: 15_000, retry_after_loss_ms: 250, retry_reset_after_ms: 30_000, retry_floor_ms: 1_000, retry_cap_ms: 300_000, resume_max_age_ms: 43_200_000 },
   workers: { inherit_mcp: false, inherit_skills: false, builtin_tools: true, compact_at_tokens: {} },
+  orchs: { append_system_prompt: "APPEND_SYSTEM.md" },
   // What a registered caller (an agent or a harness session) may write with `orch settings`:
   // the project's own commands, which the orchestrator knows and the human need not type.
   agents: { writable_settings: ["workers.verify_commands", "locked_commands.commands"] },
@@ -212,6 +213,12 @@ export const SETTINGS_FILE_SCHEMA = z.strictObject({
     /** The context size, in tokens, at which a worker compacts, by harness, then by model spec.
      *  A pair with no entry keeps the harness's own default. */
     compact_at_tokens: CompactionTableSchema.optional(),
+  }).optional(),
+  /** What every agent orch gives a task gets, on every harness. */
+  orchs: z.strictObject({
+    /** The file whose text goes in the header of each task. A relative path resolves
+     *  against the directory of the settings file that names it. */
+    append_system_prompt: z.string().min(1).optional(),
   }).optional(),
   /** What a registered caller may change about this install. The human may change anything. */
   agents: z.strictObject({

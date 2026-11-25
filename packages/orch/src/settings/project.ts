@@ -76,6 +76,7 @@ export function mergeProjectSettings(file: string, install: OrchSettings, projec
     fleet: { ...install.fleet, ...project.fleet },
     models: { ...install.models, ...project.models },
     workers: { ...install.workers, ...project.workers },
+    orchs: { ...install.orchs, ...project.orchs },
     agents: { ...install.agents, ...project.agents },
     locked_commands: { ...install.locked_commands, ...project.locked_commands },
     gated_commands: project.gated_commands ?? install.gated_commands,

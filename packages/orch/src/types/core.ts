@@ -1,6 +1,7 @@
 // Type-only: `keyof typeof` over a runtime binding, erased at compile time, so
 // this creates no runtime edge out of the types layer.
 import type { EXTENSION_SOURCE_DIR } from "../bridge-bundles/metadata.ts";
+import type { PromptEntry } from "../settings/append-system.ts";
 import type { AdapterId } from "./adapter.ts";
 import type { HostIdentity } from "./host.ts";
 import type { ReadOnly } from "../policy/read-only.ts";
@@ -214,10 +215,12 @@ export interface WorkerHeaderContext {
   spawnerRepliable?: boolean;
   /** Set for a read-only agent: it has no shell, so its header names no verify command. */
   readOnly?: ReadOnly;
+  /** The user's own entries for every agent of the project, from `orchs.append_system_prompt`. */
+  appendedEntries?: readonly PromptEntry[];
 }
 
 /** The half of a worker header that comes from settings rather than from this spawn. */
-export type WorkerRules = Pick<WorkerHeaderContext, "gatedCommands" | "verifyCommands">;
+export type WorkerRules = Pick<WorkerHeaderContext, "gatedCommands" | "verifyCommands" | "appendedEntries">;
 
 /** The header context a caller sends with work: where the agent sits and what its spawner can
  *  do. The rules are its project's, and orchd adds them on the agent's host. */

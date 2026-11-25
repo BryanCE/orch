@@ -52,6 +52,7 @@ export interface OrchSettings {
   mail: { to_spawner: MailDelivery; to_worker: MailDelivery; to_orch: MailDelivery };
   models: { allowed: Partial<Record<AdapterId, string[]>>; preferred: Partial<Record<AdapterId, string[]>> };
   workers: { inherit_mcp: boolean; inherit_skills: boolean; builtin_tools: boolean; allow_tools: string[]; verify_commands: string[]; compact_at_tokens: CompactionTable };
+  orchs: { append_system_prompt: string };
   agents: { writable_settings: string[] };
   queue: { max_retries: number; dispatch_concurrency: number };
   retention: { ended_agents_days: number | null; ended_agent_rows_ms: number; queue_days: number; events_days: number; runs_days: number; outbox_days: number; control_outcomes_days: number; logs_days: number; sweep_interval_ms?: number };
@@ -165,6 +166,8 @@ export interface SettingSpec {
   readonly read: (config: OrchSettings) => unknown;
   /** Absent means read-only BY DECLARATION — never by omission. */
   readonly write?: (settings: SettingsManager, value: unknown) => void;
+  /** Present exactly when `write` is: what `--clear` does. Most keys remove themselves from the file. */
+  readonly clear?: (settings: SettingsManager) => void;
 }
 
 /** A declared setting together with the value currently shown by the editor. */

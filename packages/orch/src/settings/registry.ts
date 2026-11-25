@@ -7,6 +7,7 @@ import { isAdapterId } from "../shared/harness.ts";
 import { isBackendId } from "../shared/plexer.ts";
 import { term } from "../policy/vocabulary.ts";
 import { AGENT_SETTINGS_GRANT } from "../policy/agent-settings.ts";
+import { APPEND_SYSTEM_KEY, clearPromptEntries, writeAppendSystemPrompt } from "./append-system.ts";
 import { NOTIFY_STATES } from "../types/settings.ts";
 import type { NotifyEntry, OrchSettings, SettingKind, SettingSpec } from "../types/settings.ts";
 import type { SettingsManager } from "../types/services.ts";
@@ -140,6 +141,7 @@ function writerFor(key: string): SettingWriter | undefined {
   if (key === "defaults.backend") return writeDefaultBackend;
   if (key === "notify") return writeNotifySinks;
   if (key === AGENT_SETTINGS_GRANT) return writeAgentWritableSettings;
+  if (key === APPEND_SYSTEM_KEY) return writeAppendSystemPrompt;
   return undefined;
 }
 
@@ -148,7 +150,14 @@ function readerFor(key: string): ((settings: OrchSettings) => unknown) | undefin
   return undefined;
 }
 
-function setting(key: string, group: string, help: string, writable = true, writer?: SettingWriter): SettingSpec {
+type SettingClearer = (settings: SettingsManager) => void;
+
+function clearerFor(key: string): SettingClearer | undefined {
+  if (key === APPEND_SYSTEM_KEY) return clearPromptEntries;
+  return undefined;
+}
+
+function setting(key: string, group: string, help: string, writable = true, writer?: SettingWriter, clearer?: SettingClearer): SettingSpec {
   return {
     key,
     group,
@@ -156,7 +165,10 @@ function setting(key: string, group: string, help: string, writable = true, writ
     type: kindFor(key),
     scope: isInstallOnlyKey(key) ? "install" : "project",
     read: readerFor(key) ?? ((settings) => readAt(settings, key)),
-    ...(writable ? { write: writer ?? ((settings: SettingsManager, value: unknown) => writeSettingsValue(settings, key, value)) } : {}),
+    ...(writable ? {
+      write: writer ?? ((settings: SettingsManager, value: unknown) => writeSettingsValue(settings, key, value)),
+      clear: clearer ?? ((settings: SettingsManager) => clearSettingsValue(settings, key)),
+    } : {}),
   };
 }
 
@@ -198,6 +210,7 @@ const HELP: Readonly<Record<string, string>> = {
   "workers.builtin_tools": "Whether workers receive built-in tools.",
   "workers.allow_tools": "Tools workers may use.",
   "workers.compact_at_tokens": "The context size, in tokens, at which a worker compacts, per harness and concrete model (the full model id, never an alias). An alias launch takes the point of the model it runs now. A model with no entry keeps the harness's own default. Only a harness that takes a compaction point is offered.",
+  "orchs.append_system_prompt": "The file whose text orch puts in the header of every task it gives an agent, on every harness. A relative path resolves against this settings file's directory. Give a file path to use that file, or type the text: orch adds it as one more entry to the file in use, APPEND_SYSTEM.md beside this settings file by default. --clear drops every entry this level adds. orch settings prompt lists, adds, removes and clears entries. The project's file wins over the global one.",
   "workers.verify_commands": "Commands a worker runs over the files it edited before it reports; a task that edits no file runs none. Write {cwd} (or {wincwd} for a Windows tool such as powershell.exe) for the agent's own directory; a fixed path is refused.",
   "agents.writable_settings": "Settings an agent may write with orch settings. Change it per row: orch settings grant|revoke <key>, or a in the editor. Never grants itself.",
   "queue.max_retries": "Maximum retries for queued tasks.",
@@ -315,7 +328,7 @@ const HELP: Readonly<Record<string, string>> = {
 const READ_ONLY_KEYS: readonly string[] = ["runtime"];
 
 export const SETTINGS_REGISTRY: readonly SettingSpec[] = Object.entries(HELP).map(([key, help]) =>
-  setting(key, key.split(".")[0] ?? key, help, !READ_ONLY_KEYS.includes(key), writerFor(key)));
+  setting(key, key.split(".")[0] ?? key, help, !READ_ONLY_KEYS.includes(key), writerFor(key), clearerFor(key)));
 
 /** Find one declared setting or throw a plain settings error. */
 export function registeredSetting(key: string): SettingSpec {
@@ -331,10 +344,10 @@ export function writeRegisteredSetting(settings: SettingsManager, key: string, v
   spec.write(settings, value);
 }
 
-/** Remove a setting from settings.json so its default wins again. Guarded by the same
- *  declaration as writes: a read-only setting cannot be cleared either. */
+/** Clear a setting through its declaration: most keys leave settings.json so the next level
+ *  wins. A read-only setting has no clear and is refused. */
 export function clearRegisteredSetting(settings: SettingsManager, key: string): void {
   const spec = registeredSetting(key);
-  if (spec.write === undefined) throw new Error(`${key} is read-only`);
-  clearSettingsValue(settings, key);
+  if (spec.clear === undefined) throw new Error(`${key} is read-only`);
+  spec.clear(settings);
 }

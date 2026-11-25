@@ -2,6 +2,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { workerHeaderContextOf } from "../src/policy/spawner.ts";
 import { testServices } from "./helpers/services.ts";
 import { getAdapter } from "../src/adapters/registry.ts";
+import { ADAPTER_IDS } from "../src/types/adapter.ts";
+import { promptEntry, type PromptEntry } from "../src/settings/append-system.ts";
 import { prepareWorkerTask, stripWorkerHeader, taskWithReferences, TASK_MAX, workerPrompt } from "../src/worker-prompt.ts";
 import { workerHeaderFor } from "../src/worker-prompt.ts";
 import { transitionEventFromRow } from "../src/daemon/server/status-events.ts";
@@ -191,5 +193,23 @@ describe("worker prompt capability composition", () => {
       if (event?.type !== "transition") throw new Error("expected transition event");
       expect(event.task).toBe("real task");
     }
+  });
+});
+
+describe("the user's prompt entries", () => {
+  const entries = ["Rule one.", "Rules:\n- two"].map(promptEntry).filter((entry): entry is PromptEntry => entry !== null);
+
+  test("every harness's header ends with the entries, in order", () => {
+    for (const harness of ADAPTER_IDS) {
+      expect(workerHeaderFor(getAdapter(harness), { appendedEntries: entries }).endsWith("\nRule one.\nRules:\n- two")).toBe(true);
+    }
+  });
+
+  test("the stored task keeps none of the entries", () => {
+    expect(stripWorkerHeader(workerPrompt("task", false, getAdapter("codex"), { appendedEntries: entries }))).toBe("task");
+  });
+
+  test("no entries leave the header as it was", () => {
+    expect(workerHeaderFor(getAdapter("pi"), { appendedEntries: [] })).toBe(workerHeaderFor(getAdapter("pi"), {}));
   });
 });

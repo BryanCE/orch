@@ -42,7 +42,8 @@ REVIEW
 AGENTS (never steals focus except 'focus')
   orch spawn <name>... [flags]                  One fleet, one command. The names are the agents.
   orch tile <tab> <name> [flags]                Add one named agent to an existing tab.
-  orch council <convene|round|scores|close>     Agents on different models review one subject and score it, round by round.
+  orch council <convene|round|steer|scores|close>
+                                                Agents on different models review one subject and score it, round by round.
   orch rename <target> <name> [flags]           Set the agent name. --pane sets the border label.
   orch reset <target>... | --all [flags]        Fresh session, same agent (alias: new).
   orch reload <target>... | --all [flags]       Live-reload code after a rebuild.
@@ -71,7 +72,7 @@ MAINTENANCE
   orch doctor [flags]                           Check the install and fix it.
   orch clean [flags]                            Remove dead agent dirs and orphaned worktrees.
   orch setup [flags]                            Onboarding wizard.
-  orch settings [<key> <value>] [flags]         Every effective setting and its source.
+  orch settings [<key> [<value>]] [flags]       Every effective setting and its source.
   orch models [flags]                           Every model each harness can run.
   orch notify <test>                            Fire every notification sink.
   orch version                                  Installed version.

@@ -27,6 +27,7 @@ import { AGENT_SETTINGS_GRANT, agentMayWriteSetting, agentSettingRefusal, grantA
 import { nearestKeys } from "../settings/nearest.ts";
 import { SETTINGS_REGISTRY, clearRegisteredSetting, writeNotifyEntries, writeRegisteredSetting } from "../settings/registry.ts";
 import { parseSettingValue } from "../settings/parse.ts";
+import { APPEND_SYSTEM_KEY, addPromptEntry, clearPromptEntries, promptEntries, removePromptEntry, type PromptEntries } from "../settings/append-system.ts";
 import { runSettingsEditor } from "../settings/shell/index.ts";
 import type { SaveMode } from "../settings/shell/state.ts";
 import type { NotifierChoice } from "../types/notify.ts";
@@ -403,6 +404,55 @@ async function settingsNotify(services: Services, invocation: Invocation): Promi
   }
 }
 
+/** One level's prompt entries, numbered as `remove` takes them. */
+function printPromptEntries(listed: PromptEntries, layer: string): void {
+  process.stdout.write(`prompt entries  ${listed.file.path} (${layer})\n\n`);
+  if (listed.entries.length === 0) {
+    process.stdout.write("  (none)\n");
+    return;
+  }
+  listed.entries.forEach((entry, index) => process.stdout.write(`  ${index + 1}. ${entry.replaceAll("\n", "\n     ")}\n`));
+}
+
+/** Change one level's entries through the same gate as every settings write, then list them. */
+async function changePromptEntries(services: Services, invocation: Invocation, change: (target: SettingsManager) => PromptEntries): Promise<void> {
+  const { target } = await writeScope(services, APPEND_SYSTEM_KEY, invocation.flags.has("--local"));
+  let changed: PromptEntries;
+  try { changed = change(target); } catch (error: unknown) { die(errorMessage(error)); }
+  printPromptEntries(changed, layerLabel(target));
+}
+
+function listPromptEntries(services: Services, invocation: Invocation): void {
+  if (invocation.positional.length) throw usageError(invocation);
+  const target = invocation.flags.has("--local") ? requiredLocalManager(services) : installManagerOf(services.settings);
+  printPromptEntries(promptEntries(target), layerLabel(target));
+}
+
+/** `remove <n>`, or a refusal: an entry number is a whole number from 1. */
+function readEntryNumber(invocation: Invocation, value: string | undefined): number {
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 1) throw usageError(invocation, `remove needs an entry number from 1, got "${value ?? ""}"`);
+  return parsed;
+}
+
+/** List, add, remove or clear the entries orch puts in the header of every task. */
+async function settingsPrompt(services: Services, invocation: Invocation): Promise<void> {
+  const { positional } = invocation;
+  switch (invocation.command.name) {
+    case "add":
+      if (positional.length === 0) throw usageError(invocation);
+      return changePromptEntries(services, invocation, (target) => addPromptEntry(target, positional.join(" ")));
+    case "remove":
+      if (positional.length !== 1) throw usageError(invocation);
+      return changePromptEntries(services, invocation, (target) => removePromptEntry(target, readEntryNumber(invocation, positional[0])));
+    case "clear":
+      if (positional.length) throw usageError(invocation);
+      return changePromptEntries(services, invocation, clearPromptEntries);
+    default:
+      return listPromptEntries(services, invocation);
+  }
+}
+
 async function launchSettingsEditor(services: Services, mode: SaveMode["kind"]): Promise<void> {
   const save: SaveMode = mode === "local" ? { kind: "local", local: requiredLocalManager(services) } : { kind: "global" };
   try {
@@ -557,6 +607,7 @@ async function runSettingsVerb(services: Services, args: string[]): Promise<void
     case "thinking": return settingsThinking(services, invocation);
     case "skills": return settingsSkills(services, invocation);
     case "notify": return settingsNotify(services, invocation);
+    case "prompt": return settingsPrompt(services, invocation);
     case "grant": return settingsGrant(services, invocation);
     case "revoke": return settingsRevoke(services, invocation);
     default: return settingsRoot(services, invocation);

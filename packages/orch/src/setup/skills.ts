@@ -3,7 +3,7 @@ import * as files from "node:fs";
 import * as path from "node:path";
 import { ARROW, packageRoot } from "../util.ts";
 import { hostOs } from "../host.ts";
-import { homeDir } from "../shared/home.ts";
+import { expandHome, homeDir } from "../shared/home.ts";
 
 
 /** Windows needs a junction to link a directory without elevation; POSIX ignores the type. */
@@ -26,9 +26,7 @@ export interface SkillRoots {
 /** Expand a configured skill root: `~` is the home directory, and a bare relative path
  *  resolves against it, so settings.json can name a location portably. */
 export function resolveSkillRoot(root: string): string {
-  if (root === "~") return homeDir();
-  if (root.startsWith("~/")) return path.join(homeDir(), root.slice(2));
-  return path.resolve(homeDir(), root);
+  return path.resolve(homeDir(), expandHome(root));
 }
 
 /** The packaged skill directory names, in the order they appear on disk. */

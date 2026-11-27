@@ -104,10 +104,7 @@ orch dispatch api-types --rename api-auth "Do section T4 of tasks/W2-api.md. Onl
 
 ## A queued plan
 
-A job planned ahead, or more tasks than agents: write the tasks in queue shape with the
-`orch-plan` skill. Each wave file loads into a lane with one `orch queue load <file> --lane
-<lane>`, each lane gets agents from `orch spawn <names> --lane <lane>`, and orchd hands every
-idle agent the next task in its lane. You review results as they settle.
+A job planned ahead, or more tasks than agents: plan it and run it with the `orch-plan` skill.
 
 ## While agents run
 

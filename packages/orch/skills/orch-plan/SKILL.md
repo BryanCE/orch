@@ -1,52 +1,64 @@
 ---
 name: orch-plan
-description: Write a job's plan as orch queue files, so the lead loads the whole plan into lanes with one command per file and its agents drain them. Use when planning work for an orch fleet, splitting a plan into lanes by difficulty or domain, or when the lead has a pile of tasks to hand off.
+description: Plan a job as orch queue files, one wave file per lane, that the lead loads with one command each and lane agents drain. Use when planning work for an orch fleet, or when the lead has more tasks than agents.
 allowed-tools: Bash, Read, Write, Edit
 ---
 
 # orch-plan
 
-A plan in queue shape is a set of wave files, one per lane per wave, where every `## ` section
-is one exact task. When the plan is done, the lead loads each file into its lane, spawns
-agents into each lane, and orchd hands every idle agent the next task in its lane.
+A queued plan is a job directory of wave files, one per lane per wave, where every `## ` section
+is one exact task. The lead loads each file into its lane, spawns agents into each lane, and
+orchd hands every idle agent the next task in its lane.
 
-The plan carries the design, so the lead spends the run on review and on what comes up. A task
-any agent in its lane can take, in any order, beside any other task of the wave, is the bar
-every section meets.
+Every task is *independent*: any agent of its lane takes it, in any order, while the rest of its
+wave runs. The plan carries the design, so the lead spends the run on review.
 
-## The job directory
+## Steps
 
-```
-<job>/
-  plan.md          the goal, the lanes, the start commands, the checkpoints
-  W1-<lane>.md     wave 1, one file per lane
-  W2-<lane>.md     wave 2: work that builds on wave 1
-```
+1. **Split the work into waves.** A task that needs another task's change goes in a later wave,
+   and states the shape it builds against: the new type or signature. Done when every
+   dependency points to an earlier wave.
+2. **Name the lanes.** See Lanes. Done when every task has a lane.
+3. **Write each wave file.** See A wave file. Done when every section is an exact task and no
+   two tasks of one wave, across every lane, share a file. List each task's files to check.
+4. **Write `plan.md`.** See plan.md. Done when every lane has a load line and a spawn line, and
+   every wave after the first has a checkpoint.
+
+The plan is done when all four criteria hold.
 
 ## Lanes
 
-A lane is a named queue. The planner names them for the job: by difficulty (`hard`, `easy`),
-by domain (`api`, `web`, `tests`), or any split that fits. An agent spawned with `--lane <name>`
-takes only that lane's tasks, so each lane gets the agents that suit its work. Every wave file
-loads under a lane, and the lead's own session, which is in no lane, stays free.
+A lane is a label on a task and on an agent. An agent spawned with `--lane <name>` takes only
+that lane's tasks. Name each lane for its work: by difficulty (`hard`, `easy`), by domain
+(`api`, `web`, `tests`), or any split that fits the job.
 
-Name a lane for its work. The user picks each lane's model: a spawn line in `plan.md` carries
-`--model` only when the user named that model for that lane.
+Put every task in a lane. The lead's session is in no lane, so it takes no task and stays free
+for review.
+
+A spawn line carries `--model` only with the model the user named for that lane. Give a lane no
+more agents than its wave has tasks.
 
 ## A wave file
 
-The text above the first `## ` heading starts every task of the file. Keep it to the shared
-pointers: the files every task reads first, the one-line goal. Then one `## T<n> <title>`
-section per task, in the `orch` skill's exact task form (its section "The exact task"),
-stop line and report line included.
+`<job>/W<n>-<lane>.md`. The text above the first `## ` heading starts every task of the file:
+keep it to the files every task reads first and the one-line goal. Then one `## T<n> <title>`
+section per task, in the `orch` skill's exact task form (its section "The exact task"), stop
+line and report line included.
 
-The queue adds three facts the task form must meet:
-- Any agent of the lane takes any task, and several run at once. The tasks of one wave touch
-  disjoint files, across every lane of that wave.
-- A task that needs another task's change goes in a later wave, and states the shape it
-  builds against.
-- A task carries everything it needs in its text and in the files it names by path. It names
-  no agent and no other task's progress.
+```markdown
+Read first: src/queue.ts, src/types/queue.ts. Goal: tasks carry a lane.
+
+## T1 Add the lane to TaskOptions
+Edit src/types/queue.ts:
+- ...
+Verify: src/types/queue.ts
+Do only this. If something does not fit, report it in one line and stop.
+Report: one line. "done: <files>, verify clean", "pending: <files>", or "blocked: <exact error>".
+```
+
+A `## ` line starts a new task unless it is inside a code fence. Use `###` for a heading inside
+a task. A task carries everything it needs in its text and in the files it names by path, and
+names only files, never an agent or another task.
 
 ## plan.md
 
@@ -71,21 +83,15 @@ verify: <the typecheck, lint and test commands over wave 1's files>
 then: orch queue load <job>/W2-<lane>.md --lane <lane>, for each lane of wave 2
 ```
 
-Size each lane's agents to its tasks: no more agents than the wave has tasks in that lane.
-
-## Done
-
-The plan is done when every item holds:
-- Every wave file has at least one `## ` section, and every section is an exact task with its
-  stop line and report line.
-- Inside each wave, no two tasks share a file. List each task's files to check.
-- Every dependency points to an earlier wave.
-- `plan.md` holds the goal, the lane table, the start commands, and a checkpoint per wave.
-
 ## The run
 
-The lead runs the `## Start` lines, then arms `orch monitor`. The agents start idle and orchd
-sends each one its next task. A lane agent stays up between tasks, so it runs in any form but
-`oneshot`, which exits after its one prompt. Each result comes back to the lead as the task settles:
-`orch queue list` shows every task's lane and state. At a checkpoint, the lead runs the verify
-commands, then loads the next wave. An agent whose lane has no task left is closed.
+The lead runs the `## Start` lines, then arms `orch monitor`. The agents start idle, and orchd
+sends each one the next task of its lane. Each result comes back to the lead as its task
+settles. `orch queue list` shows every task's lane and state.
+
+A lane agent stays up between tasks, so it runs in any form but `oneshot`, which exits after
+one prompt.
+
+At a checkpoint, the lead runs the verify commands, then loads the next wave into the agents
+already running. When a lane has no task left in any wave, the lead runs `orch close` on its
+agents.

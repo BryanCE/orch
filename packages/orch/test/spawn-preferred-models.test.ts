@@ -45,7 +45,7 @@ afterEach(async () => {
 });
 
 const QUICKLIST = ["anthropic/claude-sonnet-4.5", "openai/gpt-5.6"];
-const HEADLESS_BASE = { form: null, key: "agent-a", name: "agent-a", spawner: null, adapter: "pi", model: "openai/gpt-5.6", thinking: "medium", prompt: "go", project: "/repo", readOnly: null };
+const HEADLESS_BASE = { form: null, key: "agent-a", name: "agent-a", spawner: null, adapter: "pi", model: "openai/gpt-5.6", thinking: "medium", prompt: "go", project: "/repo", readOnly: null, lane: null };
 
 
 /** A pane backend that records the launch options it was handed. */
